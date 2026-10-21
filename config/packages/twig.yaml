@@ -1,0 +1,9 @@
+twig:
+    file_name_pattern: '*.twig'
+    globals:
+        # Every template can call rh_locations.all()
+        rh_locations: '@App\Service\LocationProvider'
+
+when@test:
+    twig:
+        strict_variables: true

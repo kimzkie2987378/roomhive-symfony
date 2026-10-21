@@ -1,0 +1,594 @@
+{# =========================================================
+   ROOMHIVE — USER HOME (logged-in landing)
+   templates/user/home.html.twig
+
+   Twig port of the legacy usershome.php, rendered by
+   HomeController when the session is logged in.
+
+   === REACT ISLANDS (ad-carousel + scroll-progress) ===
+   PHP owns the data (ad_listings from the controller); the
+   islands own rotation/cycle/close. Requires the legacy
+   React bundles copied over — see the asset checklist:
+     webprogg/assets/react/  →  public/assets/react/
+   (chunks/tw.css, ad-carousel.js, scroll-progress.js).
+   Without them the page renders fine — the mount divs
+   just stay empty.
+
+   === ICONS ===
+   Reasons, testimonial avatar/arrows, dual-CTA and button
+   icons are LUCIDE. Category tiles / CTA strip / ad thumbs
+   stay as real <img> photos.
+========================================================= #}
+
+<!doctype html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        <title>RoomHive | Find. Stay. Feel at Home.</title>
+
+        <link
+            href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap"
+            rel="stylesheet"
+        />
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}"/>
+        <link rel="stylesheet" href="{{ asset('assets/motion.css') }}"/>
+
+        {# Tailwind (no preflight) — styles the React islands only.
+       Requires public/assets/react/chunks/tw.css (copy from
+       legacy webprogg/assets/react/chunks/tw.css). #}
+        <link rel="stylesheet" href="{{ asset('assets/react/chunks/tw.css') }}"/>
+
+        <script>
+            document.documentElement.classList.add("js-animations");
+        </script>
+
+        <style>
+            /* =====================================================
+                                                           SPONSORED AD WIDGET STYLES — rendered by the React
+                                                           ad-carousel island using THESE classes. Cycle:
+                                                           animate in -> hold 10s -> animate out -> next pair.
+                                                        ====================================================== */
+            .rh-ad-wrap {
+                position: fixed;
+                right: 18px;
+                bottom: 18px;
+                z-index: 900;
+
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+
+                width: 292px;
+
+                pointer-events: none;
+            }
+
+            .rh-ad-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+
+                pointer-events: auto;
+
+                background: #1c2a38;
+                border-radius: 10px;
+                padding: 5px 10px;
+
+                opacity: 0;
+                transform: translateY(12px);
+                transition:
+                    opacity 0.45s ease,
+                    transform 0.45s ease;
+            }
+
+            .rh-ad-wrap.show .rh-ad-header {
+                opacity: 1;
+                transform: none;
+            }
+
+            .rh-ad-header span {
+                color: #f6c04e;
+                font-size: 9.5px;
+                font-weight: 800;
+                letter-spacing: 0.18em;
+                text-transform: uppercase;
+            }
+
+            .rh-ad-close {
+                background: none;
+                border: none;
+                color: #aab6c2;
+                font-size: 15px;
+                line-height: 1;
+                cursor: pointer;
+                padding: 2px 4px;
+
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .rh-ad-close:hover {
+                color: #fff;
+            }
+
+            .rh-ad-close svg {
+                width: 14px;
+                height: 14px;
+            }
+
+            .rh-ad-card {
+                pointer-events: auto;
+
+                display: flex;
+                gap: 10px;
+                align-items: center;
+
+                background: #fff;
+                border: 1px solid rgba(28, 42, 56, 0.08);
+                border-radius: 14px;
+                padding: 8px;
+
+                box-shadow: 0 14px 34px rgba(28, 42, 56, 0.2);
+
+                text-decoration: none;
+
+                opacity: 0;
+                transform: translateY(18px) scale(0.97);
+
+                transition:
+                    opacity 0.5s ease,
+                    transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+            }
+
+            .rh-ad-card.show {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+
+            .rh-ad-card.hide {
+                opacity: 0;
+                transform: translateY(10px) scale(0.98);
+            }
+
+            .rh-ad-card:nth-child(3) {
+                transition-delay: 0.12s;
+            }
+
+            .rh-ad-thumb {
+                width: 74px;
+                height: 74px;
+                border-radius: 10px;
+                object-fit: cover;
+                flex-shrink: 0;
+                background: #f0eee6;
+            }
+
+            .rh-ad-body {
+                min-width: 0;
+                flex: 1;
+            }
+
+            .rh-ad-title {
+                margin: 0;
+                font-size: 12.5px;
+                font-weight: 700;
+                color: #1c2a38;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .rh-ad-loc {
+                margin: 2px 0 0;
+                font-size: 11px;
+                color: #6b7684;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .rh-ad-price {
+                margin: 4px 0 0;
+                font-size: 12.5px;
+                font-weight: 800;
+                color: #b07708;
+            }
+
+            .rh-ad-cta {
+                display: inline-block;
+                margin-top: 3px;
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 0.08em;
+                color: #dd930f;
+            }
+
+            .rh-ad-cta svg {
+                width: 11px;
+                height: 11px;
+                vertical-align: -1.5px;
+            }
+
+            .rh-ad-card:hover {
+                border-color: rgba(237, 164, 35, 0.55);
+            }
+
+            @media (max-width: 640px) {
+                .rh-ad-wrap {
+                    width: 236px;
+                    right: 12px;
+                    bottom: 12px;
+                }
+
+                .rh-ad-thumb {
+                    width: 60px;
+                    height: 60px;
+                }
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .rh-ad-card,
+                .rh-ad-header {
+                    transition: none !important;
+                }
+            }
+
+            /* =====================================================
+                                                           LUCIDE ICONS — page-level sizing
+                                                        ====================================================== */
+            svg.lucide {
+                display: inline-block;
+                vertical-align: -0.18em;
+                flex-shrink: 0;
+            }
+
+            .btn-primary svg,
+            .btn-secondary svg,
+            .about-button svg,
+            .cta-button svg {
+                width: 15px;
+                height: 15px;
+            }
+
+            .reason-icon {
+                width: 30px;
+                height: 30px;
+                color: #eda423;
+                stroke-width: 1.8;
+            }
+
+            .nav-arrow {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .nav-arrow svg {
+                width: 20px;
+                height: 20px;
+                color: #1c2a38;
+            }
+
+            .testimonial-author {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+
+            .testimonial-avatar {
+                width: 36px;
+                height: 36px;
+                color: #eda423;
+                stroke-width: 1.6;
+            }
+
+            .dual-cta-icon {
+                width: 46px;
+                height: 46px;
+                stroke-width: 1.6;
+            }
+
+            /* gold door on the navy panel */
+            .list-panel .dual-cta-icon {
+                color: #f6c04e;
+            }
+
+            /* navy house on the amber panel */
+            .host-panel .dual-cta-icon {
+                color: #1c2a38;
+            }
+        </style>
+    </head>
+
+    <body>
+
+        {# =====================================================
+       REACT ISLAND MOUNT — scroll-progress
+    ====================================================== #}
+        <div id="react-scrollprogress"></div>
+
+        {# ================= NAVBAR ================= #}
+        {% include 'partials/navbar.html.twig' with {
+        is_logged_in: true,
+        is_host: is_host,
+        nav_avatar: nav_avatar,
+        notification_count: notification_count,
+        current_page: current_page,
+        navigation: {
+            'HOME':          '/',
+            'LISTINGS':      '/listings',
+            'HOW IT WORKS':  '/how-it-works',
+            'BECOME A HOST': '/become-a-host',
+            'CONTACTS':      '/contacts',
+        },
+    } %}
+
+        {# ================= HERO ================= #}
+        <section class="hero">
+            <img class="hero-image" src="{{ asset('images/Living_Room.png') }}" alt="Living Room"/>
+            <div class="hero-overlay"></div>
+            <div class="hero-content">
+                <p class="user-welcome">
+                    Welcome, {{ user_name }}!
+                </p>
+                <h1>
+                    Find A Room<br/>
+                    That Feels<br/>
+                    Like Home
+                </h1>
+                <p>
+                    Verified monthly rentals across Dumaguete and<br/>
+                    Negros Oriental — hand-checked listings and<br/>
+                    honest prices, ready for your move-in.
+                </p>
+                <div class="hero-buttons">
+                    <a href="{{ path('app_host_apply') }}" class="btn-primary">
+                        <i data-lucide="key-round" aria-hidden="true"></i> LIST YOUR SPACE
+                    </a>
+                    <a href="{{ path('app_listings') }}" class="btn-secondary">
+                        <i data-lucide="search" aria-hidden="true"></i> BROWSE LISTINGS
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        {# ================= TOP LISTINGS =================
+       Cards link with ?category= — the parameter
+       app_listings actually reads. #}
+        <section class="listings">
+            <span class="listings-eyebrow">EXPLORE ROOMHIVE</span>
+            <h2 class="listings-title">Browse Our Top Listings!</h2>
+            <div class="listings-grid">
+                {% for listing in listings %}
+                    <a href="{{ path('app_listings', { category: listing.type }) }}" class="listing-card">
+                        <img src="{{ asset(listing.image) }}" alt="{{ listing.name }}"/>
+                        <div class="listing-info">
+                            <span class="listing-name">{{ listing.name }}</span>
+                            <span class="listing-link">VIEW LISTING</span>
+                        </div>
+                    </a>
+                {% endfor %}
+            </div>
+        </section>
+
+        {# ================= ABOUT US ================= #}
+        <section class="about">
+            <div class="about-text">
+                <span class="about-eyebrow">WHO WE ARE</span>
+                <h2>About RoomHive</h2>
+                <p>
+                    RoomHive is a homegrown rental platform for Negros
+                    Oriental. We connect students, professionals, and
+                    families with rooms, apartments, and houses for
+                    rent — and every single listing is reviewed by our
+                    team before it goes live.
+                </p>
+                <p>
+                    From a shared room near campus to an entire house
+                    for the whole family, RoomHive lets you browse real
+                    photos, compare honest monthly rates, and reserve
+                    your space securely online. No agents, no guesswork
+                    — just a place you'll be happy to call home.
+                </p>
+                <a href="{{ path('app_about') }}" class="about-button">
+                    ABOUT US <i data-lucide="arrow-right" aria-hidden="true"></i>
+                </a>
+            </div>
+            <div class="about-image">
+                <img src="{{ asset('images/3rdPageImage.png') }}" alt="RoomHive team handing over keys"/>
+            </div>
+        </section>
+
+        {# ================= REASON WHY ================= #}
+        <section class="reasons">
+            <div class="reasons-header">
+                <div class="reasons-heading">
+                    <span class="reasons-eyebrow">WHY CHOOSE US</span>
+                    <h2>Reason Why RoomHive Is The Best</h2>
+                </div>
+                <p class="reasons-desc">
+                    Hand-reviewed listings, verified hosts, and secure
+                    reservations — everything on RoomHive is built to
+                    make renting simple, safe, and honest.
+                </p>
+            </div>
+            <div class="reasons-grid">
+                {% for reason in reasons %}
+                    <div class="reason-card">
+                        <i
+                            data-lucide="{{ reason.icon }}"
+                            class="reason-icon"
+                            role="img"
+                            aria-label="{{ reason.title }}"
+                        ></i>
+                        <div class="reason-text">
+                            <h4>{{ reason.title }}</h4>
+                            <p>{{ reason.text }}</p>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        {# ================= TESTIMONIALS ================= #}
+        <section class="testimonials">
+            <div class="testimonials-text">
+                <span class="testimonials-eyebrow">TESTIMONIALS</span>
+                <h2>Our Happy Tenants</h2>
+                <p>
+                    Hear from tenants who found their home
+                    through RoomHive.
+                </p>
+                <div class="testimonials-nav">
+                    <button class="nav-arrow" aria-label="Previous testimonial">
+                        <i data-lucide="chevron-left" aria-hidden="true"></i>
+                    </button>
+                    <div class="testimonials-dots">
+                        {% for testimonial in testimonials %}
+                            <span class="dot{{ loop.first ? ' active' : '' }}"></span>
+                        {% endfor %}
+                    </div>
+                    <button class="nav-arrow" aria-label="Next testimonial">
+                        <i data-lucide="chevron-right" aria-hidden="true"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="testimonials-slider">
+                <div class="testimonials-track">
+
+                    {% for testimonial in testimonials %}
+                        <div class="testimonial-card">
+                            <p class="testimonial-quote">
+                                "{{ testimonial.quote }}"
+                            </p>
+                            <p class="testimonial-body">
+                                {{ testimonial.body }}
+                            </p>
+                            <div class="testimonial-author">
+                                <i data-lucide="circle-user-round" class="testimonial-avatar" aria-hidden="true"></i>
+                                <span>{{ testimonial.author }}</span>
+                            </div>
+                        </div>
+                    {% endfor %}
+
+                </div>
+            </div>
+        </section>
+
+        {# ================= FINAL CTA ================= #}
+        <section class="final-cta">
+            <div class="cta-image-strip">
+                {% for image in cta_images %}
+                    <img src="{{ asset(image) }}" alt="RoomHive interior"/>
+                {% endfor %}
+            </div>
+            <div class="cta-box">
+                <span class="cta-eyebrow">READY TO MOVE?</span>
+                <h2 class="cta-title">Find A Place You'll Love To Call Home</h2>
+                <a href="{{ path('app_listings') }}" class="cta-button">
+                    VIEW LISTINGS <i data-lucide="search" aria-hidden="true"></i>
+                </a>
+            </div>
+        </section>
+
+        {# ================= DUAL CTA ================= #}
+        <section class="dual-cta">
+            <div class="dual-cta-panel list-panel">
+                <i
+                    data-lucide="door-open"
+                    class="dual-cta-icon"
+                    role="img"
+                    aria-label="List Your Space"
+                ></i>
+                <h3>List Now</h3>
+                <p>
+                    Got a room, apartment or house sitting empty?
+                    Put it up in minutes and start receiving booking
+                    enquiries from verified renters today.
+                </p>
+                <a
+                    href="{{ path('app_host_apply') }}"
+                    class="dual-cta-button list-button"
+                >
+                    LIST NOW
+                </a>
+            </div>
+            <div class="dual-cta-panel host-panel">
+                <i
+                    data-lucide="house"
+                    class="dual-cta-icon"
+                    role="img"
+                    aria-label="Become a Host"
+                ></i>
+                <h3>Become A Host</h3>
+                <p>
+                    Turn your empty room, unit, or floor into monthly
+                    income. Apply in minutes, list your space, and let
+                    verified renters come to you.
+                </p>
+                <a
+                    href="{{ path('app_host_apply') }}"
+                    class="dual-cta-button host-button"
+                >
+                    LIST YOUR SPACE
+                </a>
+            </div>
+        </section>
+
+        {# =====================================================
+       SPONSORED AD WIDGET — REACT ISLAND (ad-carousel.js)
+       PHP owns the data; React owns the 10s cycle, fade,
+       tab-visibility pause, and close button. The b-or flag
+       chain keeps </script> injection impossible for
+       user-entered titles.
+    ====================================================== #}
+        {% if ad_listings|length > 0 %}
+            <div id="react-ads"></div>
+            <script type="application/json" id="react-ads-props">
+            {{ { pool: ad_listings }|json_encode(
+                constant('JSON_UNESCAPED_UNICODE')
+                b-or constant('JSON_HEX_TAG')
+                b-or constant('JSON_HEX_AMP')
+                b-or constant('JSON_HEX_APOS')
+                b-or constant('JSON_HEX_QUOT')
+            )|raw }}
+        </script>
+            <script type="module" src="{{ asset('assets/react/ad-carousel.js') }}"></script>
+        {% endif %}
+
+        {# ================= FOOTER ================= #}
+        {% include 'partials/footer.html.twig' ignore missing %}
+
+        {# ================= LUCIDE LOADER ================= #}
+        <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+        <script>
+            /* Re-runnable: call rhRefreshIcons() any time you inject
+                                                           HTML containing data-lucide */
+            function rhRefreshIcons() {
+                if (window.lucide && typeof lucide.createIcons === "function") {
+                    lucide.createIcons();
+                }
+            }
+
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", rhRefreshIcons);
+            } else {
+                rhRefreshIcons();
+            }
+        </script>
+
+        {# Testimonial slider — legacy javaScript.js (copy to
+       public/assets/javaScript.js if not present; without it
+       the slider renders but doesn't slide) #}
+        <script src="{{ asset('assets/javaScript.js') }}"></script>
+
+        {# REACT ISLAND — scroll-progress #}
+        <script type="module" src="{{ asset('assets/react/scroll-progress.js') }}"></script>
+
+    </body>
+
+</html>

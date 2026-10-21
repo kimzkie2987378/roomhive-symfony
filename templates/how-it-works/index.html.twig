@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>RoomHive - How It Works</title>
+
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/howitworks.css') }}">
+
+        <script>
+            document.documentElement.classList.add("js");
+        </script>
+
+        <style>
+            :root {
+                color-scheme: light;
+            }
+            body {
+                background: #fffdf8;
+            }
+            .hiw-hero {
+                background: linear-gradient(180deg, #fff4d6 0%, #fffdf8 78%, #ffffff 100%);
+            }
+            .hiw-renters {
+                background: #fffdf8;
+            }
+            .hiw-hosts {
+                background: #fff8e9;
+            }
+            .hiw-step-icon svg {
+                width: 38px;
+                height: 38px;
+                color: #d99218;
+            }
+            .hiw-chip svg {
+                width: 20px;
+                height: 20px;
+                flex-shrink: 0;
+                color: #d99218;
+            }
+        </style>
+    </head>
+
+    <body>
+
+        {% include 'partials/navbar.html.twig' with { current_page: '/how-it-works' } %}
+
+        <!-- HERO -->
+        <section class="hiw-hero">
+            <div class="hiw-hero-decor" aria-hidden="true">
+                <span class="hiw-blob hiw-blob-1"></span>
+                <span class="hiw-blob hiw-blob-2"></span>
+                <span class="hiw-blob hiw-blob-3"></span>
+            </div>
+
+            <div class="hiw-hero-inner">
+                <div class="hiw-hero-text">
+                    <span class="hiw-hero-badge hiw-anim" style="--d: .05s;">
+                        <span class="hiw-pulse-dot"></span>
+                        Simple &bull; Safe &bull; Stress-Free
+                    </span>
+
+                    <h1 class="hiw-anim" style="--d: .15s;">How It <span class="hiw-shimmer-text">Works</span></h1>
+
+                    <p class="hiw-anim" style="--d: .25s;">
+                        Finding or listing a space on RoomHive is quick and easy — follow the path and you're home.
+                    </p>
+
+                    <div class="hiw-hero-actions hiw-anim" style="--d: .35s;">
+                        <a href="/listings" class="hiw-btn hiw-btn-honey">
+                            FIND A SPACE
+                            <span class="hiw-btn-arrow">&rarr;</span>
+                        </a>
+                        <a href="{{ is_logged_in ? '/become-a-host' : '/login' }}" class="hiw-btn hiw-btn-outline">
+                            BECOME A HOST
+                        </a>
+                    </div>
+
+                    <div class="hiw-hero-stats hiw-anim" style="--d: .45s;">
+                        <div class="hiw-stat"><strong data-count="5">5</strong><span>Easy Steps</span></div>
+                        <span class="hiw-stat-sep"></span>
+                        <div class="hiw-stat"><strong data-count="100" data-suffix="%">100%</strong><span>Verified Listings</span></div>
+                        <span class="hiw-stat-sep"></span>
+                        <div class="hiw-stat"><strong>24/7</strong><span>Support</span></div>
+                    </div>
+                </div>
+
+                <div class="hiw-hero-art hiw-anim" style="--d: .3s;">
+                    <span class="hiw-art-glow" aria-hidden="true"></span>
+                    <img class="hiw-art-img" src="{{ asset('images/HumanThinkingWithHouseAndKey.png') }}" alt="Person thinking about renting or listing a space">
+
+                    <div class="hiw-chip hiw-chip-1">
+                        <i data-lucide="search" aria-hidden="true"></i>
+                        <span>Smart Search</span>
+                    </div>
+                    <div class="hiw-chip hiw-chip-2">
+                        <i data-lucide="calendar-check" aria-hidden="true"></i>
+                        <span>Easy Booking</span>
+                    </div>
+                    <div class="hiw-chip hiw-chip-3">
+                        <i data-lucide="sparkles" aria-hidden="true"></i>
+                        <span>Enjoy Your Stay</span>
+                    </div>
+                </div>
+            </div>
+
+            <svg class="hiw-hero-wave" viewBox="0 0 1440 90" preserveAspectRatio="none" aria-hidden="true">
+                <path d="M0,48 C240,90 480,6 760,30 C1040,54 1240,90 1440,40 L1440,90 L0,90 Z" fill="#ffffff"></path>
+            </svg>
+        </section>
+
+        <!-- FOR RENTERS -->
+        <section class="hiw-section hiw-renters" id="for-renters">
+            <div class="hiw-section-head hiw-reveal">
+                <span class="hiw-eyebrow">For Renters</span>
+                <h2>Find your perfect space<br>in just a few steps</h2>
+                <p>From first search to move-in day, RoomHive keeps everything simple.</p>
+            </div>
+
+            <div class="hiw-steps">
+                {% for step in renter_steps %}
+                    <article class="hiw-step hiw-reveal" style="--i: {{ loop.index0 }};">
+                        <div class="hiw-step-number">{{ step.number }}</div>
+                        <div class="hiw-step-icon">
+                            <i data-lucide="{{ step.icon }}" class="step-icon" role="img" aria-label="{{ step.alt }}"></i>
+                        </div>
+                        <h4>{{ step.title }}</h4>
+                        <p>{{ step.description }}</p>
+                    </article>
+                {% endfor %}
+            </div>
+        </section>
+
+        <!-- FOR HOSTS -->
+        <section class="hiw-section hiw-hosts" id="for-hosts">
+            <div class="hiw-section-head hiw-reveal">
+                <span class="hiw-eyebrow">For Hosts</span>
+                <h2>List your space<br>and start earning</h2>
+                <p>Turn your extra space into income — five steps from listing to payout.</p>
+            </div>
+
+            <div class="hiw-steps">
+                {% for step in host_steps %}
+                    <article class="hiw-step hiw-reveal" style="--i: {{ loop.index0 }};">
+                        <div class="hiw-step-number">{{ step.number }}</div>
+                        <div class="hiw-step-icon">
+                            <i data-lucide="{{ step.icon }}" class="step-icon" role="img" aria-label="{{ step.alt }}"></i>
+                        </div>
+                        <h4>{{ step.title }}</h4>
+                        <p>{{ step.description }}</p>
+                    </article>
+                {% endfor %}
+            </div>
+        </section>
+
+        <!-- READY TO GET STARTED -->
+        <section class="hiw-cta-wrap">
+            <div class="hiw-cta hiw-reveal">
+                <div class="hiw-cta-left">
+                    <img src="{{ asset('images/Crown_Logo.png') }}" alt="RoomHive Crown" class="hiw-cta-crown">
+                    <div class="hiw-cta-text">
+                        <span class="hiw-cta-kicker">Ready When You Are</span>
+                        <h2>Ready to get started?</h2>
+                        <p>Join RoomHive today and be part of a trusted community.</p>
+                    </div>
+                </div>
+
+                <div class="hiw-cta-buttons">
+                    <a href="/listings" class="hiw-btn hiw-btn-honey hiw-btn-shine">FIND A SPACE</a>
+                    <a href="{{ is_logged_in ? '/become-a-host' : '/login' }}" class="hiw-btn hiw-btn-ghost-light">LIST YOUR SPACE</a>
+                </div>
+            </div>
+        </section>
+
+        {% include 'partials/footer.html.twig' %}
+
+        <!-- SCROLL REVEAL + STAT COUNT-UP -->
+        <script>
+            (function () {
+                "use strict";
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                var revealEls = Array.prototype.slice.call(
+                    document.querySelectorAll(".hiw-reveal"),
+                );
+
+                if (reduced || !("IntersectionObserver" in window)) {
+                    revealEls.forEach(function (el) {
+                        el.classList.add("in-view");
+                    });
+                } else {
+                    var io = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) return;
+                                var el = entry.target;
+                                io.unobserve(el);
+                                el.classList.add("in-view");
+                                window.setTimeout(function () {
+                                    el.style.setProperty("--i", "0");
+                                }, 1200);
+                            });
+                        },
+                        { threshold: 0.15, rootMargin: "0px 0px -40px 0px" },
+                    );
+                    revealEls.forEach(function (el) {
+                        io.observe(el);
+                    });
+                }
+
+                var stats = document.querySelectorAll("[data-count]");
+                if (stats.length && !reduced && "IntersectionObserver" in window) {
+                    var statIo = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) return;
+                                var el = entry.target;
+                                statIo.unobserve(el);
+                                var target =
+                                    parseInt(el.getAttribute("data-count"), 10) || 0;
+                                var suffix = el.getAttribute("data-suffix") || "";
+                                var t0 = null;
+                                var DURATION = 1400;
+                                var stepFn = function (ts) {
+                                    if (!t0) t0 = ts;
+                                    var k = Math.min((ts - t0) / DURATION, 1);
+                                    var eased = 1 - Math.pow(1 - k, 3);
+                                    el.textContent = Math.round(target * eased) + suffix;
+                                    if (k < 1) window.requestAnimationFrame(stepFn);
+                                };
+                                window.requestAnimationFrame(stepFn);
+                            });
+                        },
+                        { threshold: 0.6 },
+                    );
+                    Array.prototype.forEach.call(stats, function (el) {
+                        statIo.observe(el);
+                    });
+                }
+            })();
+        </script>
+
+        {# Lucide (navbar ships a guarded loader too — this is a harmless fallback) #}
+        <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+        <script>
+            function rhRefreshIcons() {
+                if (window.lucide && typeof lucide.createIcons === "function") {
+                    lucide.createIcons();
+                }
+            }
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", rhRefreshIcons);
+            } else {
+                rhRefreshIcons();
+            }
+        </script>
+
+    </body>
+</html>

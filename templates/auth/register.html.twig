@@ -1,0 +1,396 @@
+{# =========================================================
+   ROOMHIVE — CREATE ACCOUNT
+   templates/auth/register.html.twig
+
+   Rendered by AuthController::register(). Port of the legacy
+   createaccount.php — same layout/classes, same validation
+   chain. On success the controller redirects to
+   /login?created=1&email=... (no auto-login).
+
+   Receives: error, old (full_name, email), csrf,
+             google_signup_url, apple_signup_url
+
+   EXTERNAL CSS: requires public/assets/loginform.css
+   (the create-account card classes live there — already
+   copied for the login page).
+========================================================= #}
+
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+        <title>RoomHive - Create Your Account</title>
+
+        <!-- Poppins Font -->
+        <link
+            href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap"
+            rel="stylesheet"
+        >
+
+        <!-- Main CSS -->
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/loginform.css') }}">
+
+        <!-- =====================================================
+         LUCIDE ICONS — page-level sizing. This page has NO
+         shared navbar, so it ships its own guarded loader
+         (bottom of <body>). Brand logos (Google/Apple) stay
+         as real <img> PNGs.
+    ====================================================== -->
+        <style>
+            svg.lucide {
+                display: inline-block;
+                vertical-align: -0.18em;
+                flex-shrink: 0;
+            }
+
+            /* Field label icons */
+            .form-group label svg {
+                width: 14px;
+                height: 14px;
+                color: #b07708;
+            }
+
+            /* Show-password toggle */
+            .show-password {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                padding: 2px;
+
+                background: none;
+                border: none;
+
+                color: #8b93a6;
+                cursor: pointer;
+
+                transition: color 0.15s ease;
+            }
+
+            .show-password:hover {
+                color: #b07708;
+            }
+
+            .show-password svg {
+                width: 17px;
+                height: 17px;
+                display: block;
+            }
+
+            /* Submit button icon */
+            .create-account-button {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+            }
+
+            .create-account-button svg {
+                width: 15px;
+                height: 15px;
+            }
+        </style>
+    </head>
+
+    <body class="create-account-page">
+
+        <!-- Close / Back to Home -->
+        <a href="/" class="close-button" aria-label="Close">
+            &times;
+        </a>
+
+        <div class="create-account-container">
+
+            <div class="create-account-card">
+
+                <!-- RoomHive Logo -->
+                <div class="create-logo">
+                    <img
+                        src="{{ asset('images/RoomHiveLogos.png') }}"
+                        alt="RoomHive Logo"
+                    >
+                </div>
+
+                <!-- Title -->
+                <h1>Create Your Account</h1>
+
+                <p class="create-subtitle">
+                    Join RoomHive and find your perfect stay.
+                </p>
+
+                <!-- Error Message -->
+                {% if error is defined and error is not empty %}
+                    <div class="form-message error">
+                        {{ error }}
+                    </div>
+                {% endif %}
+
+                <!-- Create Account Form -->
+                <form method="POST" action="{{ path('app_register') }}">
+
+                    <input
+                        type="hidden"
+                        name="_token"
+                        value="{{ csrf }}"
+                    >
+
+                    <!-- Full Name -->
+                    <div class="form-group">
+
+                        <label for="full_name">
+                            <i data-lucide="user" aria-hidden="true"></i>
+                            Full Name
+                        </label>
+
+                        <input
+                            type="text"
+                            id="full_name"
+                            name="full_name"
+                            value="{{ old.full_name }}"
+                            required
+                        >
+
+                    </div>
+
+                    <!-- Email -->
+                    <div class="form-group">
+
+                        <label for="email">
+                            <i data-lucide="mail" aria-hidden="true"></i>
+                            Email Address
+                        </label>
+
+                        <input
+                            type="email"
+                            id="email"
+                            name="email"
+                            value="{{ old.email }}"
+                            required
+                        >
+
+                    </div>
+
+                    <!-- Password -->
+                    <div class="form-group">
+
+                        <label for="password">
+                            <i data-lucide="lock" aria-hidden="true"></i>
+                            Password
+                        </label>
+
+                        <div class="password-container">
+
+                            <input
+                                type="password"
+                                id="password"
+                                name="password"
+                                required
+                                minlength="8"
+                            >
+
+                            <button
+                                type="button"
+                                class="show-password"
+                                onclick="togglePassword('password', this)"
+                                aria-label="Show password"
+                            >
+                                <i data-lucide="eye" aria-hidden="true">&#9673;</i>
+                            </button>
+
+                        </div>
+
+                        <p class="password-hint">
+                            Password must be at least 8 characters.
+                        </p>
+
+                    </div>
+
+                    <!-- Confirm Password -->
+                    <div class="form-group">
+
+                        <label for="confirm_password">
+                            <i data-lucide="lock-keyhole" aria-hidden="true"></i>
+                            Confirm Password
+                        </label>
+
+                        <div class="password-container">
+
+                            <input
+                                type="password"
+                                id="confirm_password"
+                                name="confirm_password"
+                                required
+                            >
+
+                            <button
+                                type="button"
+                                class="show-password"
+                                onclick="togglePassword('confirm_password', this)"
+                                aria-label="Show password"
+                            >
+                                <i data-lucide="eye" aria-hidden="true">&#9673;</i>
+                            </button>
+
+                        </div>
+
+                    </div>
+
+                    <!-- Terms -->
+                    <div class="terms-container">
+
+                        <input
+                            type="checkbox"
+                            id="terms"
+                            name="terms"
+                            required
+                        >
+
+                        <label for="terms">
+                            I agree to the
+                            <a href="#">Terms of Service</a>
+                            and
+                            <a href="#">Privacy Policy</a>.
+                        </label>
+
+                    </div>
+
+                    <!-- Create Account Button -->
+                    <button
+                        type="submit"
+                        class="create-account-button"
+                    >
+                        <i data-lucide="user-plus" aria-hidden="true"></i>
+                        Create Account
+                    </button>
+
+                </form>
+
+                <!-- OR Divider -->
+                <div class="or-divider">
+                    <span></span>
+                    <p>OR</p>
+                    <span></span>
+                </div>
+
+                {% if google_signup_url is defined and google_signup_url is not empty %}
+                    <!-- Google -->
+                    <button
+                        type="button"
+                        class="social-login google-login"
+                        onclick="window.location.href='{{ google_signup_url }}'"
+                    >
+
+                        <img
+                            src="{{ asset('images/Googlecons.png') }}"
+                            alt="Google"
+                        >
+
+                        <span>Continue with Google</span>
+
+                    </button>
+                {% endif %}
+
+                {% if apple_signup_url is defined and apple_signup_url is not empty %}
+                    <!-- Apple -->
+                    <button
+                        type="button"
+                        class="social-login apple-login"
+                        onclick="window.location.href='{{ apple_signup_url }}'"
+                    >
+
+                        <img
+                            src="{{ asset('images/AppleIcons.png') }}"
+                            alt="Apple"
+                        >
+
+                        <span>Continue with Apple</span>
+
+                    </button>
+                {% endif %}
+
+                <!-- Login -->
+                <p class="login-text">
+                    Already have an account?
+                    <a href="{{ path('app_login') }}">Log in</a>
+                </p>
+
+            </div>
+
+        </div>
+
+        <!-- BFCache Guard + Password Toggle (Lucide edition) -->
+        <script>
+            /* =========================================================
+                                               BFCACHE GUARD — same as the login page. Safari/Firefox
+                                               can restore this page from the back-forward cache with
+                                               NO server request — bypassing the controller guard.
+                                               Force a reload so the guard re-runs.
+                                            ========================================================= */
+            window.addEventListener("pageshow", function (event) {
+                if (event.persisted) {
+                    window.location.reload();
+                }
+            });
+
+            /* =========================================================
+                                               PASSWORD TOGGLE — Lucide edition. The button's icon is
+                                               an <i data-lucide> (old glyph kept INSIDE as a no-CDN
+                                               fallback). Swapping textContent would destroy it, so
+                                               the toggle injects markup and re-renders the icons.
+                                            ========================================================= */
+            function caSetEyeIcon(button, visible) {
+                /* visible = the password is currently SHOWN */
+                button.innerHTML =
+                    '<i data-lucide="' +
+                    (visible ? "eye-off" : "eye") +
+                    '" aria-hidden="true">&#9673;</i>';
+                button.setAttribute(
+                    "aria-label",
+                    visible ? "Hide password" : "Show password",
+                );
+                if (window.lucide && typeof window.lucide.createIcons === "function") {
+                    window.lucide.createIcons();
+                }
+            }
+
+            function togglePassword(inputId, button) {
+                const input = document.getElementById(inputId);
+                const isHidden = input.type === "password";
+
+                input.type = isHidden ? "text" : "password";
+
+                caSetEyeIcon(button, isHidden);
+            }
+        </script>
+
+        <!-- LUCIDE LOADER — guarded (same key as the navbar's loader) -->
+        <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+        <script>
+            (function () {
+                "use strict";
+
+                if (window.__rhNavbarLucide) {
+                    return;
+                }
+                window.__rhNavbarLucide = true;
+
+                function renderCaIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
+                }
+
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", renderCaIcons);
+                } else {
+                    renderCaIcons();
+                }
+            })();
+        </script>
+
+    </body>
+
+</html>

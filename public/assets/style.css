@@ -1,0 +1,1777 @@
+/* =========================
+   ROOMHIVE — style.css
+   (Hive Club fully removed)
+
+   === THIS VERSION ===
+   1. HERO GAP FIX: .hero margin-top 70px -> 90px so it sits
+      flush under the 90px fixed navbar.
+   2. HOST PAGE FIX: .host-page margin-top 70px -> 90px.
+   3. NOTIFICATION BELL FIX (global): the bell img and its
+      unread badge are sized/styled here so every navbar
+      include renders the bell at 24px with a proper red
+      badge — no more giant bell overflowing the navbar.
+   4. HIVE CLUB REMOVED: banner styles, hive panel/button,
+      hive responsive rules and the entire Hive Club page CSS
+      are deleted.
+   5. DUAL CTA: two panels — .list-panel (navy, "List Now")
+      + .host-panel (gold, "Become A Host"). A :has() rule
+      keeps the band full-width if only one panel renders.
+   6. FINAL OVERRIDE (bottom of file): navbar forced fixed +
+      hero margin forced to exactly 90px, so the page always
+      starts flush under the navbar even if a stale duplicate
+      offset rule survives anywhere above.
+========================= */
+
+/* =========================
+RESET
+========================= */
+html {
+  scroll-behavior: smooth;
+}
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+body {
+  width: 100%;
+  font-family: "Poppins", sans-serif;
+  color: #1c2a38;
+}
+
+/* Visible keyboard focus (global a11y) */
+:focus-visible {
+  outline: 3px solid rgba(237, 164, 35, 0.6);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* =========================
+   NAVIGATION BAR
+========================= */
+/* MY ACCOUNT */
+
+.nav-links .my-account {
+  height: 100%;
+
+  display: flex;
+  align-items: center;
+
+  gap: 7px;
+
+  color: #1c2a38;
+}
+
+/* MY ACCOUNT ICON WITH CIRCLE */
+.my-account img {
+  width: 34px;
+  height: 34px;
+
+  padding: 6px;
+
+  background: #1c2a38;
+
+  border-radius: 50%;
+
+  object-fit: contain;
+
+  display: block;
+}
+
+.my-account span {
+  font-size: 9px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 90px;
+
+  background-color: #ffffff;
+
+  display: flex;
+  align-items: center;
+
+  padding: 0 60px;
+
+  z-index: 1000;
+
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+/* =========================
+   LOGO
+========================= */
+
+.logo {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.logo img {
+  width: 125px;
+  height: auto;
+  display: block;
+}
+
+/* =========================
+   NAVIGATION LINKS
+========================= */
+
+.nav-links {
+  margin-left: auto;
+
+  height: 100%;
+
+  display: flex;
+  align-items: center;
+
+  gap: 32px;
+}
+
+.nav-links a {
+  color: #111111;
+
+  text-decoration: none;
+
+  font-family: "Poppins", sans-serif;
+
+  font-size: 15px;
+  font-weight: 700;
+
+  letter-spacing: 0.3px;
+
+  white-space: nowrap;
+
+  transition: 0.2s ease;
+}
+
+.nav-links a:hover {
+  color: #eda423;
+}
+
+/* =========================
+   ACTIVE LINK
+========================= */
+
+.nav-links .active {
+  color: #eda423;
+}
+
+/* =========================
+   LIST YOUR SPACE
+========================= */
+
+.nav-links .list-space {
+  background-color: #1c2a38;
+  color: #ffffff;
+
+  padding: 13px 20px;
+
+  border-radius: 4px;
+}
+
+.nav-links .list-space:hover {
+  background-color: #eda423;
+  color: #1c2a38;
+}
+
+/* =========================
+   NOTIFICATION BELL (GLOBAL)
+   GIANT BELL FIX — the bell img and unread badge are
+   sized/styled here so EVERY navbar include renders them
+   correctly. navbar.php carries the same rules; these act
+   as the global safety net.
+========================= */
+
+.nav-bell {
+  position: relative;
+
+  display: inline-flex;
+  align-items: center;
+
+  cursor: pointer;
+}
+
+.nav-bell img {
+  width: 24px;
+  height: 24px;
+
+  object-fit: contain;
+
+  display: block;
+
+  transition: transform 0.15s ease;
+}
+
+.nav-bell:hover img {
+  transform: scale(1.1);
+}
+
+/* Red unread-count badge on the bell's corner */
+.nav-bell-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+
+  background: #e14b4b;
+
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+
+  z-index: 10;
+}
+
+/* =========================
+HERO SECTION
+========================= */
+.hero {
+  position: relative;
+  margin-top: 90px; /* HERO GAP FIX — exactly the fixed navbar's height (was 70px) */
+  width: 100%;
+  min-height: 560px;
+  overflow: hidden;
+}
+.hero-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 1;
+}
+/* DARK GRADIENT OVERLAY */
+.hero-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background-color: #1c2a38;
+  opacity: 0.78;
+  z-index: 2;
+}
+/* HERO CONTENT */
+.hero-content {
+  position: relative;
+  z-index: 3;
+  max-width: 560px;
+  padding: 100px 60px;
+  color: white;
+}
+.hero-content h1 {
+  margin: 0 0 10px;
+  color: #eda423;
+  font-family: "Poppins", sans-serif;
+  font-size: 42px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.hero-content p {
+  margin: 0 0 26px;
+  color: white;
+  font-family: "Poppins", sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  opacity: 0.95;
+  margin-left: 40px;
+}
+/* HERO BUTTONS */
+.hero-buttons {
+  display: flex;
+  gap: 12px;
+  margin-left: 40px;
+}
+.btn-primary,
+.btn-secondary {
+  height: 42px;
+  padding: 0 22px;
+  font-family: "Poppins", sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: 0.2s ease;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-primary {
+  background: #eda423;
+  color: #1c2a38;
+  border: 3px solid #1c2a38;
+}
+.btn-primary:hover {
+  background: transparent;
+  color: #eda423;
+}
+.btn-secondary {
+  background: transparent;
+  color: white;
+  border: 1px solid white;
+}
+.btn-secondary:hover {
+  background: white;
+  color: #1c2a38;
+}
+
+/* =========================
+TOP LISTINGS SECTION
+========================= */
+.listings {
+  width: 100%;
+  background-color: #f4ecdc;
+  padding: 70px 60px 100px;
+  text-align: center;
+}
+.listings-eyebrow {
+  color: #eda423;
+  font-family: "Poppins", sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+.listings-title {
+  color: #1c2a38;
+  font-family: "Poppins", sans-serif;
+  font-size: 50px;
+  font-weight: 700;
+  margin: 8px 0 44px;
+}
+.listings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 30px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.listing-card {
+  display: block;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  text-align: left;
+  text-decoration: none;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.listing-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.14);
+}
+.listing-card img {
+  width: 100%;
+  height: 190px;
+  object-fit: cover;
+  display: block;
+}
+.listing-info {
+  background-color: #ffffff;
+  padding: 18px 16px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+}
+.listing-name {
+  color: #1c2a38;
+  font-family: "Poppins", sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.listing-link {
+  color: white;
+  background: #1c2a38;
+  font-family: "Poppins", sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  padding: 8px 18px;
+  border-radius: 12px 12px 0 0;
+  transition: 0.2s ease;
+  width: 150px;
+}
+.listing-card:hover .listing-link {
+  background: #eda423;
+  color: #1c2a38;
+}
+/* =========================
+   ABOUT US SECTION
+========================= */
+
+.about {
+  width: 100%;
+  background-color: #ffffff;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: 60px;
+  padding: 80px 60px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Move the text upward */
+.about-text {
+  padding-top: 65px;
+}
+
+.about-eyebrow {
+  display: block;
+  color: #eda423;
+  font-family: "Poppins", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  margin-bottom: 16px;
+}
+
+.about-text h2 {
+  color: #1c2a38;
+  font-family: "Poppins", sans-serif;
+  font-size: 32px;
+  font-weight: 700;
+  margin: 0 0 20px;
+}
+
+.about-text p {
+  color: #1c2a38;
+  font-family: "Poppins", sans-serif;
+  font-size: 14px;
+  line-height: 1.7;
+  opacity: 0.75;
+  margin: 0 0 18px;
+  max-width: 460px;
+}
+
+.about-button {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 14px 24px;
+  border: 1.5px solid #1c2a38;
+  border-radius: 4px;
+  color: #1c2a38;
+  text-decoration: none;
+  font-family: "Poppins", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  transition: 0.2s ease;
+}
+
+.about-button:hover {
+  background-color: #1c2a38;
+  color: white;
+}
+
+.about-image img {
+  width: 100%;
+  height: 100%;
+  min-height: 500px;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+}
+/* =========================
+REASON WHY SECTION
+========================= */
+.reasons {
+  width: 100%;
+  background-color: #1c2a38;
+  padding: 70px 60px;
+}
+.reasons-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 40px;
+  max-width: 1200px;
+  margin: 0 auto 40px;
+  flex-wrap: wrap;
+}
+.reasons-eyebrow {
+  display: block;
+  color: #eda423;
+  font-family: "Poppins", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+}
+.reasons-heading h2 {
+  color: #ffffff;
+  font-family: "Poppins", sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0;
+  max-width: 420px;
+}
+.reasons-desc {
+  color: #ffffff;
+  font-family: "Poppins", sans-serif;
+  font-size: 13px;
+  line-height: 1.7;
+  opacity: 0.7;
+  max-width: 380px;
+  margin: 0;
+}
+.reasons-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 22px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.reason-card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 22px 24px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.reason-card img {
+  width: 46px;
+  height: 46px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.reason-text h4 {
+  color: #1c2a38;
+  font-family: "Poppins", sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+.reason-text p {
+  color: #1c2a38;
+  font-family: "Poppins", sans-serif;
+  font-size: 12.5px;
+  line-height: 1.5;
+  opacity: 0.65;
+  margin: 0;
+}
+/* =========================
+HAPPY TENANTS / TESTIMONIALS SECTION
+========================= */
+.testimonials {
+  width: 100%;
+  background-color: #ffffff;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  align-items: start;
+  gap: 30px;
+  padding: 70px 60px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.testimonials-eyebrow {
+  display: block;
+  color: #eda423;
+  font-family: "Poppins", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+}
+.testimonials-text h2 {
+  color: #1c2a38;
+  font-family: "Poppins", sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 16px;
+}
+.testimonials-text p {
+  color: #1c2a38;
+  font-family: "Poppins", sans-serif;
+  font-size: 13px;
+  line-height: 1.7;
+  opacity: 0.7;
+  margin: 0 0 20px;
+}
+.testimonials-nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.nav-arrow {
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+.nav-arrow img {
+  display: block;
+  width: 50px;
+  height: 50px;
+}
+.nav-arrow:hover {
+  background: #1c2a38;
+}
+.nav-arrow:hover img {
+  filter: brightness(0) invert(1);
+}
+.testimonials-dots {
+  display: flex;
+  gap: 8px;
+}
+.testimonials-dots .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e6dcc8;
+}
+.testimonials-dots .dot.active {
+  background: #1c2a38;
+  border-radius: 3px;
+  width: 20px;
+}
+.testimonials-slider {
+  grid-column: 2 / 4;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.testimonials-track {
+  display: flex;
+  transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.testimonials-track .testimonial-card {
+  flex: 0 0 calc(50% - 10px);
+  min-width: calc(50% - 10px);
+  margin-right: 20px;
+  background: #f4ecdc;
+  border-radius: 10px;
+  padding: 24px 22px;
+  box-sizing: border-box;
+}
+
+.testimonials-track .testimonial-card:last-child {
+  margin-right: 0;
+}
+.testimonial-quote {
+  color: #1c2a38;
+  font-family: "Poppins", sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+  margin: 0 0 12px;
+}
+.testimonial-body {
+  color: #1c2a38;
+  font-family: "Poppins", sans-serif;
+  font-size: 12.5px;
+  line-height: 1.6;
+  opacity: 0.7;
+  margin: 0 0 20px;
+}
+.testimonial-author {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.testimonial-author img {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.testimonial-author span {
+  color: #1c2a38;
+  font-family: "Poppins", sans-serif;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+/* =========================
+READY TO MOVE / FINAL CTA SECTION
+========================= */
+.final-cta {
+  width: 100%;
+  background-color: #ffffff;
+  padding-bottom: 80px;
+}
+.cta-image-strip {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  width: 100%;
+  height: 220px;
+}
+.cta-image-strip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.cta-box {
+  max-width: 720px;
+  margin: 50px auto 0;
+  background: #ffffff;
+  border: 1px solid #eee4d3;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+  padding: 46px 30px;
+  text-align: center;
+}
+.cta-eyebrow {
+  display: block;
+  color: #eda423;
+  font-family: "Poppins", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  margin-bottom: 12px;
+}
+.cta-title {
+  color: #1c2a38;
+  font-family: "Poppins", sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0 0 26px;
+}
+.cta-button {
+  display: inline-block;
+  background: #eda423;
+  color: #1c2a38;
+  padding: 14px 30px;
+  border-radius: 4px;
+  text-decoration: none;
+  font-family: "Poppins", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  transition: 0.2s ease;
+}
+.cta-button:hover {
+  background: #1c2a38;
+  color: white;
+}
+/* =========================
+LIST NOW / BECOME A HOST SECTION
+Two-panel band — the Hive Club panel was replaced
+by the navy "List Now" panel.
+========================= */
+.dual-cta {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+/* Single-panel safety net: if only one panel is ever
+   rendered, the band becomes full-width so it occupies
+   the entire space (inert with both panels present). */
+.dual-cta:has(> .dual-cta-panel:only-child) {
+  grid-template-columns: 1fr;
+}
+
+.dual-cta-panel {
+  padding: 50px 60px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.dual-cta-icon {
+  width: 20%;
+  height: 20%;
+  object-fit: contain;
+  margin-bottom: 14px;
+}
+.dual-cta-panel h3 {
+  font-family: "Poppins", sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 12px;
+}
+.dual-cta-panel p {
+  font-family: "Poppins", sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+  max-width: 340px;
+  margin: 0 0 22px;
+  opacity: 0.85;
+}
+/* LIST NOW panel — navy (replaces the old hive panel) */
+.list-panel {
+  background-color: #1c2a38;
+  color: #ffffff;
+}
+.host-panel {
+  background-color: #eda423;
+  color: #1c2a38;
+}
+.dual-cta-button {
+  display: inline-block;
+  padding: 12px 28px;
+  border-radius: 4px;
+  text-decoration: none;
+  font-family: "Poppins", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  transition: 0.2s ease;
+}
+.list-button {
+  background-color: #eda423;
+  color: #1c2a38;
+}
+.list-button:hover {
+  background-color: #ffffff;
+  color: #1c2a38;
+}
+.host-button {
+  background-color: #1c2a38;
+  color: #ffffff;
+}
+.host-button:hover {
+  background-color: #ffffff;
+  color: #1c2a38;
+}
+/* =========================
+FOOTER
+========================= */
+.site-footer {
+  width: 100%;
+  background-color: #ffffff;
+  padding: 60px 60px 30px;
+  border-top: 1px solid #eee4d3;
+}
+.footer-top {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 1.2fr;
+  gap: 40px;
+  max-width: 1200px;
+  margin: 0 auto 40px;
+}
+.footer-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.footer-logo {
+  width: 120px;
+  height: auto;
+  margin-bottom: 2px;
+}
+.footer-tagline {
+  font-family: "Poppins", sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #1c2a38;
+  opacity: 0.7;
+  max-width: 260px;
+  margin: 0 0 4px;
+}
+.footer-links {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.footer-heading {
+  color: #1c2a38;
+  font-family: "Poppins", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+}
+.footer-links a {
+  color: #1c2a38;
+  opacity: 0.75;
+  text-decoration: none;
+  font-family: "Poppins", sans-serif;
+  font-size: 13px;
+  transition: 0.2s ease;
+}
+.footer-links a:hover {
+  color: #eda423;
+  opacity: 1;
+}
+.footer-links a.active {
+  color: #eda423;
+}
+.footer-contact {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.footer-app-badges {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.footer-app-badges img {
+  height: 32px;
+  width: auto;
+  object-fit: contain;
+}
+.footer-contact-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.footer-contact-line img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+.footer-contact-line span {
+  font-family: "Poppins", sans-serif;
+  font-size: 13px;
+  color: #1c2a38;
+  opacity: 0.75;
+}
+.footer-bottom {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-top: 24px;
+  border-top: 1px solid #eee4d3;
+  text-align: center;
+}
+.footer-bottom p {
+  font-family: "Poppins", sans-serif;
+  font-size: 12px;
+  color: #1c2a38;
+  opacity: 0.6;
+}
+/* =========================
+RESPONSIVE — SITE-WIDE (home / listings hero / about / reasons / testimonials / cta / footer)
+========================= */
+@media (max-width: 900px) {
+  .listings-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .hero-content {
+    padding: 70px 40px;
+  }
+  .about {
+    grid-template-columns: 1fr;
+    padding: 60px 40px;
+    gap: 30px;
+  }
+  .about-image {
+    order: -1;
+  }
+  .reasons-grid {
+    grid-template-columns: 1fr;
+  }
+  .testimonials {
+    grid-template-columns: 1fr;
+  }
+  .cta-image-strip {
+    grid-template-columns: repeat(3, 1fr);
+    height: auto;
+  }
+  .cta-image-strip img {
+    height: 150px;
+  }
+  .dual-cta {
+    grid-template-columns: 1fr;
+  }
+  .footer-top {
+    grid-template-columns: 1fr 1fr;
+  }
+  .steps-container {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 640px) {
+  .navbar {
+    padding: 0 20px;
+  }
+  .nav-links {
+    gap: 12px;
+  }
+  .nav-links a {
+    font-size: 11px;
+  }
+  .hero-content {
+    max-width: 100%;
+    padding: 60px 24px;
+  }
+  .hero-content h1 {
+    font-size: 30px;
+  }
+  .hero-overlay {
+    background: rgba(16, 32, 48, 0.82);
+  }
+  .listings-grid {
+    grid-template-columns: 1fr;
+  }
+  .listings {
+    padding: 50px 24px 70px;
+  }
+  .about {
+    padding: 50px 24px;
+  }
+  .about-text p {
+    max-width: 100%;
+  }
+  .reasons {
+    padding: 50px 24px;
+  }
+  .reasons-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .reason-card {
+    padding: 18px;
+  }
+  .testimonials {
+    padding: 50px 24px;
+  }
+  .cta-image-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .cta-box {
+    margin: 30px 20px 0;
+    padding: 34px 20px;
+  }
+  .cta-title {
+    font-size: 21px;
+  }
+  .dual-cta-panel {
+    padding: 40px 24px;
+  }
+  .site-footer {
+    padding: 50px 24px 24px;
+  }
+  .footer-top {
+    grid-template-columns: 1fr;
+    gap: 30px;
+  }
+}
+@media (max-width: 550px) {
+  .nav-links {
+    gap: 8px;
+  }
+  .nav-links a {
+    font-size: 6px;
+  }
+  .steps-container {
+    grid-template-columns: 1fr;
+  }
+  .how-header h1 {
+    font-size: 25px;
+  }
+}
+
+/* =========================================================
+   ROOMHIVE - BECOME A HOST
+   DESIGNED FOR 1920 x 1020
+========================================================= */
+
+/* =========================================================
+   HOST PAGE
+========================================================= */
+
+.host-page {
+  width: 100%;
+  min-height: calc(100vh - 70px);
+
+  /* HOST PAGE FIX — was 70px, hiding the top 20px of this
+     section under the 90px fixed navbar */
+  margin-top: 90px;
+
+  padding: 40px 40px 45px;
+
+  background: #f8f1e7;
+
+  overflow: hidden;
+}
+
+/* =========================================================
+   HEADER
+========================================================= */
+
+.host-header {
+  width: 100%;
+  max-width: 1100px;
+
+  margin: 0 auto;
+
+  text-align: center;
+}
+
+.host-eyebrow {
+  display: block;
+
+  margin: 5px 0 4px;
+
+  color: #eda423;
+
+  font-family: "Poppins", sans-serif;
+
+  font-size: 12px;
+  font-weight: 700;
+
+  letter-spacing: 0.2px;
+}
+
+.host-header h1 {
+  margin: 0 0 25px;
+
+  color: #1c2a38;
+
+  font-family: "Poppins", sans-serif;
+
+  font-size: 28px;
+  font-weight: 700;
+
+  line-height: 1.2;
+}
+
+/* =========================================================
+   HOSTING STEPS
+========================================================= */
+
+.host-steps {
+  width: 100%;
+  max-width: 900px;
+
+  margin: 0 auto 28px;
+
+  display: grid;
+
+  grid-template-columns: repeat(4, 1fr);
+
+  gap: 0;
+}
+
+.host-step {
+  position: relative;
+
+  min-width: 0;
+
+  text-align: center;
+}
+
+/* =========================================================
+   STEP CIRCLE
+========================================================= */
+
+.step-circle {
+  width: 52px !important;
+  height: 52px !important;
+
+  margin: 0 auto 7px !important;
+
+  display: flex !important;
+
+  align-items: center;
+  justify-content: center;
+
+  position: relative;
+
+  z-index: 5;
+
+  background: #ffffff;
+
+  border: 2px solid #f4c66f;
+
+  border-radius: 50%;
+
+  overflow: hidden;
+}
+
+/* =========================================================
+   ACTIVE STEP (Step 1 - Create Account)
+   Highlighted in blue so the user knows which step they're on
+========================================================= */
+
+.host-steps .host-step:first-child .step-circle {
+  background: #1c2a38;
+
+  border-color: #1c2a38;
+
+  box-shadow: 0 0 0 4px rgba(47, 111, 237, 0.15);
+}
+
+.host-steps .host-step:first-child .step-number {
+  background: #1c2a38;
+}
+
+.host-steps .host-step:first-child .step-circle img {
+  filter: brightness(0) invert(1);
+}
+
+/* =========================================================
+   IMPORTANT:
+   STEP IMAGES
+========================================================= */
+
+.host-page .host-steps .host-step .step-circle img {
+  width: 30px !important;
+  height: 30px !important;
+
+  max-width: 30px !important;
+  max-height: 30px !important;
+
+  min-width: 0 !important;
+  min-height: 0 !important;
+
+  margin: 0 !important;
+  padding: 0 !important;
+
+  display: block !important;
+
+  object-fit: contain !important;
+
+  position: static !important;
+
+  transform: none !important;
+
+  border: 0 !important;
+
+  box-shadow: none !important;
+}
+
+/* =========================================================
+   CONNECTING LINE
+========================================================= */
+
+.step-line {
+  position: absolute;
+
+  top: 26px;
+
+  left: calc(50% + 26px);
+
+  width: calc(100% - 52px);
+
+  border-top: 1.5px dashed #f2c86f;
+
+  z-index: 1;
+
+  pointer-events: none;
+}
+
+/* =========================================================
+   STEP NUMBER
+========================================================= */
+
+.step-number {
+  width: 15px !important;
+  height: 15px !important;
+
+  margin: -1px auto 5px !important;
+
+  display: flex !important;
+
+  align-items: center;
+  justify-content: center;
+
+  position: relative;
+
+  z-index: 10;
+
+  background: #eda423;
+
+  color: #ffffff;
+
+  border-radius: 50%;
+
+  font-family: "Poppins", sans-serif;
+
+  font-size: 7px;
+
+  font-weight: 700;
+
+  line-height: 1;
+}
+
+/* =========================================================
+   STEP TITLE
+========================================================= */
+
+.host-step h3 {
+  margin: 0 0 3px;
+
+  color: #1c2a38;
+
+  font-family: "Poppins", sans-serif;
+
+  font-size: 10px;
+
+  font-weight: 700;
+
+  line-height: 1.3;
+}
+
+/* =========================================================
+   STEP DESCRIPTION
+========================================================= */
+
+.host-step p {
+  margin: 0;
+
+  color: #4f5860;
+
+  font-family: "Poppins", sans-serif;
+
+  font-size: 8px;
+
+  line-height: 1.45;
+}
+
+/* =========================================================
+   FORM CARD
+   (enlarged — was 22px 25px 20px / max-width 1100 / 9px radius)
+========================================================= */
+
+.host-form-card {
+  width: 100%;
+  max-width: 1100px;
+
+  margin: 0 auto 60px;
+
+  padding: 48px 60px 55px;
+
+  background: #ffffff;
+
+  border-radius: 14px;
+
+  box-shadow: 0 6px 28px rgba(28, 42, 56, 0.08);
+
+  position: relative;
+
+  z-index: 2;
+}
+
+/* =========================================================
+   FORM HEADING
+   (enlarged — was 15px / 9px)
+========================================================= */
+
+.form-heading {
+  margin-bottom: 30px;
+}
+
+.form-heading h2 {
+  margin: 0 0 6px;
+
+  color: #1c2a38;
+
+  font-family: "Poppins", sans-serif;
+
+  font-size: 26px;
+
+  font-weight: 700;
+
+  line-height: 1.3;
+}
+
+.form-heading p {
+  margin: 0;
+
+  color: #6d757c;
+
+  font-family: "Poppins", sans-serif;
+
+  font-size: 14px;
+}
+
+/* =========================================================
+   FORM GRID
+   (enlarged — gap was 15px, margin was 14px)
+========================================================= */
+
+.form-grid {
+  width: 100%;
+
+  display: grid;
+
+  gap: 26px;
+
+  margin-bottom: 26px;
+}
+
+.three-columns {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+/* =========================================================
+   INPUT GROUP
+========================================================= */
+
+.input-group {
+  width: 100%;
+}
+
+.input-group label,
+.upload-section > label {
+  display: block;
+
+  margin-bottom: 9px;
+
+  color: #263441;
+
+  font-family: "Poppins", sans-serif;
+
+  font-size: 14px;
+
+  font-weight: 600;
+}
+
+/* =========================================================
+   INPUTS
+   (enlarged — height was 33px, font-size was 8px)
+========================================================= */
+
+.input-group input,
+.input-group select {
+  width: 100%;
+  height: 52px;
+
+  padding: 0 18px;
+
+  border: 1px solid #dedede;
+
+  border-radius: 8px;
+
+  background: #ffffff;
+
+  color: #263441;
+
+  font-family: "Poppins", sans-serif;
+
+  font-size: 14px;
+
+  outline: none;
+
+  transition: 0.2s ease;
+}
+
+.input-group input::placeholder {
+  color: #a0a0a0;
+}
+
+/* =========================================================
+   SELECT
+========================================================= */
+
+.input-group select {
+  appearance: none;
+
+  -webkit-appearance: none;
+
+  background-image:
+    linear-gradient(45deg, transparent 50%, #777 50%),
+    linear-gradient(135deg, #777 50%, transparent 50%);
+
+  background-position:
+    calc(100% - 20px) 22px,
+    calc(100% - 15px) 22px;
+
+  background-size:
+    7px 7px,
+    7px 7px;
+
+  background-repeat: no-repeat;
+
+  padding-right: 40px;
+
+  cursor: pointer;
+}
+
+/* =========================================================
+   INPUT FOCUS
+========================================================= */
+
+.input-group input:focus,
+.input-group select:focus {
+  border-color: #eda423;
+
+  box-shadow: 0 0 0 3px rgba(237, 164, 35, 0.1);
+}
+
+/* =========================================================
+   LOCATION
+========================================================= */
+
+.input-with-icon {
+  position: relative;
+}
+
+.input-with-icon input {
+  padding-right: 42px;
+}
+
+.input-with-icon span {
+  position: absolute;
+
+  right: 16px;
+
+  top: 50%;
+
+  transform: translateY(-50%);
+
+  color: #a0a0a0;
+
+  font-size: 16px;
+
+  pointer-events: none;
+}
+
+/* =========================================================
+   UPLOAD ID
+   (enlarged — box was 325x52px, now full-width and taller)
+========================================================= */
+
+.upload-section {
+  width: 100%;
+
+  margin-top: 6px;
+}
+
+.upload-box {
+  width: 100%;
+  height: 130px;
+
+  display: flex;
+
+  align-items: center;
+  justify-content: center;
+
+  gap: 20px;
+
+  border: 1.5px dashed #d9d9d9;
+
+  border-radius: 10px;
+
+  background: #ffffff;
+
+  cursor: pointer;
+
+  transition: 0.2s ease;
+}
+
+.upload-box:hover {
+  border-color: #eda423;
+
+  background: #fffaf0;
+}
+
+/* =========================================================
+   UPLOAD ICON
+========================================================= */
+
+.upload-icon {
+  color: #293541;
+
+  font-size: 40px;
+
+  line-height: 1;
+}
+
+/* =========================================================
+   UPLOAD TEXT
+========================================================= */
+
+.upload-text {
+  display: flex;
+
+  flex-direction: column;
+
+  text-align: left;
+
+  gap: 4px;
+}
+
+.upload-text strong {
+  color: #39444e;
+
+  font-family: "Poppins", sans-serif;
+
+  font-size: 14px;
+
+  font-weight: 600;
+}
+
+.upload-text span {
+  color: #888f95;
+
+  font-family: "Poppins", sans-serif;
+
+  font-size: 12px;
+}
+
+/* =========================================================
+   FORM ACTION
+========================================================= */
+
+.form-actions {
+  display: flex;
+
+  justify-content: flex-end;
+
+  margin-top: 20px;
+}
+
+/* =========================================================
+   NEXT BUTTON
+   (enlarged — was 130x35px, font-size 8px)
+========================================================= */
+
+.next-button {
+  min-width: 190px;
+
+  height: 54px;
+
+  padding: 0 32px;
+
+  border: none;
+
+  border-radius: 8px;
+
+  background: #eda423;
+
+  color: #ffffff;
+
+  font-family: "Poppins", sans-serif;
+
+  font-size: 14px;
+
+  font-weight: 700;
+
+  cursor: pointer;
+
+  transition: 0.2s ease;
+}
+
+.next-button:hover {
+  background: #d99117;
+
+  transform: translateY(-1px);
+}
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
+
+@media (max-width: 900px) {
+  .host-page {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .host-header h1 {
+    font-size: 24px;
+  }
+
+  .host-steps {
+    max-width: 750px;
+  }
+
+  .host-form-card {
+    padding: 35px 30px 40px;
+  }
+}
+
+@media (max-width: 700px) {
+  .host-steps {
+    grid-template-columns: repeat(2, 1fr);
+
+    row-gap: 25px;
+  }
+
+  .step-line {
+    display: none;
+  }
+
+  .three-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .upload-box {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .host-page {
+    padding: 20px 15px 30px;
+  }
+
+  .host-eyebrow {
+    font-size: 10px;
+  }
+
+  .host-header h1 {
+    font-size: 19px;
+  }
+
+  .host-steps {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .host-form-card {
+    padding: 25px 20px 30px;
+  }
+}
+
+/* =========================================================
+   NAVBAR OFFSET — FINAL OVERRIDE (MUST STAY LAST)
+   Fixes the white band between the navbar and the hero.
+   The offset was being applied twice (fixed navbar height
+   + a stale duplicate rule somewhere above). Being last in
+   the file with !important makes the result deterministic:
+     - the navbar is guaranteed fixed (out of the flow)
+     - the hero is guaranteed exactly one navbar-height down
+   Do NOT add style rules for .navbar or .hero after this.
+========================================================= */
+
+.navbar {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.hero {
+  margin-top: 90px !important; /* exactly the 90px navbar — flush, no gap */
+}
+
+/* =========================================================
+   END OF FILE — MERGE NOTE
+
+   If your original file had non-Hive sections that this
+   reconstruction lacks (e.g. How It Works page styles for
+   .steps-container / .how-header / .how-*), paste them back
+   ABOVE the "FINAL OVERRIDE" block — never after it.
+
+   While merging, DELETE any Hive leftovers:
+   .hive-hero*, .hero-pattern, .hero-blob*, .member-card-*,
+   .hive-notice, .club-main, .club-left, .club-sidebar,
+   .section-heading, .benefits-grid, .benefit-*, .tier-*,
+   .current-badge, .status-*, .progress-bar, .progress-fill,
+   .progress-labels, .not-a-member-note, .rewards-button,
+   .earn-*, .booking-cta, .booking-*, .stop-subscribe-form,
+   .hero-btn, the hive :root token block, the
+   fadeUp/cardFloat/blobFloat/shimmer keyframes, and the
+   "RESPONSIVE — HIVE CLUB" media query.
+========================================================= */
+

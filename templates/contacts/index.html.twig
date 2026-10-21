@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>RoomHive - Contact Us</title>
+
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="{{ asset('assets/style.css?v=2') }}">
+        <link rel="stylesheet" href="{{ asset('assets/contacts.css') }}">
+
+        <script>
+            document.documentElement.classList.add("js");
+        </script>
+    </head>
+
+    <body class="contacts-page">
+
+        {% include 'partials/navbar.html.twig' with { current_page: '/contacts' } %}
+
+        <!-- HERO -->
+        <section class="cx-hero">
+            <div aria-hidden="true">
+                <span class="cx-blob cx-blob-1"></span>
+                <span class="cx-blob cx-blob-2"></span>
+            </div>
+
+            <div class="cx-hero-inner">
+                <div class="cx-hero-text">
+                    <span class="cx-hero-badge cx-anim" style="--d: .05s;">
+                        <span class="cx-pulse-dot"></span>
+                        We're Here To Help
+                    </span>
+
+                    <h1 class="cx-anim" style="--d: .15s;">Get In <span class="cx-shimmer">Touch</span></h1>
+
+                    <p class="cx-anim" style="--d: .25s;">
+                        Questions about a listing, a booking, or becoming a host?
+                        Reach out — a real human will get back to you fast.
+                    </p>
+
+                    <div class="cx-hero-actions cx-anim" style="--d: .35s;">
+                        <a href="tel:+639275693574" class="cx-btn cx-btn-honey">CALL NOW <span class="cx-btn-arrow">&rarr;</span></a>
+                        <a href="mailto:hello@roomhive.ph" class="cx-btn cx-btn-outline">EMAIL US</a>
+                    </div>
+                </div>
+
+                <div class="cx-hero-art cx-anim" style="--d: .3s;">
+                    <span class="cx-art-glow" aria-hidden="true"></span>
+                    <img class="cx-art-img" src="{{ asset('images/WholeLivingRoom-Contacts.png') }}" alt="RoomHive living room">
+
+                    <div class="cx-chip cx-chip-1">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H13z"/></svg>
+                        <span>Fast Replies</span>
+                    </div>
+                    <div class="cx-chip cx-chip-2">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                        <span>Mon–Fri, 8AM–6PM</span>
+                    </div>
+                    <div class="cx-chip cx-chip-3">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.4-3 7.4-7 9-4-1.6-7-4.6-7-9V6z"/><path d="m9 12 2 2 4-4"/></svg>
+                        <span>Verified &amp; Trusted</span>
+                    </div>
+                </div>
+            </div>
+
+            <svg class="cx-hero-wave" viewBox="0 0 1440 90" preserveAspectRatio="none" aria-hidden="true">
+                <path d="M0,48 C240,90 480,6 760,30 C1040,54 1240,90 1440,40 L1440,90 L0,90 Z" fill="#ffffff"></path>
+            </svg>
+        </section>
+
+        <!-- INFO + FORM -->
+        <section class="cx-main" id="contact-form">
+
+            <div class="cx-info">
+                <div class="cx-info-head cx-reveal">
+                    <h2>Contact Information</h2>
+                    <p>Choose the best way to reach us.</p>
+                </div>
+
+                <div class="cx-info-card cx-reveal" style="--i: 0;">
+                    <div class="cx-info-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4l2 5-2.5 1.5a12 12 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>
+                    </div>
+                    <div>
+                        <h4>Phone</h4>
+                        <p>+63 927 569 3574</p>
+                        <span>Monday–Friday, 8:00 AM–6:00 PM</span>
+                    </div>
+                </div>
+
+                <div class="cx-info-card cx-reveal" style="--i: 1;">
+                    <div class="cx-info-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m3.5 7 8.5 6 8.5-6"/></svg>
+                    </div>
+                    <div>
+                        <h4>Email</h4>
+                        <p>hello@roomhive.ph</p>
+                        <span>We usually reply within 24 hours.</span>
+                    </div>
+                </div>
+
+                <div class="cx-info-card cx-reveal" style="--i: 2;">
+                    <div class="cx-info-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.1 7-11a7 7 0 1 0-14 0c0 5.9 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/></svg>
+                    </div>
+                    <div>
+                        <h4>Address</h4>
+                        <p>Dumaguete City, Negros Oriental</p>
+                        <span>Philippines</span>
+                    </div>
+                </div>
+
+                <div class="cx-info-card cx-reveal" style="--i: 3;">
+                    <div class="cx-info-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="2.5"/><circle cx="17.5" cy="6" r="2.5"/><circle cx="17.5" cy="18" r="2.5"/><path d="m8.3 10.8 7-3.6M8.3 13.2l7 3.6"/></svg>
+                    </div>
+                    <div>
+                        <h4>Social Media</h4>
+                        <p>Follow us on social media!</p>
+                        <div class="cx-socials">
+                            <a href="#" aria-label="Facebook">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.5 21v-7h2.4l.4-3h-2.8V9.1c0-.9.3-1.5 1.6-1.5H16V5.1c-.3 0-1.2-.1-2.2-.1-2.2 0-3.7 1.3-3.7 3.8V11H7.7v3h2.4v7h3.4z"/></svg>
+                            </a>
+                            <a href="#" aria-label="Instagram">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><circle cx="12" cy="12" r="3.8"/><circle cx="17.2" cy="6.8" r="1" fill="currentColor" stroke="none"/></svg>
+                            </a>
+                            <a href="#" aria-label="TikTok">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.6 5.82A4.28 4.28 0 0 1 15.54 3h-3.09v12.4a2.59 2.59 0 1 1-2.59-2.59c.27 0 .53.04.77.12V9.77a5.76 5.76 0 0 0-.77-.05 5.66 5.66 0 1 0 5.66 5.66V9.01a7.35 7.35 0 0 0 4.29 1.38V7.3a4.28 4.28 0 0 1-3.21-1.48z"/></svg>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cx-form-card cx-reveal" style="--i: 1;">
+                <h2>Send Us a Message</h2>
+                <p>Fill out the form below and we'll get back to you within 24 hours.</p>
+
+                {# SUCCESS FLASH (survives the redirect) #}
+                {% for message in app.flashes('contact_success') %}
+                    <div class="cx-msg cx-msg-success" id="cxSuccessMsg" role="status">
+                        <span class="cx-msg-ico">&#10003;</span>
+                        <span>{{ message }}</span>
+                    </div>
+                {% endfor %}
+
+                {# ERROR BANNER (server-side validation failed) #}
+                {% if form.vars.submitted and not form.vars.valid %}
+                    <div class="cx-msg cx-msg-error" role="alert">
+                        <span class="cx-msg-ico">!</span>
+                        <span>Please fix the errors below and try again.</span>
+                    </div>
+                {% endif %}
+
+                {{ form_start(form, { attr: { id: 'cxContactForm' } }) }}
+
+                <div class="cx-row">
+                    <div class="cx-field">
+                        {{ form_label(form.firstName) }}
+                        {{ form_widget(form.firstName, { attr: { placeholder: 'Juan' } }) }}
+                        {{ form_errors(form.firstName) }}
+                    </div>
+                    <div class="cx-field">
+                        {{ form_label(form.lastName) }}
+                        {{ form_widget(form.lastName, { attr: { placeholder: 'Dela Cruz' } }) }}
+                        {{ form_errors(form.lastName) }}
+                    </div>
+                </div>
+
+                <div class="cx-field">
+                    {{ form_label(form.email) }}
+                    {{ form_widget(form.email, { attr: { placeholder: 'you@example.com' } }) }}
+                    {{ form_errors(form.email) }}
+                </div>
+
+                <div class="cx-field">
+                    {{ form_label(form.subject) }}
+                    {{ form_widget(form.subject, { attr: { placeholder: 'How can we help?' } }) }}
+                    {{ form_errors(form.subject) }}
+                </div>
+
+                <div class="cx-field">
+                    {{ form_label(form.message) }}
+                    {{ form_widget(form.message, { attr: { placeholder: 'Tell us more about your question or concern...', rows: 5 } }) }}
+                    {{ form_errors(form.message) }}
+                </div>
+
+                <button type="submit" class="cx-submit cx-btn-shine">
+                    <span class="cx-submit-label">SEND MESSAGE</span>
+                    <span>&#10148;</span>
+                </button>
+
+                {{ form_end(form) }}
+            </div>
+
+        </section>
+
+        <!-- NEED HELP -->
+        <section class="cx-help">
+            <div class="cx-help-head cx-reveal">
+                <span class="cx-eyebrow">Quick Answers</span>
+                <h2>Need Help?</h2>
+                <p>Find quick answers to the most common questions — or reach our team directly.</p>
+            </div>
+
+            <div class="cx-help-grid">
+                <a href="/how-it-works" class="cx-help-card cx-reveal" style="--i: 0;">
+                    <span class="cx-help-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
+                    <span>How to rent a room?</span>
+                    <span class="cx-help-arrow">&rsaquo;</span>
+                </a>
+                <a href="/listings" class="cx-help-card cx-reveal" style="--i: 1;">
+                    <span class="cx-help-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
+                    <span>How to search listings?</span>
+                    <span class="cx-help-arrow">&rsaquo;</span>
+                </a>
+                <a href="/become-a-host" class="cx-help-card cx-reveal" style="--i: 2;">
+                    <span class="cx-help-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8" r="3.5"/><path d="M3.5 20a6.5 6.5 0 0 1 13 0"/><path d="M19 8v6M16 11h6"/></svg></span>
+                    <span>How to become a host?</span>
+                    <span class="cx-help-arrow">&rsaquo;</span>
+                </a>
+                <a href="/how-it-works" class="cx-help-card cx-reveal" style="--i: 3;">
+                    <span class="cx-help-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="13" rx="2.5"/><path d="M2.5 10h19"/></svg></span>
+                    <span>Payment &amp; booking</span>
+                    <span class="cx-help-arrow">&rsaquo;</span>
+                </a>
+                <a href="/listings" class="cx-help-card cx-reveal" style="--i: 4;">
+                    <span class="cx-help-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.1 7-11a7 7 0 1 0-14 0c0 5.9 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/></svg></span>
+                    <span>Location help</span>
+                    <span class="cx-help-arrow">&rsaquo;</span>
+                </a>
+                <a href="#contact-form" class="cx-help-card cx-reveal" style="--i: 5;">
+                    <span class="cx-help-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8.5 8.5 0 0 1-12.4 7.5L3 21l1.6-5A8.5 8.5 0 1 1 21 12z"/></svg></span>
+                    <span>Contact Support</span>
+                    <span class="cx-help-arrow">&rsaquo;</span>
+                </a>
+            </div>
+        </section>
+
+        <!-- SUPPORT CTA -->
+        <section class="cx-cta-wrap">
+            <div class="cx-cta cx-reveal">
+                <div class="cx-cta-left">
+                    <div class="cx-cta-ico">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13a8 8 0 0 1 16 0"/><rect x="2.5" y="13" width="4" height="6" rx="2"/><rect x="17.5" y="13" width="4" height="6" rx="2"/><path d="M19.5 19a3.5 3.5 0 0 1-3.5 3h-2"/></svg>
+                    </div>
+                    <div class="cx-cta-text">
+                        <span class="cx-cta-kicker">We Reply Fast</span>
+                        <h2>Still have questions?</h2>
+                        <p>Our support team is always ready<br>to assist you.</p>
+                    </div>
+                </div>
+                <div class="cx-cta-buttons">
+                    <a href="#contact-form" class="cx-btn cx-btn-honey cx-btn-shine">CONTACT SUPPORT <span class="cx-btn-arrow">&rarr;</span></a>
+                </div>
+            </div>
+        </section>
+
+        {% include 'partials/footer.html.twig' %}
+
+        <script>
+            (function () {
+                "use strict";
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+                /* Scroll reveal */
+                var revealEls = Array.prototype.slice.call(
+                    document.querySelectorAll(".cx-reveal"),
+                );
+                if (reduced || !("IntersectionObserver" in window)) {
+                    revealEls.forEach(function (el) {
+                        el.classList.add("in-view");
+                    });
+                } else {
+                    var io = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) return;
+                                var el = entry.target;
+                                io.unobserve(el);
+                                el.classList.add("in-view");
+                                window.setTimeout(function () {
+                                    el.style.setProperty("--i", "0");
+                                }, 1200);
+                            });
+                        },
+                        { threshold: 0.15, rootMargin: "0px 0px -40px 0px" },
+                    );
+                    revealEls.forEach(function (el) {
+                        io.observe(el);
+                    });
+                }
+
+                /* Auto-dismiss success flash after ~6s */
+                var successMsg = document.getElementById("cxSuccessMsg");
+                if (successMsg) {
+                    window.setTimeout(function () {
+                        successMsg.classList.add("cx-out");
+                        window.setTimeout(function () {
+                            successMsg.style.display = "none";
+                        }, 450);
+                    }, 6000);
+                }
+
+                /* "SENDING..." label on submit */
+                var form = document.getElementById("cxContactForm");
+                if (form) {
+                    form.addEventListener("submit", function () {
+                        var btn = form.querySelector(".cx-submit");
+                        var label = form.querySelector(".cx-submit-label");
+                        if (btn && !btn.disabled) {
+                            btn.disabled = true;
+                            if (label) {
+                                label.textContent = "SENDING...";
+                            }
+                        }
+                    });
+                }
+            })();
+        </script>
+
+    </body>
+</html>

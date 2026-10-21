@@ -1,0 +1,34 @@
+{# =========================================================
+   ROOMHIVE — ACCOUNT SIDEBAR
+   Include as: {% include 'partials/sidebar.html.twig' with { active_sidebar: 'overview' } %}
+
+   Relies on .up-side-* classes in myaccount.css. Adjust the
+   hrefs as you port more account pages.
+========================================================= #}
+{% set side_links = {
+    'overview':     { 'label': 'Overview',       'icon': 'layout-dashboard', 'href': path('app_profile') },
+    'bookings':     { 'label': 'My Bookings',    'icon': 'calendar-days',    'href': '/bookings' },
+    'wishlist':     { 'label': 'Wishlist',       'icon': 'heart',            'href': '/wishlist' },
+    'messages':     { 'label': 'Messages',       'icon': 'message-circle',   'href': '/messages' },
+    'notifications':{ 'label': 'Notifications',  'icon': 'bell',             'href': '/notifications' },
+    'wallet':       { 'label': 'Wallet',         'icon': 'wallet',           'href': '/wallet' },
+    'settings':     { 'label': 'Profile Settings','icon': 'settings',        'href': '/settings' },
+} %}
+
+<aside class="up-sidebar">
+    <nav class="up-side-nav">
+        {% for key, link in side_links %}
+            <a
+                href="{{ link.href }}"
+                class="up-side-link{{ active_sidebar|default('') == key ? ' active' : '' }}"
+            >
+                <i data-lucide="{{ link.icon }}" aria-hidden="true"></i>
+                {{ link.label }}
+            </a>
+        {% endfor %}
+        <a href="{{ path('app_logout') }}" class="up-side-link up-side-logout">
+            <i data-lucide="log-out" aria-hidden="true"></i>
+            Logout
+        </a>
+    </nav>
+</aside>

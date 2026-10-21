@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>About Us — RoomHive</title>
+
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/about.css') }}">
+
+        <script>
+            try {
+                if (localStorage.getItem("rhTheme") === "dark") {
+                    document.documentElement.setAttribute("data-theme-preview", "1");
+                }
+            } catch (e) {}
+        </script>
+        <script>
+            document.documentElement.classList.add("js");
+        </script>
+    </head>
+
+    <body>
+
+        {% include 'partials/navbar.html.twig' with { current_page: '/about-us' } %}
+
+        <main class="ab-page">
+            <div class="ab-wrap">
+
+                <section class="ab-hero ab-reveal" style="--d: .05s;">
+                    <span class="ab-hero-badge">
+                        <span class="ab-pulse-dot" style="width:8px;height:8px;background:var(--ab-honey);border-radius:50%;display:inline-block;"></span>
+                        About RoomHive
+                    </span>
+                    <h1>Find. Stay.<br><span class="ab-accent">Feel at Home.</span></h1>
+                    <p class="ab-lead">
+                        RoomHive is a homegrown rental platform built for Negros
+                        Oriental — connecting students, professionals, and families
+                        with rooms, apartments, and houses they can trust.
+                    </p>
+                </section>
+
+                <section class="ab-section ab-reveal" style="--d: .12s;">
+                    <div class="ab-section-head">
+                        <span class="ab-eyebrow">Our Story</span>
+                        <h2 class="ab-section-title">Built here, for here</h2>
+                    </div>
+                    <div class="ab-story-grid">
+                        <div class="ab-story-card">
+                            <h3>The problem we kept seeing</h3>
+                            <p>
+                                Finding a place in Negros Oriental meant rented
+                                sight-unseen deals, photos that never matched reality,
+                                surprise charges, and listings that were long gone by
+                                the time you called. Renters deserved better — and so
+                                did the honest landlords doing things right.
+                            </p>
+                        </div>
+                        <div class="ab-story-card">
+                            <h3>Why a hive?</h3>
+                            <p>
+                                A hive works because every cell has a purpose and
+                                everything is built together. That's how we treat
+                                renting: every listing is hand-reviewed before it goes
+                                live, every payment is protected, and every host and
+                                tenant plays by the same clear rules. No agents. No
+                                guesswork. Just a place to call home.
+                            </p>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="ab-section ab-reveal" style="--d: .18s;">
+                    <div class="ab-section-head">
+                        <span class="ab-eyebrow">What We Stand For</span>
+                        <h2 class="ab-section-title">Simple, safe, and honest</h2>
+                    </div>
+                    <div class="ab-values-grid">
+                        <div class="ab-value-card">
+                            <span class="ab-value-icon"><i data-lucide="badge-check" aria-hidden="true"></i></span>
+                            <h4>Every listing hand-reviewed</h4>
+                            <p>Our team checks each listing before it goes live. What you see on the page is what you'll find at the door.</p>
+                        </div>
+                        <div class="ab-value-card">
+                            <span class="ab-value-icon"><i data-lucide="shield-check" aria-hidden="true"></i></span>
+                            <h4>Secure reservations</h4>
+                            <p>Booking a space means a protected 50% reserve held through RoomHive — never handed over blind.</p>
+                        </div>
+                        <div class="ab-value-card">
+                            <span class="ab-value-icon"><i data-lucide="receipt-text" aria-hidden="true"></i></span>
+                            <h4>No hidden fees</h4>
+                            <p>The rate on the listing is the rate you pay. If a cancellation ever applies, it's written down first.</p>
+                        </div>
+                        <div class="ab-value-card">
+                            <span class="ab-value-icon"><i data-lucide="headset" aria-hidden="true"></i></span>
+                            <h4>Support around the clock</h4>
+                            <p>Questions at noon or midnight — our team is on call for hosts and tenants, every day of the week.</p>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="ab-section ab-reveal" style="--d: .24s;">
+                    <div class="ab-section-head">
+                        <span class="ab-eyebrow">How It Works</span>
+                        <h2 class="ab-section-title">Three steps to move-in day</h2>
+                    </div>
+                    <div class="ab-steps">
+                        <div class="ab-step">
+                            <span class="ab-step-icon"><i data-lucide="search" aria-hidden="true"></i></span>
+                            <h4>Browse real listings</h4>
+                            <p>Filter by location, price, and amenities. Every photo, rate, and detail has already been reviewed by our team.</p>
+                        </div>
+                        <div class="ab-step">
+                            <span class="ab-step-icon"><i data-lucide="hand-coins" aria-hidden="true"></i></span>
+                            <h4>Reserve with 50%</h4>
+                            <p>Send your request and secure the space with a half payment. The host signs your official receipt to confirm.</p>
+                        </div>
+                        <div class="ab-step">
+                            <span class="ab-step-icon"><i data-lucide="key-round" aria-hidden="true"></i></span>
+                            <h4>Move in</h4>
+                            <p>Pay the balance at move-in and settle in. Your booking, receipts, and stay details live in your account.</p>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="ab-section ab-reveal" style="--d: .3s;">
+                    <div class="ab-host-band">
+                        <div class="ab-host-copy">
+                            <span class="ab-eyebrow">For Property Owners</span>
+                            <h3>Your empty space could be someone's home</h3>
+                            <p>
+                                List a room, unit, or whole house in minutes. We handle
+                                the visibility, the verification, and the paper trail —
+                                you approve bookings and get paid. It costs nothing to list.
+                            </p>
+                        </div>
+                        <a href="/become-a-host" class="ab-host-cta">
+                            <i data-lucide="key-round" aria-hidden="true"></i> LIST YOUR SPACE
+                        </a>
+                    </div>
+                </section>
+
+                <section class="ab-close-cta ab-reveal" style="--d: .36s;">
+                    <h3>Ready to find your place?</h3>
+                    <p>
+                        Browse verified listings across Dumaguete and Negros Oriental —
+                        or say hello if you have a question we didn't cover.
+                    </p>
+                    <div class="ab-btn-row">
+                        <a href="/listings" class="ab-btn ab-btn-primary">
+                            <i data-lucide="search" aria-hidden="true"></i> BROWSE LISTINGS
+                        </a>
+                        <a href="/contacts" class="ab-btn ab-btn-outline">
+                            <i data-lucide="headset" aria-hidden="true"></i> CONTACT US
+                        </a>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+
+        {% include 'partials/footer.html.twig' %}
+
+        {# Reduced-motion fallback for the CSS-gated reveal #}
+        <script>
+            (function () {
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                if (reduced || !("IntersectionObserver" in window)) {
+                    document.querySelectorAll(".ab-reveal").forEach(function (el) {
+                        el.classList.add("ab-in");
+                    });
+                }
+            })();
+        </script>
+
+    </body>
+</html>

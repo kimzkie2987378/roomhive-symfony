@@ -1,0 +1,91 @@
+{# =========================================================
+   ROOMHIVE — SHARED FOOTER (Twig port of includes/footer.php)
+   Static, no inputs required. Include as:
+   {% include 'partials/footer.html.twig' %}
+========================================================= #}
+
+<style>
+    .footer-contact-line {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .footer-contact-line svg {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+    }
+</style>
+
+<footer class="site-footer">
+    <div class="footer-top">
+        <div class="footer-brand">
+            <a href="/">
+                <img src="{{ asset('images/RoomHiveLogos.png') }}" alt="RoomHive Logo" class="footer-logo">
+            </a>
+            <p class="footer-tagline">Find, stay, relax, at home. RoomHive helps you discover comfortable stays across Negros Oriental.</p>
+            <div class="footer-contact-line">
+                <i data-lucide="phone"></i>
+                <span>0927 569 3574</span>
+            </div>
+            <div class="footer-contact-line">
+                <i data-lucide="mail"></i>
+                <span>kimdivino55@gmail.com</span>
+            </div>
+            <div class="footer-contact-line">
+                <i data-lucide="map-pin"></i>
+                <span>Dumaguete City, Negros Oriental, Philippines</span>
+            </div>
+        </div>
+        <div class="footer-links">
+            <span class="footer-heading">LISTINGS</span>
+            <a href="/listings?category=studio-loft">Studios</a>
+            <a href="/listings?category=shared-bedroom">Shared Rooms</a>
+            <a href="/listings?category=entire-house">Entire House</a>
+            <a href="/listings">Featured Stays</a>
+        </div>
+        <div class="footer-links">
+            <span class="footer-heading">QUICK LINKS</span>
+            <a href="/about-us">About Us</a>
+            <a href="/contacts">Contact</a>
+            <a href="/become-a-host">Become a Host</a>
+        </div>
+        <div class="footer-contact">
+            <span class="footer-heading">GET THE APP</span>
+            <div class="footer-app-badges">
+                <img src="{{ asset('images/GooglePlay.jpg') }}" alt="Get it on Google Play">
+                <img src="{{ asset('images/AppStore.jpg') }}" alt="Download on the App Store">
+            </div>
+        </div>
+    </div>
+    <div class="footer-bottom">
+        <p>&copy; {{ "now"|date("Y") }} RoomHive. All rights reserved.</p>
+    </div>
+</footer>
+
+{# Lucide renderer — guarded; shares the navbar's __rhNavbarLucide
+   key so it never double-runs. createIcons() is idempotent anyway. #}
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script>
+    (function () {
+        "use strict";
+
+        if (window.__rhNavbarLucide) {
+            return;
+        }
+        window.__rhNavbarLucide = true;
+
+        function renderFooterIcons() {
+            if (window.lucide && typeof window.lucide.createIcons === "function") {
+                window.lucide.createIcons();
+            }
+        }
+
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", renderFooterIcons);
+        } else {
+            renderFooterIcons();
+        }
+    })();
+</script>

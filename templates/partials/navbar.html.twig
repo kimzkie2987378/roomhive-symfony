@@ -1,0 +1,374 @@
+{# =========================================================
+   ROOMHIVE — SHARED NAVBAR (Twig port of includes/navbar.php)
+
+   Include as:  {% include 'partials/navbar.html.twig' %}
+
+   Optional overrides (set before including, or pass from the
+   controller): is_logged_in, navigation, current_page,
+   nav_avatar, notification_count, is_host, logo_href,
+   home_href, guest_cta_href, guest_cta_label, wallet_href
+
+   === WALLET ADDED ===
+   Wallet link in the account dropdown (/wallet), positioned
+   between Messages and Logout — Logout stays last as the
+   destructive action. Same destination for hosts and
+   non-hosts for now; make walletHref role-aware the same
+   way as messagesHref if a host wallet page is added later.
+
+   === FIXED (this version) ===
+   - logoHref no longer calls the non-existent
+     logoHrefOverride() Twig function (was crashing every
+     page that renders the navbar). Falls back to navHomeHref
+     like the legacy navbar.php.
+========================================================= #}
+
+{# Login state: page value wins, session as fallback (mirrors
+   the legacy `$isLoggedIn ?? $_SESSION['logged_in']`). #}
+{% set isLoggedIn = is_logged_in is defined ? is_logged_in : app.session.get('logged_in', false) %}
+{% set isHost = (is_host is defined and is_host) or app.session.get('is_host', false) == true %}
+
+{# Default guest navigation — pages can pass their own array. #}
+{% set navigation = navigation is defined ? navigation : {
+    'HOME':          '/',
+    'LISTINGS':      '/listings',
+    'HOW IT WORKS':  '/how-it-works',
+    'BECOME A HOST': '/become-a-host',
+    'CONTACTS':      '/contacts',
+} %}
+
+{# HIVE CLUB REMOVED — defensive filter (same as legacy) #}
+{% set navigation = navigation|filter((href, name) => name|upper != 'HIVE CLUB' and 'hiveclub' not in (href|lower)) %}
+
+{% set currentPage = current_page is defined ? current_page : '' %}
+{% set aboutHref = '/about-us' %}
+
+{# ABOUT US AUTO-INJECT — detected here, rendered in the loop
+   right after BECOME A HOST (or appended if it's absent). #}
+{% set hasAbout = navigation|filter((href, name) => name|upper == 'ABOUT US' or 'aboutus' in (href|lower))|length > 0 %}
+{% set hasBecomeHost = 'BECOME A HOST' in navigation|keys %}
+
+{# HOME link — logged-in users go to (legacy) userhome #}
+{% set navHomeHref = home_href is defined and home_href ? home_href : (isLoggedIn ? '/' : '/') %}
+{% set logoHref = logo_href is defined and logo_href ? logo_href : navHomeHref %}
+
+{% set guestCtaHref = guest_cta_href is defined ? guest_cta_href : '/login' %}
+{% set guestCtaLabel = guest_cta_label is defined ? guest_cta_label : 'LIST YOUR SPACE' %}
+
+{% set navAvatar = nav_avatar is defined ? nav_avatar : '' %}
+{% set notifCount = notification_count is defined ? notification_count : 0 %}
+{% set hasRealAvatar = navAvatar|trim != '' and 'default-avatar' not in (navAvatar|lower) %}
+
+{# Role-aware links #}
+{% set messagesHref = isHost ? '/messages' : '/messages' %}
+{% set settingsHref = isHost ? '/settings' : '/settings' %}
+{% set profileLabel = isHost ? 'Host Dashboard' : 'User Profile' %}
+{% set bellHref = isHost ? '/notifications' : '/notifications' %}
+{% set profileHref = isHost ? '/profile' : '/profile' %}
+
+{# Wallet — same destination for both roles for now.
+   Make it role-aware (e.g. /host/wallet) if a host wallet
+   page is added later. #}
+{% set walletHref = wallet_href is defined and wallet_href ? wallet_href : '/wallet' %}
+
+{% set logoutHref = '/logout' %}
+
+<style>
+    header.navbar .account-dd {
+        position: relative;
+    }
+    header.navbar .account-dd .my-account {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: none;
+        border: none;
+        cursor: pointer;
+        font: inherit;
+        color: inherit;
+    }
+    header.navbar .account-dd .account-circle img {
+        width: 42px;
+        height: 42px;
+        padding: 5px;
+        background: #1c2a38;
+        border-radius: 50%;
+        object-fit: contain;
+        display: block;
+    }
+    header.navbar .account-dd .account-avatar-icon {
+        width: 42px;
+        height: 42px;
+        padding: 8px;
+        box-sizing: border-box;
+        background: #1c2a38;
+        border-radius: 50%;
+        color: #f6c04e;
+        display: block;
+    }
+    header.navbar .account-dd .my-account span:not(.account-circle) {
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+        color: #1c2a38;
+    }
+    header.navbar .account-dd .dropdown-caret {
+        font-size: 0.75em;
+        transition: transform 0.15s ease;
+    }
+    header.navbar .account-dd.open .dropdown-caret {
+        transform: rotate(180deg);
+    }
+    header.navbar .account-dd-menu {
+        display: none;
+        position: absolute;
+        top: calc(100% + 10px);
+        right: 0;
+        min-width: 190px;
+        padding: 6px;
+        background: #ffffff;
+        border: 1px solid rgba(28, 42, 56, 0.08);
+        border-radius: 12px;
+        box-shadow: 0 14px 30px rgba(28, 42, 56, 0.14);
+        flex-direction: column;
+        z-index: 1100;
+    }
+    header.navbar .account-dd.open .account-dd-menu {
+        display: flex;
+        animation: sharedDDIn 0.2s ease;
+    }
+    @keyframes sharedDDIn {
+        from {
+            opacity: 0;
+            transform: translateY(-6px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    header.navbar .account-dd-menu a {
+        display: block;
+        padding: 10px 12px;
+        border-radius: 8px;
+        color: #1c2a38;
+        font-size: 13px;
+        font-weight: 600;
+        text-decoration: none;
+        white-space: nowrap;
+        transition: 0.15s ease;
+    }
+    header.navbar .account-dd-menu a:hover {
+        background: #fdf1dc;
+        color: #b07708;
+    }
+    header.navbar,
+    header.navbar .nav-links {
+        overflow: visible;
+    }
+    header.navbar .nav-links a {
+        position: relative;
+        padding-bottom: 6px;
+        color: #1c1c1c;
+        transition: color 0.2s ease;
+    }
+    header.navbar .nav-links a::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        height: 2px;
+        width: 100%;
+        background: #dd930f;
+        transform: scaleX(0);
+        transform-origin: left;
+        transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    header.navbar .nav-links a:hover,
+    header.navbar .nav-links a.active {
+        color: #dd930f;
+    }
+    header.navbar .nav-links a:hover::after,
+    header.navbar .nav-links a.active::after {
+        transform: scaleX(1);
+    }
+    header.navbar .nav-links a.list-space::after,
+    header.navbar .nav-links a.nav-bell::after,
+    header.navbar .account-dd .my-account::after {
+        display: none;
+    }
+
+    /* =====================================================
+               LIST YOUR SPACE — white, animation removed
+               (everything else comes from style.css untouched)
+            ====================================================== */
+    header.navbar .nav-links a.list-space {
+        color: #ffffff;
+        animation: none !important;
+    }
+
+    header.navbar .nav-bell {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        cursor: pointer;
+    }
+    header.navbar .nav-bell img {
+        width: 24px;
+        height: 24px;
+        object-fit: contain;
+        display: block;
+        transition: transform 0.15s ease;
+    }
+    header.navbar .nav-bell:hover img {
+        transform: scale(1.1);
+    }
+    header.navbar .nav-bell-badge {
+        position: absolute;
+        top: -6px;
+        right: -8px;
+        min-width: 17px;
+        height: 17px;
+        padding: 0 4px;
+        background: #e14b4b;
+        color: #ffffff;
+        font-size: 10px;
+        font-weight: 800;
+        line-height: 17px;
+        text-align: center;
+        border: 2px solid #ffffff;
+        border-radius: 999px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+        z-index: 10;
+    }
+</style>
+
+<header class="navbar">
+
+    <a href="{{ logoHref }}" class="logo">
+        <img src="{{ asset('images/RoomHiveLogos.png') }}" alt="RoomHive Logo">
+    </a>
+
+    <nav class="nav-links">
+
+        {% for name, link in navigation %}
+            {% set effectiveLink = (name|upper == 'HOME') ? navHomeHref : link %}
+            <a href="{{ effectiveLink }}" class="{{ effectiveLink == currentPage ? 'active' : '' }}">
+                {{ name }}
+            </a>
+            {# ABOUT US auto-inject — right after BECOME A HOST #}
+            {% if not hasAbout and name|upper == 'BECOME A HOST' %}
+                <a href="{{ aboutHref }}" class="{{ aboutHref == currentPage ? 'active' : '' }}">ABOUT US</a>
+            {% endif %}
+        {% endfor %}
+
+        {# Fallback if the page's nav has no BECOME A HOST entry #}
+        {% if not hasAbout and not hasBecomeHost %}
+            <a href="{{ aboutHref }}" class="{{ aboutHref == currentPage ? 'active' : '' }}">ABOUT US</a>
+        {% endif %}
+
+        {% if isLoggedIn %}
+
+            <a href="{{ bellHref }}" class="nav-bell" aria-label="Notifications">
+                <img src="{{ asset('images/bell.png') }}" alt="">
+                {% if notifCount > 0 %}
+                    <span class="nav-bell-badge">{{ notifCount }}</span>
+                {% endif %}
+            </a>
+
+            <div class="account-dd">
+                <button type="button" class="my-account account-dd-toggle" aria-haspopup="true" aria-expanded="false">
+                    <span class="account-circle">
+                        {% if hasRealAvatar %}
+                            <img src="{{ navAvatar }}" alt="My Account" id="navAccountAvatarImg">
+                        {% else %}
+                            <i data-lucide="circle-user-round" class="account-avatar-icon" aria-hidden="true"></i>
+                        {% endif %}
+                    </span>
+                    <span>MY PROFILE</span>
+                    <span class="dropdown-caret">&#9662;</span>
+                </button>
+
+                <div class="account-dd-menu">
+                    <a href="{{ profileHref }}">{{ profileLabel }}</a>
+                    <a href="{{ settingsHref }}">Profile Settings</a>
+                    <a href="{{ messagesHref }}">Messages</a>
+                    <a href="{{ walletHref }}">Wallet</a>
+                    <a href="{{ logoutHref }}">Logout</a>
+                </div>
+            </div>
+
+        {% else %}
+
+            <a href="{{ guestCtaHref }}" class="list-space">{{ guestCtaLabel }}</a>
+
+        {% endif %}
+
+    </nav>
+
+</header>
+
+{# LUCIDE LOADER — guarded, same as legacy #}
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script>
+    (function () {
+        "use strict";
+        if (window.__rhNavbarLucide) {
+            return;
+        }
+        window.__rhNavbarLucide = true;
+        function renderNavIcons() {
+            if (window.lucide && typeof window.lucide.createIcons === "function") {
+                window.lucide.createIcons();
+            }
+        }
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", renderNavIcons);
+        } else {
+            renderNavIcons();
+        }
+    })();
+</script>
+
+{# Shared dropdown script — guarded, same as legacy #}
+<script>
+    (function () {
+        "use strict";
+        if (window.__sharedNavDD) {
+            return;
+        }
+        window.__sharedNavDD = true;
+        document.addEventListener("click", function (event) {
+            var toggle = event.target.closest
+                ? event.target.closest(".account-dd-toggle")
+                : null;
+            if (toggle) {
+                var dd = toggle.closest(".account-dd");
+                if (dd) {
+                    var isOpen = dd.classList.toggle("open");
+                    toggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+                }
+                return;
+            }
+            document.querySelectorAll(".account-dd.open").forEach(function (dd) {
+                dd.classList.remove("open");
+                var btn = dd.querySelector(".account-dd-toggle");
+                if (btn) {
+                    btn.setAttribute("aria-expanded", "false");
+                }
+            });
+        });
+        document.addEventListener("keydown", function (event) {
+            if (event.key === "Escape") {
+                document
+                    .querySelectorAll(".account-dd.open")
+                    .forEach(function (dd) {
+                        dd.classList.remove("open");
+                        var btn = dd.querySelector(".account-dd-toggle");
+                        if (btn) {
+                            btn.setAttribute("aria-expanded", "false");
+                        }
+                    });
+            }
+        });
+    })();
+</script>

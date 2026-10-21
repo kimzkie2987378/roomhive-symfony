@@ -1,0 +1,1588 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>RoomHive - Become a Host</title>
+
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+
+        <script>
+            document.documentElement.classList.add("js");
+        </script>
+
+        <style>
+            /* =====================================================
+                                                                                                               BECOME-A-HOST ENHANCEMENT LAYER (STEP 1)
+                                                                                                               (unchanged from the legacy page)
+                                                                                                            ====================================================== */
+            .host-page-v2 {
+                --hive-amber: #ecac3a;
+                --hive-amber-dark: #cf8f1f;
+                --hive-honey: #eda423;
+                --hive-honey-light: #f6c04e;
+                --hive-ink: #1c1d22;
+                --hive-ink-soft: #565a66;
+                --hive-cream: #fffaf1;
+                --hive-line: #e9e2d3;
+                --hive-good: #2f9e5b;
+                --hive-bad: #e0524d;
+                --hive-shadow: 0 18px 40px -22px rgba(28, 29, 34, 0.35);
+
+                position: relative;
+            }
+
+            .host-page-v2::before {
+                content: "";
+
+                position: absolute;
+                inset: 0;
+
+                background-image: url("data:image/svg+xml,%3Csvg width='28' height='49' viewBox='0 0 28 49' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23eda423' fill-opacity='0.07' fill-rule='nonzero'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/svg%3E");
+                background-size: 28px 49px;
+
+                -webkit-mask-image: linear-gradient(
+                    180deg,
+                    rgba(0, 0, 0, 0.9),
+                    transparent 55%
+                );
+                mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), transparent 55%);
+
+                pointer-events: none;
+
+                z-index: 0;
+            }
+
+            .host-page-v2 > * {
+                position: relative;
+
+                z-index: 1;
+            }
+
+            .hive-blob {
+                position: absolute;
+
+                border-radius: 50%;
+                filter: blur(70px);
+
+                pointer-events: none;
+
+                z-index: 0;
+            }
+
+            .hive-blob-1 {
+                width: 360px;
+                height: 360px;
+
+                top: -140px;
+                right: -120px;
+
+                background: radial-gradient(
+                    circle at 30% 30%,
+                    rgba(246, 196, 78, 0.8),
+                    rgba(237, 164, 35, 0.22) 60%,
+                    transparent 75%
+                );
+
+                animation: hiveDrift 14s ease-in-out infinite alternate;
+            }
+
+            .hive-blob-2 {
+                width: 260px;
+                height: 260px;
+
+                top: 420px;
+                left: -140px;
+
+                background: radial-gradient(
+                    circle at 60% 40%,
+                    rgba(246, 196, 78, 0.6),
+                    rgba(237, 164, 35, 0.18) 60%,
+                    transparent 75%
+                );
+
+                animation: hiveDrift 18s ease-in-out infinite alternate-reverse;
+            }
+
+            @keyframes hiveRise {
+                from {
+                    opacity: 0;
+                    transform: translateY(14px);
+                }
+
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+
+            .js .host-page-v2 .host-header,
+            .js .host-page-v2 .host-form-card {
+                animation: hiveRise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+            }
+
+            .js .host-page-v2 .host-form-card {
+                animation-delay: 0.08s;
+            }
+
+            .host-page-v2 .host-header {
+                text-align: center;
+            }
+
+            .host-page-v2 .hero-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+
+                padding: 8px 16px;
+
+                background: #ffffff;
+
+                border: 1px solid rgba(237, 164, 35, 0.35);
+                border-radius: 999px;
+
+                box-shadow: 0 4px 14px rgba(237, 164, 35, 0.12);
+
+                color: #b07708;
+
+                font-size: 11.5px;
+                font-weight: 700;
+                letter-spacing: 0.8px;
+                text-transform: uppercase;
+            }
+
+            .hive-pulse-dot {
+                position: relative;
+
+                width: 8px;
+                height: 8px;
+
+                background: var(--hive-honey);
+                border-radius: 50%;
+            }
+
+            .hive-pulse-dot::after {
+                content: "";
+
+                position: absolute;
+                inset: 0;
+
+                background: var(--hive-honey);
+                border-radius: 50%;
+
+                animation: hivePing 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+            }
+
+            .host-page-v2 .host-header h1 {
+                position: relative;
+
+                display: inline-block;
+            }
+
+            .host-page-v2 .host-header h1::after {
+                content: "";
+
+                position: absolute;
+
+                width: 64px;
+                height: 4px;
+
+                left: 50%;
+                bottom: -14px;
+                margin-left: -32px;
+
+                background: linear-gradient(90deg, #f6b93b, var(--hive-honey));
+
+                border-radius: 2px;
+            }
+
+            .hive-shimmer {
+                background: linear-gradient(92deg, #eda423 0%, #f6c04e 45%, #eda423 90%);
+                background-size: 200% auto;
+
+                -webkit-background-clip: text;
+                background-clip: text;
+                -webkit-text-fill-color: transparent;
+                color: transparent;
+
+                animation: hiveShimmer 3.5s linear infinite;
+            }
+
+            .host-page-v2 .host-steps {
+                position: relative;
+            }
+
+            .host-page-v2 .host-step {
+                transition: transform 0.25s ease;
+            }
+
+            .host-page-v2 .host-step[data-state="current"] .step-circle {
+                box-shadow:
+                    0 0 0 5px rgba(236, 172, 58, 0.28),
+                    var(--hive-shadow);
+                transform: translateY(-2px) scale(1.04);
+            }
+
+            .host-page-v2 .host-step[data-state="current"] .step-number {
+                background: var(--hive-amber);
+                color: var(--hive-ink);
+            }
+
+            .host-page-v2 .host-step[data-state="upcoming"] {
+                opacity: 0.55;
+            }
+
+            .host-page-v2 .step-tag {
+                display: inline-block;
+                margin-top: 6px;
+                padding: 3px 10px;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.02em;
+                border-radius: 999px;
+                background: rgba(236, 172, 58, 0.16);
+                color: var(--hive-amber-dark);
+            }
+
+            .host-progress {
+                max-width: 760px;
+                margin: 28px auto 0;
+                padding: 0 4px;
+            }
+
+            .host-progress-top {
+                display: flex;
+                justify-content: space-between;
+                align-items: baseline;
+                font-size: 13px;
+                color: var(--hive-ink-soft);
+                margin-bottom: 8px;
+            }
+
+            .host-progress-top strong {
+                color: var(--hive-ink);
+                font-weight: 600;
+            }
+
+            .host-progress-track {
+                height: 8px;
+                border-radius: 999px;
+                background: var(--hive-line);
+                overflow: hidden;
+            }
+
+            .host-progress-fill {
+                height: 100%;
+                width: 0%;
+                border-radius: 999px;
+                background: linear-gradient(
+                    90deg,
+                    var(--hive-amber-dark),
+                    var(--hive-amber)
+                );
+                transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+
+            .host-page-v2 .form-errors {
+                max-width: 760px;
+                margin: 24px auto 0;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                border: 1px solid #f3c9c7;
+                background: #fdf1f0;
+                border-radius: 14px;
+                padding: 16px 18px;
+                animation: hiveRise 0.35s ease both;
+            }
+
+            .host-page-v2 .form-errors::before {
+                content: "We need a couple of fixes before continuing";
+                font-weight: 600;
+                color: var(--hive-bad);
+                margin-bottom: 2px;
+            }
+
+            .host-page-v2 .form-errors p {
+                margin: 0;
+                padding-left: 20px;
+                position: relative;
+                font-size: 14px;
+                color: #7a2f2c;
+            }
+
+            .host-page-v2 .form-errors p::before {
+                content: "!";
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 14px;
+                height: 14px;
+                border-radius: 50%;
+                background: var(--hive-bad);
+                color: #fff;
+                font-size: 10px;
+                line-height: 14px;
+                text-align: center;
+                font-weight: 700;
+            }
+
+            .host-page-v2 .host-form-card {
+                max-width: 760px;
+                margin: 36px auto 0;
+                box-shadow: var(--hive-shadow);
+                border: 1px solid var(--hive-line);
+                border-radius: 18px;
+            }
+
+            .host-page-v2 .form-heading h2 {
+                position: relative;
+
+                display: inline-block;
+            }
+
+            .host-page-v2 .form-heading h2::after {
+                content: "";
+
+                position: absolute;
+
+                width: 42px;
+                height: 3px;
+
+                left: 0;
+                bottom: -8px;
+
+                background: linear-gradient(90deg, #f6b93b, var(--hive-honey));
+
+                border-radius: 2px;
+            }
+
+            .host-page-v2 .form-heading p {
+                margin-top: 18px;
+            }
+
+            .host-page-v2 .form-grid {
+                display: grid;
+                gap: 18px 20px;
+                margin-bottom: 22px;
+            }
+
+            .host-page-v2 .form-grid .input-group {
+                margin-bottom: 0;
+            }
+
+            .host-page-v2 .form-grid.two-columns {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .host-page-v2 .form-grid.three-columns {
+                grid-template-columns: repeat(3, 1fr);
+            }
+
+            @media (max-width: 720px) {
+                .host-page-v2 .form-grid.two-columns,
+                .host-page-v2 .form-grid.three-columns {
+                    grid-template-columns: 1fr;
+                }
+            }
+
+            .host-page-v2 .input-group {
+                position: relative;
+            }
+
+            .host-page-v2 .input-group label {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+
+            .host-page-v2 .input-group input,
+            .host-page-v2 .input-group select {
+                transition:
+                    border-color 0.18s ease,
+                    box-shadow 0.18s ease,
+                    background-color 0.18s ease;
+            }
+
+            .host-page-v2 .input-group input:focus,
+            .host-page-v2 .input-group select:focus {
+                outline: none;
+                border-color: var(--hive-amber-dark) !important;
+                box-shadow: 0 0 0 4px rgba(236, 172, 58, 0.18);
+            }
+
+            .field-hint {
+                display: block;
+                min-height: 16px;
+                margin-top: 5px;
+                font-size: 11.5px;
+                color: var(--hive-ink-soft);
+                transition: color 0.15s ease;
+            }
+
+            .input-group.is-valid input,
+            .input-group.is-valid select {
+                border-color: var(--hive-good) !important;
+                background-image: none;
+            }
+
+            .input-group.is-valid .field-hint {
+                color: var(--hive-good);
+                font-weight: 500;
+            }
+
+            .input-group.is-invalid input,
+            .input-group.is-invalid select {
+                border-color: var(--hive-bad) !important;
+            }
+
+            .input-group.is-invalid .field-hint {
+                color: var(--hive-bad);
+                font-weight: 500;
+            }
+
+            @keyframes hiveShake {
+                10%,
+                90% {
+                    transform: translateX(-1px);
+                }
+
+                20%,
+                80% {
+                    transform: translateX(2px);
+                }
+
+                30%,
+                50%,
+                70% {
+                    transform: translateX(-4px);
+                }
+
+                40%,
+                60% {
+                    transform: translateX(4px);
+                }
+            }
+
+            .host-page-v2 .host-form-card.shake {
+                animation: hiveShake 0.4s;
+            }
+
+            .host-page-v2 .upload-box {
+                border: 2px dashed #e2d4b6;
+
+                border-radius: 16px;
+
+                background: linear-gradient(160deg, #fffdf6 0%, #fdf3e0 100%);
+
+                cursor: pointer;
+
+                transition:
+                    border-color 0.2s ease,
+                    background-color 0.2s ease,
+                    box-shadow 0.25s ease,
+                    transform 0.15s ease;
+            }
+
+            .host-page-v2 .upload-box:hover {
+                border-color: var(--hive-honey);
+
+                box-shadow: 0 12px 26px rgba(237, 164, 35, 0.16);
+
+                transform: translateY(-2px);
+            }
+
+            .host-page-v2 .upload-box .upload-icon {
+                color: var(--hive-honey);
+                font-size: 32px;
+
+                transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+            }
+
+            .host-page-v2 .upload-box:hover .upload-icon {
+                transform: translateY(-4px) scale(1.12);
+            }
+
+            .host-page-v2 .upload-box .upload-text strong {
+                color: var(--hive-ink);
+            }
+
+            .host-page-v2 .upload-box .upload-text span {
+                color: var(--hive-ink-soft);
+            }
+
+            .upload-box {
+                position: relative;
+                overflow: hidden;
+            }
+
+            .upload-box.drag-over {
+                border-color: var(--hive-amber-dark) !important;
+                background-color: rgba(236, 172, 58, 0.08);
+                transform: scale(1.005);
+            }
+
+            .upload-box.has-image {
+                min-height: 320px;
+                background-color: #111418;
+                background-repeat: no-repeat;
+                background-position: center;
+                background-size: contain;
+            }
+
+            .upload-box.has-image .upload-icon,
+            .upload-box.has-image .upload-text {
+                display: none;
+            }
+
+            .upload-box-overlay {
+                position: absolute;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                z-index: 1;
+                color: #ffffff;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                text-align: center;
+                width: 100%;
+                padding: 10px 12px;
+                background: linear-gradient(to top, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0));
+                animation: hiveRise 0.3s ease both;
+            }
+
+            .upload-box-overlay strong {
+                max-width: 90%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                font-size: 13px;
+            }
+
+            .upload-box-overlay span {
+                font-size: 12px;
+                opacity: 0.85;
+            }
+
+            .upload-box-overlay .upload-check {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                font-size: 11px;
+                color: #9ee6b5;
+                margin-top: 2px;
+            }
+
+            .upload-box .upload-remove-btn {
+                position: absolute;
+                top: 8px;
+                right: 8px;
+                z-index: 2;
+                border: none;
+                background: rgba(0, 0, 0, 0.6);
+                color: #ffffff;
+                width: 28px;
+                height: 28px;
+                border-radius: 50%;
+                font-size: 16px;
+                line-height: 1;
+                cursor: pointer;
+                transition:
+                    background-color 0.15s ease,
+                    transform 0.15s ease;
+
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .upload-box .upload-remove-btn:hover {
+                background: var(--hive-bad);
+                transform: scale(1.08);
+            }
+
+            .upload-error {
+                display: none;
+                margin-top: 8px;
+                font-size: 12.5px;
+                color: var(--hive-bad);
+                font-weight: 500;
+            }
+
+            .upload-error.show {
+                display: block;
+            }
+
+            .upload-secure-note {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 7px;
+
+                margin-top: 10px;
+
+                color: var(--hive-ink-soft);
+
+                font-size: 12px;
+            }
+
+            .upload-secure-note svg {
+                width: 14px;
+                height: 14px;
+
+                color: var(--hive-good);
+                flex-shrink: 0;
+            }
+
+            @media (max-width: 600px) {
+                .upload-box.has-image {
+                    min-height: 220px;
+                }
+            }
+
+            .host-page-v2 .next-button {
+                position: relative;
+                overflow: hidden;
+
+                background: linear-gradient(
+                    135deg,
+                    var(--hive-honey-light),
+                    var(--hive-honey)
+                ) !important;
+
+                border: none !important;
+
+                color: var(--hive-ink) !important;
+
+                font-weight: 700;
+
+                box-shadow: 0 8px 20px rgba(237, 164, 35, 0.35);
+
+                transition:
+                    transform 0.15s ease,
+                    box-shadow 0.2s ease,
+                    opacity 0.15s ease !important;
+            }
+
+            .host-page-v2 .next-button:not(:disabled):hover {
+                transform: translateY(-2px);
+                box-shadow: 0 12px 26px rgba(237, 164, 35, 0.45);
+            }
+
+            .host-page-v2 .next-button:not(:disabled):active {
+                transform: translateY(0) scale(0.98);
+            }
+
+            .host-page-v2 .next-button:disabled {
+                opacity: 0.75;
+                cursor: progress;
+            }
+
+            .host-page-v2 .next-button::after {
+                content: "";
+
+                position: absolute;
+                top: 0;
+                left: -80%;
+
+                width: 50%;
+                height: 100%;
+
+                background: linear-gradient(
+                    100deg,
+                    transparent,
+                    rgba(255, 255, 255, 0.55),
+                    transparent
+                );
+
+                transform: skewX(-20deg);
+
+                animation: hiveSweep 3.6s ease-in-out infinite;
+
+                pointer-events: none;
+            }
+
+            @keyframes hiveSweep {
+                0% {
+                    left: -80%;
+                }
+
+                45%,
+                100% {
+                    left: 130%;
+                }
+            }
+
+            .btn-spinner {
+                display: none;
+                width: 15px;
+                height: 15px;
+                border-radius: 50%;
+                border: 2px solid rgba(28, 29, 34, 0.25);
+                border-top-color: var(--hive-ink);
+                margin-right: 8px;
+                vertical-align: -2px;
+                animation: hiveSpin 0.7s linear infinite;
+            }
+
+            @keyframes hiveSpin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+
+            .next-button.is-loading .btn-spinner {
+                display: inline-block;
+            }
+
+            @keyframes hiveDrift {
+                from {
+                    transform: translate(0, 0) scale(1);
+                }
+
+                to {
+                    transform: translate(30px, -24px) scale(1.08);
+                }
+            }
+
+            @keyframes hivePing {
+                0% {
+                    transform: scale(1);
+                    opacity: 0.7;
+                }
+
+                80%,
+                100% {
+                    transform: scale(2.6);
+                    opacity: 0;
+                }
+            }
+
+            @keyframes hiveShimmer {
+                to {
+                    background-position: 200% center;
+                }
+            }
+
+            svg.lucide {
+                display: inline-block;
+                vertical-align: -0.18em;
+                flex-shrink: 0;
+            }
+
+            .host-page-v2 .step-circle svg {
+                width: 30px;
+                height: 30px;
+                color: var(--hive-ink-soft);
+                stroke-width: 1.9;
+            }
+
+            .host-page-v2 .host-step[data-state="current"] .step-circle svg {
+                color: var(--hive-amber-dark);
+            }
+
+            .host-page-v2 .host-step[data-state="done"] .step-circle svg {
+                color: var(--hive-good);
+            }
+
+            .host-page-v2 .input-group label svg {
+                width: 14px;
+                height: 14px;
+                color: var(--hive-honey-dark);
+            }
+
+            .input-with-icon svg {
+                width: 16px;
+                height: 16px;
+            }
+
+            .host-page-v2 .upload-box .upload-icon {
+                display: inline-flex;
+            }
+
+            .upload-box .upload-icon svg {
+                width: 34px;
+                height: 34px;
+            }
+
+            .upload-box-overlay .upload-check svg {
+                width: 13px;
+                height: 13px;
+                vertical-align: -2px;
+            }
+
+            .upload-box .upload-remove-btn svg {
+                width: 15px;
+                height: 15px;
+            }
+
+            .upload-box-overlay[hidden],
+            .upload-remove-btn[hidden] {
+                display: none !important;
+            }
+
+            .input-group.is-valid .upload-box {
+                border-color: var(--hive-good) !important;
+            }
+
+            .input-group.is-invalid .upload-box {
+                border-color: var(--hive-bad) !important;
+            }
+
+            .next-button {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+            }
+
+            .next-button svg {
+                width: 15px;
+                height: 15px;
+            }
+
+            .next-button.is-loading .next-arrow {
+                display: none;
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .hive-blob,
+                .hive-pulse-dot::after,
+                .hive-shimmer,
+                .host-page-v2 .next-button::after,
+                .host-page-v2 .upload-box .upload-icon {
+                    animation: none !important;
+
+                    opacity: 1 !important;
+                    transform: none !important;
+                }
+
+                .js .host-page-v2 .host-header,
+                .js .host-page-v2 .host-form-card {
+                    animation: none !important;
+
+                    opacity: 1 !important;
+                    transform: none !important;
+                }
+            }
+        </style>
+    </head>
+
+    <body>
+
+        {# ADAPT: your Symfony navbar partial (same pattern as listings) #}
+        {% include 'partials/navbar.html.twig' with { current_page: '/host/become-a-host' } %}
+
+        <main class="host-page host-page-v2">
+
+            <span class="hive-blob hive-blob-1" aria-hidden="true"></span>
+            <span class="hive-blob hive-blob-2" aria-hidden="true"></span>
+
+            <!-- ============ HOST HEADER ============ -->
+            <section class="host-header">
+
+                <span class="hero-badge">
+                    <span class="hive-pulse-dot"></span>
+                    Host Application &middot; Step 1 of 4
+                </span>
+
+                <span class="host-eyebrow" style="display:block; margin-top:18px;">
+                    BECOME A HOST
+                </span>
+
+                <h1>
+                    Start Hosting in
+                    <span class="hive-shimmer">4 Easy Steps</span>
+                </h1>
+
+                <div class="host-steps" style="margin-top:36px;">
+
+                    {% for step in hostSteps %}
+                        {% set stepState = step.number == currentHostStep
+                            ? 'current'
+                            : (step.number < currentHostStep ? 'done' : 'upcoming') %}
+
+                        <div class="host-step" data-state="{{ stepState }}">
+
+                            <div class="step-circle">
+                                <i data-lucide="{{ step.icon }}" role="img" aria-label="{{ step.alt }}"></i>
+                            </div>
+
+                            {% if loop.index < hostSteps|length %}
+                                <div class="step-line"></div>
+                            {% endif %}
+
+                            <div class="step-number">{{ step.number }}</div>
+
+                            <h3>{{ step.title }}</h3>
+
+                            <p>{{ step.description }}</p>
+
+                            {% if stepState == 'current' %}
+                                <span class="step-tag">You're here</span>
+                            {% endif %}
+
+                        </div>
+                    {% endfor %}
+
+                </div>
+
+                <div class="host-progress">
+                    <div class="host-progress-top">
+                        <span>Application details</span>
+                        <span><strong id="progressCount">0</strong> of <span id="progressTotal">8</span> fields complete</span>
+                    </div>
+                    <div class="host-progress-track">
+                        <div class="host-progress-fill" id="progressFill"></div>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- ============ ERROR MESSAGES ============ -->
+            {% if errors|length > 0 %}
+                <div class="form-errors" role="alert" aria-live="assertive">
+                    {% for error in errors %}
+                        <p>{{ error }}</p>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <!-- ============ HOST FORM ============ -->
+            <section class="host-form-card">
+
+                <div class="form-heading">
+                    <h2>Tell Us About You</h2>
+                    <p>Let's get to know you first.</p>
+                </div>
+
+                <form
+                    action="{{ path('app_host_apply') }}"
+                    method="POST"
+                    enctype="multipart/form-data"
+                    id="hostForm"
+                    novalidate
+                >
+
+                    <input type="hidden" name="_token" value="{{ csrf }}">
+
+                    {# ---------- ROW 1 ---------- #}
+                    <div class="form-grid two-columns">
+
+                        <div class="input-group" data-field="full_name">
+                            <label for="full_name">
+                                <i data-lucide="user" aria-hidden="true"></i>
+                                Full Name
+                            </label>
+                            <input
+                                type="text"
+                                id="full_name"
+                                name="full_name"
+                                placeholder="Enter your full name"
+                                value="{{ form.full_name }}"
+                                aria-describedby="hint_full_name"
+                                required
+                            >
+                            <small class="field-hint" id="hint_full_name"></small>
+                        </div>
+
+                        <div class="input-group" data-field="email">
+                            <label for="email">
+                                <i data-lucide="mail" aria-hidden="true"></i>
+                                Email Address
+                            </label>
+                            <input
+                                type="email"
+                                id="email"
+                                name="email"
+                                placeholder="Enter your email"
+                                value="{{ form.email }}"
+                                aria-describedby="hint_email"
+                                required
+                            >
+                            <small class="field-hint" id="hint_email"></small>
+                        </div>
+
+                    </div>
+
+                    {# ---------- ROW 2 ---------- #}
+                    <div class="form-grid two-columns">
+
+                        <div class="input-group" data-field="phone">
+                            <label for="phone">
+                                <i data-lucide="phone" aria-hidden="true"></i>
+                                Phone Number
+                            </label>
+                            <input
+                                type="tel"
+                                id="phone"
+                                name="phone"
+                                placeholder="09XXXXXXXXX"
+                                maxlength="11"
+                                inputmode="numeric"
+                                value="{{ form.phone }}"
+                                aria-describedby="hint_phone"
+                                required
+                            >
+                            <small class="field-hint" id="hint_phone"></small>
+                        </div>
+
+                        <div class="input-group" data-field="age">
+                            <label for="age">
+                                <i data-lucide="calendar" aria-hidden="true"></i>
+                                Age
+                            </label>
+                            <input
+                                type="number"
+                                id="age"
+                                name="age"
+                                min="18"
+                                max="120"
+                                placeholder="Must be 18 or older"
+                                value="{{ form.age }}"
+                                aria-describedby="hint_age"
+                                required
+                            >
+                            <small class="field-hint" id="hint_age"></small>
+                        </div>
+
+                    </div>
+
+                    {# ---------- ROW 3 — location autocomplete +
+                                ID type + ID number ---------- #}
+                    {% set id_types = {
+                        'passport':        'Passport',
+                        'drivers_license': "Driver's License",
+                        'umid':            'UMID',
+                        'philhealth':      'PhilHealth ID',
+                        'prc':             'PRC ID',
+                        'postal':          'Postal ID',
+                        'tin':             'TIN ID',
+                        'voters':          "Voter's ID",
+                        'nbi':             'NBI Clearance',
+                        'sss':             'SSS ID',
+                    } %}
+
+                    <div class="form-grid three-columns">
+
+                        {# LOCATION — province → towns autocomplete
+                           (LocationProvider twig global + partial below).
+                           Free text is never blocked — whatever is in
+                           the box is POSTed as `location`. #}
+                        <div class="input-group" data-field="location">
+                            <label for="location">
+                                <i data-lucide="map-pin" aria-hidden="true"></i>
+                                Location
+                            </label>
+                            <span class="input-with-icon">
+                                <input
+                                    type="text"
+                                    id="location"
+                                    name="location"
+                                    placeholder="e.g. Lambunao, Iloilo"
+                                    value="{{ form.location }}"
+                                    data-location-search
+                                    autocomplete="off"
+                                    aria-describedby="hint_location"
+                                    required
+                                >
+                                <i data-lucide="map-pin" aria-hidden="true"></i>
+                            </span>
+                            <small class="field-hint" id="hint_location"></small>
+                        </div>
+
+                        <div class="input-group" data-field="id_type">
+                            <label for="id_type">
+                                <i data-lucide="badge-check" aria-hidden="true"></i>
+                                ID Type
+                            </label>
+                            <select id="id_type" name="id_type" aria-describedby="hint_id_type" required>
+                                <option value="" disabled {{ form.id_type == '' ? 'selected' : '' }}>
+                                    Select your ID type
+                                </option>
+                                {% for value, label in id_types %}
+                                    <option value="{{ value }}" {{ form.id_type == value ? 'selected' : '' }}>
+                                        {{ label }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                            <small class="field-hint" id="hint_id_type"></small>
+                        </div>
+
+                        <div class="input-group" data-field="id_number">
+                            <label for="id_number">
+                                <i data-lucide="hash" aria-hidden="true"></i>
+                                ID Number
+                            </label>
+                            <input
+                                type="text"
+                                id="id_number"
+                                name="id_number"
+                                placeholder="Enter your ID number"
+                                value="{{ form.id_number }}"
+                                aria-describedby="hint_id_number"
+                                required
+                            >
+                            <small class="field-hint" id="hint_id_number"></small>
+                        </div>
+
+                    </div>
+
+                    {# ---------- UPLOAD ID ---------- #}
+                    <div class="input-group" data-field="upload_id">
+
+                        <label>
+                            <i data-lucide="id-card" aria-hidden="true"></i>
+                            Upload Valid ID
+                        </label>
+
+                        <div
+                            class="upload-box"
+                            id="uploadBox"
+                            tabindex="0"
+                            role="button"
+                            aria-label="Upload your valid ID — click or drag and drop"
+                        >
+
+                            <span class="upload-icon">
+                                <i data-lucide="cloud-upload" aria-hidden="true"></i>
+                            </span>
+
+                            <span class="upload-text">
+                                <strong>Click to upload</strong><br>
+                                <span>or drag &amp; drop &mdash; JPG or PNG, max 5MB</span>
+                            </span>
+
+                            <input
+                                type="file"
+                                id="upload_id_input"
+                                name="upload_id"
+                                accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                                class="js-hidden"
+                                aria-describedby="hint_upload_id"
+                            >
+
+                            <div class="upload-box-overlay" id="uploadOverlay" hidden>
+                                <strong id="uploadFileName"></strong>
+                                <span id="uploadFileSize"></span>
+                                <span class="upload-check">
+                                    <i data-lucide="circle-check" aria-hidden="true"></i>
+                                    ID ready
+                                </span>
+                            </div>
+
+                            <button
+                                type="button"
+                                class="upload-remove-btn"
+                                id="uploadRemoveBtn"
+                                aria-label="Remove uploaded ID"
+                                hidden
+                            >
+                                <i data-lucide="x" aria-hidden="true"></i>
+                            </button>
+
+                        </div>
+
+                        <small class="upload-error" id="uploadError" role="alert"></small>
+
+                        <div class="upload-secure-note">
+                            <i data-lucide="lock" aria-hidden="true"></i>
+                            Your ID is only used to verify your identity &mdash; it is never shown on your listing.
+                        </div>
+
+                    </div>
+
+                    <button type="submit" class="next-button" id="hostSubmitBtn">
+                        <span class="btn-spinner" aria-hidden="true"></span>
+                        Next step
+                        <i data-lucide="arrow-right" class="next-arrow" aria-hidden="true"></i>
+                    </button>
+
+                </form>
+
+            </section>
+
+        </main>
+
+        {# ADAPT: your Symfony footer partial, if you have one #}
+        {% include 'partials/footer.html.twig' ignore missing %}
+
+        {# ============ LUCIDE LOADER ============ #}
+        <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+        <script>
+            function hiveRefreshIcons() {
+                if (window.lucide && typeof lucide.createIcons === "function") {
+                    lucide.createIcons();
+                }
+            }
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", hiveRefreshIcons);
+            } else {
+                hiveRefreshIcons();
+            }
+        </script>
+
+        {# ============ VALIDATION / PROGRESS / UPLOAD ============ #}
+        <script>
+            (function () {
+                "use strict";
+
+                var form = document.getElementById("hostForm");
+                if (!form) {
+                    return;
+                }
+
+                var card = form.closest(".host-form-card");
+
+                var validators = {
+                    full_name: function (v) {
+                        if (!v.trim()) return "Please enter your full name.";
+                        return "";
+                    },
+                    email: function (v) {
+                        if (!v.trim()) return "Please enter your email address.";
+                        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()))
+                            return "Enter a valid email address.";
+                        return "";
+                    },
+                    phone: function (v) {
+                        if (!v.trim()) return "Please enter your phone number.";
+                        if (!/^09\d{9}$/.test(v.trim()))
+                            return "Phone must be 11 digits starting with 09.";
+                        return "";
+                    },
+                    age: function (v) {
+                        if (!v.trim()) return "Please enter your age.";
+                        if (!/^\d+$/.test(v.trim())) return "Enter a whole number.";
+                        var n = parseInt(v, 10);
+                        if (n < 18) return "You must be at least 18 years old to host.";
+                        if (n > 120) return "Please enter a valid age.";
+                        return "";
+                    },
+                    location: function (v) {
+                        if (!v.trim()) return "Please enter your location.";
+                        return "";
+                    },
+                    id_type: function (v) {
+                        if (!v) return "Please select your ID type.";
+                        return "";
+                    },
+                    id_number: function (v) {
+                        if (!v.trim()) return "Please enter your ID number.";
+                        return "";
+                    },
+                };
+
+                var REQUIRED = [
+                    "full_name",
+                    "email",
+                    "phone",
+                    "age",
+                    "location",
+                    "id_type",
+                    "id_number",
+                ];
+                var TOTAL = REQUIRED.length + 1; /* + the ID upload = 8 */
+
+                var totalEl = document.getElementById("progressTotal");
+                if (totalEl) {
+                    totalEl.textContent = String(TOTAL);
+                }
+
+                var uploadState = { name: "", valid: false };
+
+                function groupEl(field) {
+                    return form.querySelector('.input-group[data-field="' + field + '"]');
+                }
+
+                function hintEl(field) {
+                    return document.getElementById("hint_" + field);
+                }
+
+                function checkField(field) {
+                    var el = form.elements[field];
+                    var g = groupEl(field);
+                    var hint = hintEl(field);
+                    var msg = "";
+
+                    if (el && validators[field]) {
+                        msg = validators[field](el.value);
+                    }
+
+                    if (g) {
+                        g.classList.toggle("is-valid", msg === "");
+                        g.classList.toggle("is-invalid", msg !== "");
+                    }
+                    if (hint) {
+                        hint.textContent = msg;
+                    }
+                    return msg === "";
+                }
+
+                function updateProgress() {
+                    var done = 0;
+
+                    REQUIRED.forEach(function (f) {
+                        var el = form.elements[f];
+                        if (el && validators[f] && validators[f](el.value) === "") {
+                            done++;
+                        }
+                    });
+
+                    if (uploadState.valid) {
+                        done++;
+                    }
+
+                    var count = document.getElementById("progressCount");
+                    var fill = document.getElementById("progressFill");
+
+                    if (count) {
+                        count.textContent = String(done);
+                    }
+                    if (fill) {
+                        fill.style.width = Math.round((done / TOTAL) * 100) + "%";
+                    }
+                }
+
+                REQUIRED.forEach(function (f) {
+                    var el = form.elements[f];
+                    if (!el) {
+                        return;
+                    }
+
+                    el.addEventListener("input", function () {
+                        checkField(f);
+                        updateProgress();
+                    });
+
+                    el.addEventListener("change", function () {
+                        checkField(f);
+                        updateProgress();
+                    });
+
+                    if (f === "phone") {
+                        el.addEventListener("input", function () {
+                            this.value = this.value.replace(/\D/g, "").slice(0, 11);
+                        });
+                    }
+                });
+
+                REQUIRED.forEach(function (f) {
+                    var el = form.elements[f];
+                    if (
+                        el &&
+                        el.value.trim() !== "" &&
+                        validators[f] &&
+                        validators[f](el.value) === ""
+                    ) {
+                        var g = groupEl(f);
+                        if (g) {
+                            g.classList.add("is-valid");
+                        }
+                    }
+                });
+                updateProgress();
+
+                /* ---- ID UPLOAD ---- */
+                var uploadBox = document.getElementById("uploadBox");
+                var uploadInput = document.getElementById("upload_id_input");
+                var uploadOverlay = document.getElementById("uploadOverlay");
+                var uploadRemove = document.getElementById("uploadRemoveBtn");
+                var uploadErr = document.getElementById("uploadError");
+
+                function setUploadError(msg) {
+                    if (uploadErr) {
+                        uploadErr.textContent = msg || "";
+                        uploadErr.classList.toggle("show", !!msg);
+                    }
+                    var g = groupEl("upload_id");
+                    if (g) {
+                        g.classList.toggle("is-invalid", !!msg);
+                        g.classList.toggle("is-valid", !msg && uploadState.valid);
+                    }
+                }
+
+                function clearUpload() {
+                    uploadState = { name: "", valid: false };
+                    if (uploadInput) {
+                        uploadInput.value = "";
+                    }
+                    if (uploadBox) {
+                        uploadBox.classList.remove("has-image");
+                        uploadBox.style.backgroundImage = "";
+                    }
+                    if (uploadOverlay) {
+                        uploadOverlay.hidden = true;
+                    }
+                    if (uploadRemove) {
+                        uploadRemove.hidden = true;
+                    }
+                    setUploadError("");
+                    updateProgress();
+                }
+
+                function handleFile(file) {
+                    if (!file) {
+                        return;
+                    }
+
+                    setUploadError("");
+
+                    if (file.type !== "image/jpeg" && file.type !== "image/png") {
+                        uploadState = { name: "", valid: false };
+                        setUploadError("Only JPG and PNG files are allowed.");
+                        updateProgress();
+                        return;
+                    }
+
+                    if (file.size > 5 * 1024 * 1024) {
+                        uploadState = { name: "", valid: false };
+                        setUploadError("ID file must not exceed 5MB.");
+                        updateProgress();
+                        return;
+                    }
+
+                    var reader = new FileReader();
+                    reader.onload = function (e) {
+                        if (uploadBox) {
+                            uploadBox.classList.add("has-image");
+                            uploadBox.style.backgroundImage =
+                                "url('" + e.target.result + "')";
+                        }
+
+                        var fn = document.getElementById("uploadFileName");
+                        var fs = document.getElementById("uploadFileSize");
+
+                        if (fn) {
+                            fn.textContent = file.name;
+                        }
+                        if (fs) {
+                            fs.textContent = (file.size / (1024 * 1024)).toFixed(2) + " MB";
+                        }
+                        if (uploadOverlay) {
+                            uploadOverlay.hidden = false;
+                        }
+                        if (uploadRemove) {
+                            uploadRemove.hidden = false;
+                        }
+
+                        uploadState = { name: file.name, valid: true };
+
+                        if (typeof window.hiveRefreshIcons === "function") {
+                            window.hiveRefreshIcons();
+                        }
+
+                        updateProgress();
+                    };
+                    reader.readAsDataURL(file);
+                }
+
+                if (uploadBox && uploadInput) {
+                    uploadBox.addEventListener("click", function (e) {
+                        if (e.target.closest && e.target.closest(".upload-remove-btn")) {
+                            return;
+                        }
+                        uploadInput.click();
+                    });
+
+                    uploadBox.addEventListener("keydown", function (e) {
+                        if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            uploadInput.click();
+                        }
+                    });
+
+                    uploadInput.addEventListener("change", function () {
+                        if (uploadInput.files && uploadInput.files[0]) {
+                            handleFile(uploadInput.files[0]);
+                        }
+                    });
+
+                    ["dragenter", "dragover"].forEach(function (ev) {
+                        uploadBox.addEventListener(ev, function (e) {
+                            e.preventDefault();
+                            uploadBox.classList.add("drag-over");
+                        });
+                    });
+
+                    ["dragleave", "drop"].forEach(function (ev) {
+                        uploadBox.addEventListener(ev, function (e) {
+                            e.preventDefault();
+                            uploadBox.classList.remove("drag-over");
+                        });
+                    });
+
+                    uploadBox.addEventListener("drop", function (e) {
+                        if (
+                            e.dataTransfer &&
+                            e.dataTransfer.files &&
+                            e.dataTransfer.files[0]
+                        ) {
+                            handleFile(e.dataTransfer.files[0]);
+                        }
+                    });
+                }
+
+                if (uploadRemove) {
+                    uploadRemove.addEventListener("click", function (e) {
+                        e.stopPropagation();
+                        clearUpload();
+                    });
+                }
+
+                /* ---- SUBMIT ---- */
+                form.addEventListener("submit", function (e) {
+                    var firstBad = null;
+
+                    REQUIRED.forEach(function (f) {
+                        var ok = checkField(f);
+                        if (!ok && !firstBad) {
+                            firstBad = form.elements[f];
+                        }
+                    });
+
+                    if (!uploadState.valid) {
+                        setUploadError("Please upload your ID (JPG or PNG, max 5MB).");
+                        if (!firstBad) {
+                            firstBad = uploadBox;
+                        }
+                    }
+
+                    if (firstBad) {
+                        e.preventDefault();
+
+                        if (card) {
+                            card.classList.remove("shake");
+                            void card.offsetWidth;
+                            card.classList.add("shake");
+                        }
+
+                        if (firstBad.focus) {
+                            firstBad.focus();
+                        }
+                        return;
+                    }
+
+                    var btn = document.getElementById("hostSubmitBtn");
+                    if (btn) {
+                        btn.classList.add("is-loading");
+                        btn.disabled = true;
+                    }
+                });
+            })();
+        </script>
+
+        {# ============ LOCATION AUTOCOMPLETE ============
+           Requires (from the earlier Symfony setup):
+           - App\Service\LocationProvider registered as the
+             `rh_locations` twig global in config/packages/twig.yaml
+           - templates/partials/_location_search.html.twig
+           - public/css/location-search.css + public/js/location-search.js #}
+        {% include 'partials/_location_search.html.twig' %}
+
+    </body>
+
+</html>
