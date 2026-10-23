@@ -7,7 +7,13 @@
    chain. On success the controller redirects to
    /login?created=1&email=... (no auto-login).
 
-   Receives: error, old (full_name, email), csrf,
+   === SPLIT NAME FIELDS (this version) ===
+   Full Name is now First Name + Last Name, side by side.
+   The controller combines them into the existing single
+   `name` column ("First Last") — NO DB change, and every
+   other page keeps reading `name` untouched.
+
+   Receives: error, old (first_name, last_name, email), csrf,
              google_signup_url, apple_signup_url
 
    EXTERNAL CSS: requires public/assets/loginform.css
@@ -35,8 +41,8 @@
         <link rel="stylesheet" href="{{ asset('assets/loginform.css') }}">
 
         <!-- =====================================================
-         LUCIDE ICONS — page-level sizing. This page has NO
-         shared navbar, so it ships its own guarded loader
+         LUCIDE ICONS + NAME ROW — page-level sizing. This page
+         has NO shared navbar, so it ships its own guarded loader
          (bottom of <body>). Brand logos (Google/Apple) stay
          as real <img> PNGs.
     ====================================================== -->
@@ -52,6 +58,26 @@
                 width: 14px;
                 height: 14px;
                 color: #b07708;
+            }
+
+            /* =====================================================
+                                                               NAME ROW — First + Last side by side
+                                                            ====================================================== */
+            .name-row {
+                display: flex;
+                gap: 12px;
+            }
+
+            .name-row .form-group {
+                flex: 1;
+                min-width: 0;
+            }
+
+            @media (max-width: 480px) {
+                .name-row {
+                    flex-direction: column;
+                    gap: 0; /* .form-group keeps its own spacing */
+                }
             }
 
             /* Show-password toggle */
@@ -137,21 +163,46 @@
                         value="{{ csrf }}"
                     >
 
-                    <!-- Full Name -->
-                    <div class="form-group">
+                    <!-- Name row: First + Last -->
+                    <div class="name-row">
 
-                        <label for="full_name">
-                            <i data-lucide="user" aria-hidden="true"></i>
-                            Full Name
-                        </label>
+                        <!-- First Name -->
+                        <div class="form-group">
 
-                        <input
-                            type="text"
-                            id="full_name"
-                            name="full_name"
-                            value="{{ old.full_name }}"
-                            required
-                        >
+                            <label for="first_name">
+                                <i data-lucide="user" aria-hidden="true"></i>
+                                First Name
+                            </label>
+
+                            <input
+                                type="text"
+                                id="first_name"
+                                name="first_name"
+                                value="{{ old.first_name|default('') }}"
+                                autocomplete="given-name"
+                                required
+                            >
+
+                        </div>
+
+                        <!-- Last Name -->
+                        <div class="form-group">
+
+                            <label for="last_name">
+                                <i data-lucide="user" aria-hidden="true"></i>
+                                Last Name
+                            </label>
+
+                            <input
+                                type="text"
+                                id="last_name"
+                                name="last_name"
+                                value="{{ old.last_name|default('') }}"
+                                autocomplete="family-name"
+                                required
+                            >
+
+                        </div>
 
                     </div>
 
@@ -167,7 +218,7 @@
                             type="email"
                             id="email"
                             name="email"
-                            value="{{ old.email }}"
+                            value="{{ old.email|default('') }}"
                             required
                         >
 
@@ -324,11 +375,11 @@
         <!-- BFCache Guard + Password Toggle (Lucide edition) -->
         <script>
             /* =========================================================
-                                               BFCACHE GUARD — same as the login page. Safari/Firefox
-                                               can restore this page from the back-forward cache with
-                                               NO server request — bypassing the controller guard.
-                                               Force a reload so the guard re-runs.
-                                            ========================================================= */
+                                                               BFCACHE GUARD — same as the login page. Safari/Firefox
+                                                               can restore this page from the back-forward cache with
+                                                               NO server request — bypassing the controller guard.
+                                                               Force a reload so the guard re-runs.
+                                                            ========================================================= */
             window.addEventListener("pageshow", function (event) {
                 if (event.persisted) {
                     window.location.reload();
@@ -336,11 +387,11 @@
             });
 
             /* =========================================================
-                                               PASSWORD TOGGLE — Lucide edition. The button's icon is
-                                               an <i data-lucide> (old glyph kept INSIDE as a no-CDN
-                                               fallback). Swapping textContent would destroy it, so
-                                               the toggle injects markup and re-renders the icons.
-                                            ========================================================= */
+                                                               PASSWORD TOGGLE — Lucide edition. The button's icon is
+                                                               an <i data-lucide> (old glyph kept INSIDE as a no-CDN
+                                                               fallback). Swapping textContent would destroy it, so
+                                                               the toggle injects markup and re-renders the icons.
+                                                            ========================================================= */
             function caSetEyeIcon(button, visible) {
                 /* visible = the password is currently SHOWN */
                 button.innerHTML =

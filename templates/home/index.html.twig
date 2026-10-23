@@ -5,7 +5,7 @@
    Rendered by HomeController for logged-OUT visitors.
    Logged-in users get templates/user/home.html.twig instead.
 
-   === HARDENED NAVBAR INCLUDE (this version) ===
+   === HARDENED NAVBAR INCLUDE ===
    The navbar include wraps every passed variable in
    |default() — a `with {}` include evaluates those in THIS
    template's scope first, so a missing variable throws
@@ -14,6 +14,12 @@
    renders whether or not the controller passes variables.
    (The navbar still falls back to the session internally,
    so guests correctly see LIST YOUR SPACE.)
+
+   === BFCACHE KILLER ADDED (logout fix, part 2) ===
+   This template is standalone — it does NOT extend
+   base.html.twig, so it carries its own copy of the
+   pageshow guard. Without it, a back/forward cached
+   guest page could be stale after login/logout.
 
    Sections mirror the logged-in user home (legacy index.php
    structure): hero, top listings, about, reasons,
@@ -36,7 +42,7 @@
         <link rel="stylesheet" href="{{ asset('assets/motion.css') }}"/>
 
         {# Tailwind (no preflight) — styles the React islands only.
-       Requires public/assets/react/chunks/tw.css. #}
+           Requires public/assets/react/chunks/tw.css. #}
         <link rel="stylesheet" href="{{ asset('assets/react/chunks/tw.css') }}"/>
 
         <script>
@@ -45,10 +51,10 @@
 
         <style>
             /* =====================================================
-                                                                                               SPONSORED AD WIDGET STYLES — rendered by the React
-                                                                                               ad-carousel island using THESE classes. Cycle:
-                                                                                               animate in -> hold 10s -> animate out -> next pair.
-                                                                                            ====================================================== */
+                                                               SPONSORED AD WIDGET STYLES — rendered by the React
+                                                               ad-carousel island using THESE classes. Cycle:
+                                                               animate in -> hold 10s -> animate out -> next pair.
+                                                            ====================================================== */
             .rh-ad-wrap {
                 position: fixed;
                 right: 18px;
@@ -236,8 +242,8 @@
             }
 
             /* =====================================================
-                                                                                               LUCIDE ICONS — page-level sizing
-                                                                                            ====================================================== */
+                                                               LUCIDE ICONS — page-level sizing
+                                                            ====================================================== */
             svg.lucide {
                 display: inline-block;
                 vertical-align: -0.18em;
@@ -305,22 +311,22 @@
     <body>
 
         {# =====================================================
-       REACT ISLAND MOUNT — scroll-progress
-    ====================================================== #}
+           REACT ISLAND MOUNT — scroll-progress
+        ====================================================== #}
         <div id="react-scrollprogress"></div>
 
         {# ================= NAVBAR — HARDENED INCLUDE =================
-       Every variable is |default()-guarded so this template
-       can never crash on a missing variable, no matter what
-       the controller passes. Guests see LIST YOUR SPACE
-       (is_logged_in defaults false; the navbar's session
-       fallback covers any template that passes nothing). #}
+           Every variable is |default()-guarded so this template
+           can never crash on a missing variable, no matter what
+           the controller passes. Guests see LIST YOUR SPACE
+           (is_logged_in defaults false; the navbar's session
+           fallback covers any template that passes nothing). #}
         {% include 'partials/navbar.html.twig' with {
-        is_logged_in:       is_logged_in|default(false),
-        current_page:       current_page|default('/'),
-        nav_avatar:         nav_avatar|default(''),
-        notification_count: notification_count|default(0),
-    } %}
+            is_logged_in:       is_logged_in|default(false),
+            current_page:       current_page|default('/'),
+            nav_avatar:         nav_avatar|default(''),
+            notification_count: notification_count|default(0),
+        } %}
 
         {# ================= HERO (guest) ================= #}
         <section class="hero">
@@ -352,20 +358,20 @@
         </section>
 
         {# ================= TOP LISTINGS =================
-       Cards link with ?category= — the parameter
-       app_listings actually reads. #}
+           Cards link with ?category= — the parameter
+           app_listings actually reads. #}
         <section class="listings">
             <span class="listings-eyebrow">EXPLORE ROOMHIVE</span>
             <h2 class="listings-title">Browse Our Top Listings!</h2>
             <div class="listings-grid">
                 {% set category_tiles = [
-                { name: 'STUDIO LOFT',    image: 'images/StudioLoft.png',    type: 'studio-loft' },
-                { name: 'SHARED ROOM',    image: 'images/SharedBedroom.png', type: 'shared-bedroom' },
-                { name: 'ENTIRE HOUSE',   image: 'images/EntireHouse.png',   type: 'entire-house' },
-                { name: 'PRIVATE ROOM',   image: 'images/PrivateRoom.png',   type: 'private-room' },
-                { name: 'BOARDING HOUSE', image: 'images/BoardingHouse.png', type: 'boarding-house' },
-                { name: 'APARTMENT',      image: 'images/Apartment.png',     type: 'apartment' },
-            ] %}
+                    { name: 'STUDIO LOFT',    image: 'images/StudioLoft.png',    type: 'studio-loft' },
+                    { name: 'SHARED ROOM',    image: 'images/SharedBedroom.png', type: 'shared-bedroom' },
+                    { name: 'ENTIRE HOUSE',   image: 'images/EntireHouse.png',   type: 'entire-house' },
+                    { name: 'PRIVATE ROOM',   image: 'images/PrivateRoom.png',   type: 'private-room' },
+                    { name: 'BOARDING HOUSE', image: 'images/BoardingHouse.png', type: 'boarding-house' },
+                    { name: 'APARTMENT',      image: 'images/Apartment.png',     type: 'apartment' },
+                ] %}
                 {% for listing in category_tiles %}
                     <a href="{{ path('app_listings', { category: listing.type }) }}" class="listing-card">
                         <img src="{{ asset(listing.image) }}" alt="{{ listing.name }}"/>
@@ -421,11 +427,11 @@
             </div>
             <div class="reasons-grid">
                 {% set reason_cards = [
-                { icon: 'headset',      title: '24/7 Support',      text: 'Our team is on call around the clock for hosts and tenants.' },
-                { icon: 'badge-check',  title: 'Verified Listings', text: 'Every listing is hand-reviewed and checked by our team before it goes live.' },
-                { icon: 'shield-check', title: 'Secure Payments',   text: 'Your booking and deposits are protected end-to-end.' },
-                { icon: 'receipt-text', title: 'No Hidden Fees',    text: 'What you see is what you pay — no surprise charges, ever.' },
-            ] %}
+                    { icon: 'headset',      title: '24/7 Support',      text: 'Our team is on call around the clock for hosts and tenants.' },
+                    { icon: 'badge-check',  title: 'Verified Listings', text: 'Every listing is hand-reviewed and checked by our team before it goes live.' },
+                    { icon: 'shield-check', title: 'Secure Payments',   text: 'Your booking and deposits are protected end-to-end.' },
+                    { icon: 'receipt-text', title: 'No Hidden Fees',    text: 'What you see is what you pay — no surprise charges, ever.' },
+                ] %}
                 {% for reason in reason_cards %}
                     <div class="reason-card">
                         <i
@@ -458,13 +464,13 @@
                     </button>
                     <div class="testimonials-dots">
                         {% set testimonial_cards = [
-                        { quote: 'Booking my apartment through RoomHive was seamless.', body: 'The team was responsive from day one and the listing matched exactly what was shown. Moving in was stress-free.', author: 'Isabelle Cruz' },
-                        { quote: 'RoomHive made finding a place stress-free.',          body: 'Verified listings and quick support meant I never had to worry about hidden costs or surprises on move-in day.', author: 'Miguel Santos' },
-                        { quote: 'The verified listings gave me peace of mind.',        body: 'I was nervous about renting sight-unseen, but every photo and detail on RoomHive matched reality. Highly recommend.', author: 'Andrea Lopez' },
-                        { quote: 'Customer support answered me at midnight.',           body: 'I had a payment issue right before move-in and the RoomHive team sorted it out within minutes, even that late.', author: 'Kevin Tan' },
-                        { quote: 'No hidden fees, exactly as advertised.',              body: 'What I saw on the listing page was what I paid — no surprise charges at checkout or on my first invoice.', author: 'Grace Villanueva' },
-                        { quote: 'Found my apartment in under a week.',                 body: 'The filters made it easy to narrow down listings by price and amenities, so I didn\'t waste time scrolling.', author: 'Paolo Reyes' },
-                    ] %}
+                            { quote: 'Booking my apartment through RoomHive was seamless.', body: 'The team was responsive from day one and the listing matched exactly what was shown. Moving in was stress-free.', author: 'Isabelle Cruz' },
+                            { quote: 'RoomHive made finding a place stress-free.',          body: 'Verified listings and quick support meant I never had to worry about hidden costs or surprises on move-in day.', author: 'Miguel Santos' },
+                            { quote: 'The verified listings gave me peace of mind.',        body: 'I was nervous about renting sight-unseen, but every photo and detail on RoomHive matched reality. Highly recommend.', author: 'Andrea Lopez' },
+                            { quote: 'Customer support answered me at midnight.',           body: 'I had a payment issue right before move-in and the RoomHive team sorted it out within minutes, even that late.', author: 'Kevin Tan' },
+                            { quote: 'No hidden fees, exactly as advertised.',              body: 'What I saw on the listing page was what I paid — no surprise charges at checkout or on my first invoice.', author: 'Grace Villanueva' },
+                            { quote: 'Found my apartment in under a week.',                 body: 'The filters made it easy to narrow down listings by price and amenities, so I didn\'t waste time scrolling.', author: 'Paolo Reyes' },
+                        ] %}
                         {% for testimonial in testimonial_cards %}
                             <span class="dot{{ loop.first ? ' active' : '' }}"></span>
                         {% endfor %}
@@ -501,12 +507,12 @@
         <section class="final-cta">
             <div class="cta-image-strip">
                 {% set cta_strip = [
-                'images/FirstImageLeft.jpg',
-                'images/SecondImageLeft.jpg',
-                'images/MiddleImage.avif',
-                'images/FirstImageRight.jpg',
-                'images/SecondImageRight.jpg',
-            ] %}
+                    'images/FirstImageLeft.jpg',
+                    'images/SecondImageLeft.jpg',
+                    'images/MiddleImage.avif',
+                    'images/FirstImageRight.jpg',
+                    'images/SecondImageRight.jpg',
+                ] %}
                 {% for image in cta_strip %}
                     <img src="{{ asset(image) }}" alt="RoomHive interior"/>
                 {% endfor %}
@@ -565,23 +571,23 @@
         </section>
 
         {# =====================================================
-       SPONSORED AD WIDGET — REACT ISLAND (ad-carousel.js)
-       Renders only when the controller passes ad_listings.
-       Guests can see sponsored listings too — if you want
-       ads here, have the guest branch of HomeController run
-       the same ad query and pass ad_listings.
-    ====================================================== #}
+           SPONSORED AD WIDGET — REACT ISLAND (ad-carousel.js)
+           Renders only when the controller passes ad_listings.
+           Guests can see sponsored listings too — if you want
+           ads here, have the guest branch of HomeController run
+           the same ad query and pass ad_listings.
+        ====================================================== #}
         {% if ad_listings is defined and ad_listings|length > 0 %}
             <div id="react-ads"></div>
             <script type="application/json" id="react-ads-props">
-            {{ { pool: ad_listings }|json_encode(
-                constant('JSON_UNESCAPED_UNICODE')
-                b-or constant('JSON_HEX_TAG')
-                b-or constant('JSON_HEX_AMP')
-                b-or constant('JSON_HEX_APOS')
-                b-or constant('JSON_HEX_QUOT')
-            )|raw }}
-        </script>
+                {{ { pool: ad_listings }|json_encode(
+                    constant('JSON_UNESCAPED_UNICODE')
+                    b-or constant('JSON_HEX_TAG')
+                    b-or constant('JSON_HEX_AMP')
+                    b-or constant('JSON_HEX_APOS')
+                    b-or constant('JSON_HEX_QUOT')
+                )|raw }}
+            </script>
             <script type="module" src="{{ asset('assets/react/ad-carousel.js') }}"></script>
         {% endif %}
 
@@ -592,7 +598,7 @@
         <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
         <script>
             /* Re-runnable: call rhRefreshIcons() any time you inject
-                                                                                               HTML containing data-lucide */
+                                                               HTML containing data-lucide */
             function rhRefreshIcons() {
                 if (window.lucide && typeof lucide.createIcons === "function") {
                     lucide.createIcons();
@@ -611,6 +617,19 @@
 
         {# REACT ISLAND — scroll-progress #}
         <script type="module" src="{{ asset('assets/react/scroll-progress.js') }}"></script>
+
+        {# BFCache killer — same guard as base.html.twig (this
+           template is standalone and does not extend base).
+           After logout, a back/forward cached page must never
+           be shown stale — force a real reload so the server
+           re-checks the session. #}
+        <script>
+            window.addEventListener("pageshow", function (event) {
+                if (event.persisted) {
+                    window.location.reload();
+                }
+            });
+        </script>
 
     </body>
 

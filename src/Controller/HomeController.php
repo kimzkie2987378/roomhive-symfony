@@ -15,11 +15,9 @@ final class HomeController extends AbstractController
     ) {}
 
     /* =========================================================
-       HOME — one route, two faces. THE ORDER HERE IS THE
-       LOGOUT FIX: the session check MUST gate the user-home
-       render. user/home.html.twig hardcodes is_logged_in:true
-       in its navbar include, so rendering it for a logged-out
-       visitor would make logout look broken forever.
+       HOME — one route, two faces. The session check gates the
+       user-home render: a logged-out visitor can NEVER receive
+       user/home.html.twig (which hardcodes is_logged_in:true).
     ========================================================== */
     #[Route('/', name: 'app_home')]
     public function index(Request $request): Response
@@ -58,7 +56,7 @@ final class HomeController extends AbstractController
 
         /* Keep is_host + avatar in sync with the DB */
         $session->set('is_host', (int) ($userRow['is_host'] ?? 0) === 1);
-        $session->set('avatar_path', $user['avatar_path'] ?? $userRow['avatar_path'] ?? null);
+        $session->set('avatar_path', $userRow['avatar_path'] ?? null);
 
         /* ---- Real unread bell count ---- */
         $notificationCount = (int) $this->db->fetchOne(
@@ -144,7 +142,7 @@ final class HomeController extends AbstractController
             return $ad;
         }, $adListings);
 
-        return $this->render('user/home.html.twig', [
+        $response = $this->render('user/home.html.twig', [
             'user_name'          => (string) $userRow['name'],
             'is_host'            => (int) ($userRow['is_host'] ?? 0) === 1,
             'nav_avatar'         => (string) ($userRow['avatar_path'] ?? '') ?: '/images/default-avatar.png',
@@ -157,5 +155,11 @@ final class HomeController extends AbstractController
             'ad_listings'        => $adListings,
             'current_page'       => '/',
         ]);
+
+        /* A logged-in page must never sit in any browser cache —
+           this is half of the logout fix. */
+        $response->headers->set('Cache-Control', 'no-store, max-age=0, must-revalidate');
+
+        return $response;
     }
 }

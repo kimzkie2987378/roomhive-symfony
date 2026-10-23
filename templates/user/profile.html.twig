@@ -1,0 +1,1650 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>My Account · RoomHive</title>
+
+        <script>
+            /* theme boot — before paint */
+            (function () {
+                try {
+                    if (localStorage.getItem("roomhive_theme") === "dark") {
+                        document.documentElement.classList.add("dark");
+                        document.documentElement.setAttribute("data-theme", "dark");
+                    }
+                } catch (e) {}
+            })();
+            document.documentElement.classList.add("js");
+        </script>
+
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/myaccount.css') }}">
+
+        <style>
+            :root {
+                --rh-ink: #1c2a38;
+                --rh-muted: #66788a;
+                --rh-line: #e6ebf1;
+                --rh-card: #ffffff;
+                --rh-accent: #eda423;
+                --rh-radius: 16px;
+            }
+
+            body {
+                background: #f3f5f9;
+            }
+
+            .up-dashboard,
+            .up-dashboard * {
+                box-sizing: border-box;
+            }
+
+            /* ================= notice ================= */
+            .up-notice-wrap {
+                max-width: 1240px;
+                margin: 18px auto -6px;
+                padding: 0 20px;
+            }
+            .up-notice {
+                display: flex;
+                gap: 12px;
+                align-items: flex-start;
+                padding: 14px 18px;
+                border-radius: 14px;
+                font-size: 14.5px;
+            }
+            .up-notice svg {
+                width: 20px;
+                height: 20px;
+                flex-shrink: 0;
+                margin-top: 1px;
+            }
+            .up-notice p {
+                margin: 0;
+            }
+            .up-notice-ok {
+                background: #e8f7ef;
+                color: #14683e;
+                border: 1px solid #bfe8d2;
+            }
+            .up-notice-warn {
+                background: #fff6e6;
+                color: #8a5a00;
+                border: 1px solid #f3ddb0;
+            }
+
+            /* ================= shell ================= */
+            .up-dashboard {
+                display: flex;
+                align-items: flex-start;
+                gap: 22px;
+                max-width: 1240px;
+                margin: 0 auto;
+                padding: 22px 20px 70px;
+            }
+            .up-content {
+                flex: 1 1 auto;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+            }
+
+            /* =========================================================
+                                   SIDEBAR — ported 1:1 from legacy includes/sidebar.php
+                                   (this block owns layout & spacing, loads after the old
+                                   stylesheet so these rules win)
+                                ========================================================= */
+            .up-sidebar {
+                /* spacing knobs */
+                --up-w: 240px;
+                --up-w-collapsed: 66px;
+                --up-icon: 18px;
+                --up-gap: 12px;
+                --up-link-pad-y: 10px;
+                --up-link-pad-x: 14px;
+                --up-link-gap: 4px;
+                --up-side-pad: 10px;
+
+                display: flex;
+                flex-direction: column;
+                gap: var(--up-link-gap);
+                width: var(--up-w);
+                padding: 8px var(--up-side-pad);
+                transition: width 0.3s ease;
+                overflow: hidden;
+
+                background: var(--rh-card);
+                border: 1px solid var(--rh-line);
+                border-radius: var(--rh-radius);
+                box-shadow: 0 10px 30px rgba(28, 42, 56, 0.06);
+                position: sticky;
+                top: 86px;
+                flex: 0 0 auto;
+            }
+
+            .up-side-toggle {
+                display: flex;
+                align-items: center;
+                justify-content: flex-end;
+                width: 100%;
+                padding: 6px 4px;
+                margin: 0;
+                background: transparent;
+                border: none;
+                border-radius: 8px;
+                color: inherit;
+                font: inherit;
+                cursor: pointer;
+                transition: background 0.2s ease;
+            }
+            .up-side-toggle:hover {
+                background: rgba(0, 0, 0, 0.06);
+            }
+            .up-side-toggle svg {
+                width: 20px;
+                height: 20px;
+                transition: transform 0.3s ease;
+            }
+
+            .up-side-link {
+                display: flex;
+                align-items: center;
+                gap: var(--up-gap);
+                padding: var(--up-link-pad-y) var(--up-link-pad-x);
+                margin: 0;
+                white-space: nowrap;
+                transition: background 0.2s ease;
+                color: #3e4f61;
+                text-decoration: none;
+                font-size: 14px;
+                font-weight: 500;
+                border-radius: 10px;
+            }
+            .up-side-link svg {
+                width: var(--up-icon);
+                height: var(--up-icon);
+                flex-shrink: 0;
+                color: #7a8ea3;
+                transition: color 0.2s ease;
+            }
+            .up-side-link:hover {
+                background: rgba(28, 42, 56, 0.06);
+                color: var(--rh-ink);
+            }
+            .up-side-link:hover svg {
+                color: var(--rh-ink);
+            }
+            .up-side-link.active {
+                background: var(--rh-ink);
+                color: #fff;
+                font-weight: 600;
+            }
+            .up-side-link.active svg {
+                color: var(--rh-accent);
+            }
+
+            .up-side-label {
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            /* collapsed state */
+            .up-sidebar.collapsed {
+                width: var(--up-w-collapsed);
+            }
+            .up-sidebar.collapsed .up-side-toggle svg {
+                transform: rotate(180deg);
+            }
+            .up-sidebar.collapsed .up-side-toggle {
+                justify-content: center;
+            }
+            .up-sidebar.collapsed .up-side-label {
+                display: none;
+            }
+            .up-sidebar.collapsed .up-side-link {
+                justify-content: center;
+                gap: 0;
+                padding-left: 0;
+                padding-right: 0;
+            }
+            .up-side-logout {
+                margin-top: 10px;
+            }
+
+            /* ================= profile card ================= */
+            .up-profile-card {
+                background: var(--rh-card);
+                border: 1px solid var(--rh-line);
+                border-radius: var(--rh-radius);
+                padding: 24px;
+                box-shadow: 0 10px 30px rgba(28, 42, 56, 0.05);
+            }
+            .up-pc-head {
+                display: flex;
+                gap: 20px;
+                align-items: flex-start;
+                flex-wrap: wrap;
+            }
+            .up-photo-picker {
+                position: relative;
+                width: 96px;
+                height: 96px;
+                flex-shrink: 0;
+                cursor: pointer;
+                display: block;
+            }
+            .up-photo-picker img {
+                width: 96px;
+                height: 96px;
+                border-radius: 50%;
+                object-fit: cover;
+                display: block;
+                border: 3px solid #fff;
+                box-shadow: 0 4px 14px rgba(28, 42, 56, 0.15);
+            }
+            .up-photo-fallback {
+                width: 96px;
+                height: 96px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #2b3b4d, #1c2a38);
+                color: #fff;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border: 3px solid #fff;
+                box-shadow: 0 4px 14px rgba(28, 42, 56, 0.15);
+            }
+            .up-photo-fallback svg {
+                width: 44px;
+                height: 44px;
+            }
+            .up-photo-badge {
+                position: absolute;
+                right: -2px;
+                bottom: 2px;
+                width: 30px;
+                height: 30px;
+                border-radius: 50%;
+                background: #fff;
+                color: var(--rh-ink);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 2px 8px rgba(28, 42, 56, 0.25);
+                transition: transform 0.2s ease;
+            }
+            .up-photo-badge svg {
+                width: 15px;
+                height: 15px;
+            }
+            .up-photo-picker:hover .up-photo-badge {
+                transform: rotate(-12deg) scale(1.08);
+            }
+
+            .up-pc-id {
+                flex: 1 1 260px;
+                min-width: 0;
+            }
+            .up-pc-name-row {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                flex-wrap: wrap;
+            }
+            .up-pc-name-row h1 {
+                margin: 0;
+                font-size: 26px;
+                color: var(--rh-ink);
+            }
+            .up-pc-sub {
+                margin: 4px 0 12px;
+                color: var(--rh-muted);
+                font-size: 14px;
+            }
+            .up-meta {
+                list-style: none;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+            }
+            .up-meta li {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                color: #43566a;
+                font-size: 14px;
+            }
+            .up-meta svg {
+                width: 16px;
+                height: 16px;
+                color: #8a9bab;
+                flex-shrink: 0;
+            }
+            .up-pc-actions {
+                margin-left: auto;
+            }
+            .up-btn-dark {
+                display: inline-block;
+                background: var(--rh-ink);
+                color: #fff;
+                text-decoration: none;
+                font-size: 14px;
+                font-weight: 600;
+                padding: 11px 20px;
+                border-radius: 12px;
+                transition:
+                    opacity 0.2s ease,
+                    transform 0.2s ease;
+            }
+            .up-btn-dark:hover {
+                opacity: 0.9;
+                transform: translateY(-1px);
+            }
+            .up-about {
+                margin-top: 20px;
+                padding-top: 18px;
+                border-top: 1px solid var(--rh-line);
+            }
+            .up-about h3 {
+                margin: 0 0 6px;
+                font-size: 15px;
+                color: var(--rh-ink);
+            }
+            .up-about p {
+                margin: 0;
+                color: var(--rh-muted);
+                font-size: 14px;
+                line-height: 1.6;
+                max-width: 70ch;
+            }
+
+            .up-badge-id {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 12.5px;
+                font-weight: 600;
+                padding: 5px 11px;
+                border-radius: 999px;
+            }
+            .up-badge-id svg {
+                width: 14px;
+                height: 14px;
+            }
+            .up-badge-id-ok {
+                background: #e8f7ef;
+                color: #14683e;
+            }
+            .up-badge-id-wait {
+                background: #fff6e6;
+                color: #8a5a00;
+            }
+            .up-badge-id-none {
+                background: #eef1f5;
+                color: #5b6b7c;
+            }
+
+            /* ================= chart row ================= */
+            .up-ch-grid {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 18px;
+            }
+            .up-ch-card {
+                background: var(--rh-card);
+                border: 1px solid var(--rh-line);
+                border-radius: var(--rh-radius);
+                padding: 18px;
+                min-width: 0;
+                box-shadow: 0 10px 30px rgba(28, 42, 56, 0.05);
+            }
+            .up-ch-card header {
+                display: flex;
+                align-items: baseline;
+                justify-content: space-between;
+                gap: 8px;
+                margin-bottom: 14px;
+            }
+            .up-ch-card h3 {
+                margin: 0;
+                font-size: 15px;
+                color: var(--rh-ink);
+            }
+            .up-ch-sub {
+                font-size: 12px;
+                color: var(--rh-muted);
+                white-space: nowrap;
+            }
+
+            .up-ch-bars {
+                display: flex;
+                align-items: stretch;
+                gap: 8px;
+                height: 120px;
+            }
+            .up-ch-col {
+                flex: 1 1 0;
+                display: flex;
+                flex-direction: column;
+                min-width: 0;
+            }
+            .up-ch-barzone {
+                flex: 1 1 auto;
+                display: flex;
+                align-items: flex-end;
+                justify-content: center;
+            }
+            .up-ch-bar {
+                width: 70%;
+                max-width: 26px;
+                border-radius: 6px 6px 2px 2px;
+            }
+            .up-ch-bar-bk {
+                background: linear-gradient(180deg, #2f7de1, #1c2a38);
+            }
+            .up-ch-bar-sp {
+                background: linear-gradient(180deg, #eda423, #d98c12);
+            }
+            .up-ch-lab {
+                text-align: center;
+                font-size: 11px;
+                color: var(--rh-muted);
+                padding-top: 6px;
+            }
+
+            .up-ch-donut-wrap {
+                position: relative;
+                width: 132px;
+                margin: 6px auto 14px;
+            }
+            .up-ch-donut {
+                display: block;
+                width: 132px;
+                height: 132px;
+                transform: rotate(-90deg);
+            }
+            .up-ch-donut circle {
+                fill: none;
+                stroke-width: 6;
+            }
+            .donut-bg {
+                stroke: #edf1f6;
+            }
+            .donut-fg {
+                stroke: var(--rh-accent);
+                stroke-linecap: round;
+                stroke-dasharray: 125.66;
+                stroke-dashoffset: 125.66;
+                transition: stroke-dashoffset 0.8s ease;
+            }
+            .up-ch-donut-center {
+                position: absolute;
+                inset: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                text-align: center;
+            }
+            .up-ch-donut-center strong {
+                font-size: 17px;
+                color: var(--rh-ink);
+            }
+            .up-ch-donut-center span {
+                font-size: 11px;
+                color: var(--rh-muted);
+            }
+            .up-ch-donut-legend {
+                margin: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
+            .up-ch-donut-legend div {
+                display: flex;
+                justify-content: space-between;
+                font-size: 13px;
+            }
+            .up-ch-donut-legend dt {
+                color: var(--rh-muted);
+            }
+            .up-ch-donut-legend dd {
+                margin: 0;
+                font-weight: 600;
+                color: var(--rh-ink);
+            }
+
+            .up-ch-stack {
+                display: flex;
+                height: 16px;
+                border-radius: 999px;
+                overflow: hidden;
+                background: #edf1f6;
+                margin-bottom: 12px;
+            }
+            .up-ch-legend {
+                list-style: none;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 7px;
+            }
+            .up-ch-legend li {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 13px;
+                color: #43566a;
+            }
+            .up-ch-legend li b {
+                margin-left: auto;
+                color: var(--rh-ink);
+            }
+            .up-ch-legend .dot {
+                width: 10px;
+                height: 10px;
+                border-radius: 3px;
+                flex-shrink: 0;
+            }
+            .up-ch-legend .muted {
+                color: var(--rh-muted);
+            }
+
+            /* ================= two columns ================= */
+            .up-two-col {
+                display: grid;
+                grid-template-columns: 1.6fr 1fr;
+                gap: 18px;
+                align-items: start;
+            }
+            .up-col {
+                display: flex;
+                flex-direction: column;
+                gap: 18px;
+                min-width: 0;
+            }
+            .up-card {
+                background: var(--rh-card);
+                border: 1px solid var(--rh-line);
+                border-radius: var(--rh-radius);
+                padding: 20px;
+                box-shadow: 0 10px 30px rgba(28, 42, 56, 0.05);
+            }
+            .up-card-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                margin-bottom: 14px;
+            }
+            .up-card-head h3 {
+                margin: 0;
+                font-size: 16px;
+                color: var(--rh-ink);
+            }
+            .up-card-head a {
+                font-size: 13px;
+                color: #2f7de1;
+                text-decoration: none;
+                font-weight: 600;
+            }
+            .up-card-head a:hover {
+                text-decoration: underline;
+            }
+            .up-card-txt {
+                margin: 0;
+                color: var(--rh-muted);
+                font-size: 14px;
+                line-height: 1.6;
+            }
+
+            .up-booking {
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                padding: 12px 0;
+                border-bottom: 1px solid var(--rh-line);
+            }
+            .up-booking:last-child {
+                border-bottom: 0;
+            }
+            .up-booking-photo {
+                position: relative;
+                width: 74px;
+                height: 56px;
+                border-radius: 10px;
+                overflow: hidden;
+                flex-shrink: 0;
+                background: linear-gradient(135deg, #dfe6ee, #c9d4e0);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #93a5b7;
+            }
+            .up-booking-photo img {
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+            }
+            .up-booking-photo svg {
+                width: 20px;
+                height: 20px;
+            }
+            .up-booking-info {
+                flex: 1 1 auto;
+                min-width: 0;
+            }
+            .up-booking-info h4 {
+                margin: 0 0 3px;
+                font-size: 14.5px;
+                color: var(--rh-ink);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .up-booking-dates {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                margin: 0 0 6px;
+                font-size: 12.5px;
+                color: var(--rh-muted);
+            }
+            .up-booking-dates svg {
+                width: 13px;
+                height: 13px;
+                flex-shrink: 0;
+            }
+            .up-status {
+                display: inline-block;
+                font-size: 11.5px;
+                font-weight: 700;
+                padding: 3px 9px;
+                border-radius: 999px;
+                text-transform: capitalize;
+            }
+            .up-status-pending {
+                background: #fff6e6;
+                color: #8a5a00;
+            }
+            .up-status-confirmed,
+            .up-status-completed {
+                background: #e8f7ef;
+                color: #14683e;
+            }
+            .up-status-cancelled {
+                background: #fdecec;
+                color: #a33a3a;
+            }
+            .up-status-other {
+                background: #eef1f5;
+                color: #5b6b7c;
+            }
+            .up-booking-pay {
+                text-align: right;
+                flex-shrink: 0;
+            }
+            .up-booking-pay strong {
+                display: block;
+                font-size: 14.5px;
+                color: var(--rh-ink);
+            }
+            .up-paychip {
+                display: inline-block;
+                margin-top: 4px;
+                font-size: 11px;
+                font-weight: 700;
+                padding: 3px 8px;
+                border-radius: 999px;
+            }
+            .up-pay-full {
+                background: #e8f7ef;
+                color: #14683e;
+            }
+            .up-pay-advance {
+                background: #e9f2fd;
+                color: #1d5fb8;
+            }
+            .up-pay-none {
+                background: #fdecec;
+                color: #a33a3a;
+            }
+            .up-empty {
+                color: var(--rh-muted);
+                font-size: 14px;
+                margin: 6px 0;
+            }
+            .up-empty a {
+                color: #2f7de1;
+            }
+
+            .up-sum-tabs {
+                display: inline-flex;
+                background: #eef1f5;
+                border-radius: 10px;
+                padding: 3px;
+            }
+            .up-sum-tab {
+                border: 0;
+                background: transparent;
+                font: inherit;
+                font-size: 12.5px;
+                font-weight: 600;
+                color: #5b6b7c;
+                padding: 6px 12px;
+                border-radius: 8px;
+                cursor: pointer;
+            }
+            .up-sum-tab.active {
+                background: #fff;
+                color: var(--rh-ink);
+                box-shadow: 0 1px 4px rgba(28, 42, 56, 0.12);
+            }
+            .up-sum-value {
+                font-size: 30px;
+                font-weight: 800;
+                color: var(--rh-ink);
+                letter-spacing: -0.5px;
+            }
+            .up-sum-cap {
+                margin: 2px 0 14px;
+                font-size: 13px;
+                color: var(--rh-muted);
+            }
+            .up-sum-row {
+                display: flex;
+                justify-content: space-between;
+                font-size: 14px;
+                padding: 9px 0;
+                border-top: 1px solid var(--rh-line);
+                color: #43566a;
+            }
+            .up-sum-row b {
+                color: var(--rh-ink);
+            }
+
+            .up-pay-method {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+            .up-pay-method svg {
+                width: 20px;
+                height: 20px;
+                color: #2f7de1;
+                flex-shrink: 0;
+            }
+            .up-pay-method strong {
+                display: block;
+                font-size: 14px;
+                color: var(--rh-ink);
+            }
+            .up-pay-method span {
+                font-size: 12.5px;
+                color: var(--rh-muted);
+            }
+
+            /* ================= wishlist ================= */
+            .up-wl {
+                background: var(--rh-card);
+                border: 1px solid var(--rh-line);
+                border-radius: var(--rh-radius);
+                padding: 20px;
+                box-shadow: 0 10px 30px rgba(28, 42, 56, 0.05);
+            }
+            .up-wl-grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 16px;
+            }
+            .up-wl-photo {
+                position: relative;
+                height: 150px;
+                border-radius: 12px;
+                overflow: hidden;
+                background: linear-gradient(135deg, #dfe6ee, #c9d4e0);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #93a5b7;
+            }
+            .up-wl-photo img {
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                transition: transform 0.35s ease;
+            }
+            .listing-box:hover .up-wl-photo img {
+                transform: scale(1.05);
+            }
+            .up-wl-photo svg {
+                width: 26px;
+                height: 26px;
+            }
+            .up-wl-heart {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                width: 34px;
+                height: 34px;
+                border-radius: 50%;
+                border: 0;
+                background: rgba(255, 255, 255, 0.95);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                box-shadow: 0 2px 8px rgba(28, 42, 56, 0.22);
+                transition: transform 0.2s ease;
+                z-index: 2;
+            }
+            .up-wl-heart svg {
+                width: 17px;
+                height: 17px;
+                color: #e5484d;
+                fill: #e5484d;
+            }
+            .up-wl-heart:hover {
+                transform: scale(1.1);
+            }
+            .up-wl-heart.busy {
+                opacity: 0.5;
+                pointer-events: none;
+            }
+            .up-wl-info {
+                padding: 10px 4px 2px;
+            }
+            .up-wl-info h4 {
+                margin: 0 0 3px;
+                font-size: 14.5px;
+                color: var(--rh-ink);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .up-wl-loc {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                margin: 0 0 6px;
+                font-size: 12.5px;
+                color: var(--rh-muted);
+            }
+            .up-wl-loc svg {
+                width: 13px;
+                height: 13px;
+                flex-shrink: 0;
+            }
+            .up-wl-price {
+                margin: 0;
+                font-size: 14px;
+                color: var(--rh-muted);
+            }
+            .up-wl-price strong {
+                color: var(--rh-ink);
+                font-size: 15px;
+            }
+            .up-wl-empty {
+                margin-top: 6px;
+            }
+
+            /* ================= dark mode ================= */
+            html.dark body {
+                background: #141c26;
+            }
+            html.dark .up-profile-card,
+            html.dark .up-ch-card,
+            html.dark .up-card,
+            html.dark .up-wl,
+            html.dark .up-sidebar {
+                background: #1e2a38;
+                border-color: rgba(255, 255, 255, 0.08);
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+            }
+            html.dark .up-pc-name-row h1,
+            html.dark .up-ch-card h3,
+            html.dark .up-card-head h3,
+            html.dark .up-booking-info h4,
+            html.dark .up-wl-info h4,
+            html.dark .up-about h3,
+            html.dark .up-sum-value,
+            html.dark .up-ch-donut-center strong,
+            html.dark .up-booking-pay strong,
+            html.dark .up-sum-row b,
+            html.dark .up-wl-price strong,
+            html.dark .up-ch-legend li b {
+                color: #e8eef5;
+            }
+            html.dark .up-meta li,
+            html.dark .up-booking-dates,
+            html.dark .up-card-txt,
+            html.dark .up-sum-row,
+            html.dark .up-wl-loc,
+            html.dark .up-wl-price,
+            html.dark .up-ch-legend li,
+            html.dark .up-ch-lab {
+                color: #a9b8c8;
+            }
+            html.dark .up-booking,
+            html.dark .up-sum-row,
+            html.dark .up-about {
+                border-color: rgba(255, 255, 255, 0.08);
+            }
+            html.dark .donut-bg {
+                stroke: rgba(255, 255, 255, 0.12);
+            }
+            html.dark .up-ch-stack {
+                background: rgba(255, 255, 255, 0.12);
+            }
+            html.dark .up-sum-tabs {
+                background: rgba(255, 255, 255, 0.08);
+            }
+            html.dark .up-sum-tab {
+                color: #a9b8c8;
+            }
+            html.dark .up-sum-tab.active {
+                background: #2a3949;
+                color: #fff;
+                box-shadow: none;
+            }
+            html.dark .up-btn-dark {
+                background: #eda423;
+                color: #1c2a38;
+            }
+            html.dark .up-photo-picker img,
+            html.dark .up-photo-fallback {
+                border-color: #1e2a38;
+            }
+            html.dark .up-sidebar {
+                background: #1e2a38;
+                border-color: rgba(255, 255, 255, 0.08);
+            }
+            html.dark .up-side-link {
+                color: #b9c6d4;
+            }
+            html.dark .up-side-link svg {
+                color: #8296ab;
+            }
+            html.dark .up-side-link:hover {
+                background: rgba(255, 255, 255, 0.07);
+                color: #fff;
+            }
+            html.dark .up-side-link:hover svg {
+                color: #fff;
+            }
+            html.dark .up-side-link.active {
+                background: #eda423;
+                color: #1c2a38;
+            }
+            html.dark .up-side-link.active svg {
+                color: #1c2a38;
+            }
+            html.dark .up-side-toggle:hover {
+                background: rgba(255, 255, 255, 0.08);
+            }
+
+            /* ================= responsive ================= */
+            @media (max-width: 1100px) {
+                .up-ch-grid {
+                    grid-template-columns: repeat(2, 1fr);
+                }
+            }
+            @media (max-width: 980px) {
+                .up-two-col {
+                    grid-template-columns: 1fr;
+                }
+            }
+            @media (max-width: 860px) {
+                .up-dashboard {
+                    flex-direction: column;
+                }
+                .up-sidebar,
+                .up-sidebar.collapsed {
+                    width: 100%;
+                    position: static;
+                }
+                .up-sidebar.collapsed .up-side-label {
+                    display: inline;
+                }
+                .up-sidebar.collapsed .up-side-link {
+                    justify-content: flex-start;
+                    gap: var(--up-gap);
+                    padding-left: var(--up-link-pad-x);
+                    padding-right: var(--up-link-pad-x);
+                }
+                .up-wl-grid {
+                    grid-template-columns: repeat(2, 1fr);
+                }
+            }
+            @media (max-width: 560px) {
+                .up-ch-grid {
+                    grid-template-columns: 1fr;
+                }
+                .up-wl-grid {
+                    grid-template-columns: 1fr;
+                }
+                .up-pc-actions {
+                    margin-left: 0;
+                }
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .up-sidebar,
+                .up-side-toggle svg,
+                .up-side-link {
+                    transition: none;
+                }
+            }
+
+            /* =====================================================
+                                   REVEAL KILL-SWITCH — the page must never render blank.
+                                   myaccount.css hides .up-reveal cards until the scroll
+                                   script adds ITS class; instead of guessing the class
+                                   name, force every card visible.
+                                ====================================================== */
+            .up-reveal,
+            .js .up-reveal,
+            html.js .up-reveal {
+                opacity: 1 !important;
+                visibility: visible !important;
+                transform: none !important;
+                animation: none !important;
+            }
+        </style>
+    </head>
+    <body>
+
+        {{ include('partials/navbar.html.twig', {
+    is_logged_in: true,
+    is_host: is_host,
+    nav_avatar: nav_avatar,
+    notification_count: notification_count,
+    current_page: 'profile'
+}) }}
+
+        <div class="up-notice-wrap">
+            <div class="up-notice {% if summary.pending > 0 %}up-notice-warn{% else %}up-notice-ok{% endif %}">
+                <i data-lucide="wallet"></i>
+                <p>
+                    {% if summary.pending > 0 %}
+                        You have <strong>{{ summary.pending_str }}</strong> waiting to be paid
+                        across {{ summary.pending_count }} booking{{ summary.pending_count == 1 ? '' : 's' }}.
+                    {% else %}
+                        You're all settled up — no pending payments on your bookings.
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+
+        <main class="up-dashboard">
+
+            <!-- ==================================================
+         SIDEBAR — 1:1 port of legacy includes/sidebar.php
+         (collapse persists via localStorage: roomhive_sidebar_collapsed)
+    =================================================== -->
+            <aside class="up-sidebar" id="upSidebar">
+
+                <button
+                    type="button"
+                    class="up-side-toggle"
+                    id="upSidebarToggle"
+                    aria-expanded="true"
+                    aria-label="Collapse sidebar"
+                >
+                    <i data-lucide="chevron-left"></i>
+                </button>
+
+                {% set sideLinks = [
+            ['overview',      '/profile',                'layout-dashboard', 'Overview'],
+            ['bookings',      '/bookings',               'calendar-check',   'My Bookings'],
+            ['wishlist',      '/wishlist',               'heart',            'Wishlist'],
+            ['payments',      '/payments',               'credit-card',      'Payments'],
+            ['wallet',        '/wallet',                 'wallet',           'Wallet'],
+            ['reviews',       '/reviews',                'star',             'Reviews'],
+            ['messages',      '/messages',               'message-square',   'Messages'],
+            ['notifcenter',   '/notifications',          'bell',             'Notifications'],
+            ['profile',       '/profile/edit',           'user-round',       'Profile & Account'],
+            ['security',      '/settings',               'settings',         'Settings'],
+            ['notifications', '/settings/notifications', 'bell-ring',        'Notification Settings'],
+            ['savedsearches', '/saved-searches',         'search',           'Saved Searches'],
+            ['help',          '/help',                   'circle-help',      'Help Center']
+        ] %}
+
+                {% for link in sideLinks %}
+                    <a href="{{ link[1] }}" class="up-side-link{{ link[0] == 'overview' ? ' active' : '' }}">
+                        <i data-lucide="{{ link[2] }}"></i>
+                        <span class="up-side-label">{{ link[3] }}</span>
+                    </a>
+                {% endfor %}
+
+                <a href="/logout" class="up-side-link up-side-logout">
+                    <i data-lucide="log-out"></i>
+                    <span class="up-side-label">Log Out</span>
+                </a>
+
+            </aside>
+
+            <div class="up-content">
+
+                <!-- ================= PROFILE CARD ================= -->
+                <section class="up-reveal up-profile-card">
+                    <div class="up-pc-head">
+
+                        <label class="up-photo-picker" for="avatarFileInput" title="Change profile photo">
+                            <img
+                                id="upAvatarImg"
+                                alt="Profile photo"
+                                {% if user.avatar %}src="{{ user.avatar }}"{% else %}style="display:none"{% endif %}
+                            >
+                            <span class="up-photo-fallback" {% if user.avatar %}style="display:none"{% endif %}>
+                                <i data-lucide="circle-user-round"></i>
+                            </span>
+                            <span class="up-photo-badge"><i data-lucide="camera"></i></span>
+                        </label>
+                        <input type="file" id="avatarFileInput" accept="image/png,image/jpeg,image/webp" hidden>
+
+                        <div class="up-pc-id">
+                            <div class="up-pc-name-row">
+                                <h1>{{ user.name }}</h1>
+                                {% if id_status == 'verified' %}
+                                    <span class="up-badge-id up-badge-id-ok">
+                                        <i data-lucide="badge-check"></i> Verified
+                                    </span>
+                                {% elseif id_status == 'pending' %}
+                                    <span class="up-badge-id up-badge-id-wait">
+                                        <i data-lucide="clock"></i> Pending review
+                                    </span>
+                                {% else %}
+                                    <span class="up-badge-id up-badge-id-none">
+                                        <i data-lucide="shield-alert"></i> Not verified
+                                    </span>
+                                {% endif %}
+                            </div>
+                            <p class="up-pc-sub">
+                                RoomHive member{% if user.member_since %} since {{ user.member_since }}{% endif %}
+                                {% if is_host %} · Host{% endif %}
+                            </p>
+
+                            <ul class="up-meta">
+                                {% if user.location %}
+                                    <li><i data-lucide="map-pin"></i><span>{{ user.location }}</span></li>
+                                {% endif %}
+                                {% if user.email %}
+                                    <li><i data-lucide="mail"></i><span>{{ user.email }}</span></li>
+                                {% endif %}
+                                {% if user.phone %}
+                                    <li><i data-lucide="phone"></i><span>{{ user.phone }}</span></li>
+                                {% endif %}
+                                {% if user.member_since %}
+                                    <li><i data-lucide="calendar"></i><span>Member since {{ user.member_since }}</span></li>
+                                {% endif %}
+                            </ul>
+                        </div>
+
+                        <div class="up-pc-actions">
+                            <a class="up-btn-dark" href="/profile/edit">Edit Profile</a>
+                        </div>
+                    </div>
+
+                    <div class="up-about">
+                        <h3>About Me</h3>
+                        <p>No bio yet — tell hosts and travelers a little about yourself.
+                            Mention your hometown, your travel style, and what makes a stay great for you.</p>
+                    </div>
+                </section>
+
+                <!-- ================= 4 CHART CARDS ================= -->
+                <section class="up-ch-grid">
+
+                    <div class="up-reveal up-ch-card">
+                        <header><h3>Bookings</h3><span class="up-ch-sub">last 6 months</span></header>
+                        <div class="up-ch-bars">
+                            {% for m in chart %}
+                                <div class="up-ch-col" title="{{ m.bk }} booking{{ m.bk == 1 ? '' : 's' }} in {{ m.label }}">
+                                    <div class="up-ch-barzone">
+                                        <div class="up-ch-bar up-ch-bar-bk" style="height: {{ m.bk_h }}%"></div>
+                                    </div>
+                                    <span class="up-ch-lab">{{ m.label }}</span>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="up-reveal up-ch-card">
+                        <header><h3>Total Spent</h3><span class="up-ch-sub">last 6 months</span></header>
+                        <div class="up-ch-bars">
+                            {% for m in chart %}
+                                <div class="up-ch-col" title="{{ m.sp_str }} spent in {{ m.label }}">
+                                    <div class="up-ch-barzone">
+                                        <div class="up-ch-bar up-ch-bar-sp" style="height: {{ m.sp_h }}%"></div>
+                                    </div>
+                                    <span class="up-ch-lab">{{ m.label }}</span>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="up-reveal up-ch-card">
+                        <header><h3>Wallet</h3><span class="up-ch-sub">balance vs top-ups</span></header>
+                        <div class="up-ch-donut-wrap">
+                            <svg class="up-ch-donut" viewBox="0 0 48 48" aria-hidden="true">
+                                <circle class="donut-bg" cx="24" cy="24" r="20"></circle>
+                                <circle class="donut-fg" cx="24" cy="24" r="20" data-pct="{{ wallet.pct }}"></circle>
+                            </svg>
+                            <div class="up-ch-donut-center">
+                                <strong>{{ wallet.balance_short }}</strong>
+                                <span>balance</span>
+                            </div>
+                        </div>
+                        <dl class="up-ch-donut-legend">
+                            <div><dt>Money in</dt><dd>{{ wallet.money_in_str }}</dd></div>
+                            <div><dt>Available</dt><dd>{{ wallet.balance_str }}</dd></div>
+                        </dl>
+                    </div>
+
+                    <div class="up-reveal up-ch-card">
+                        <header><h3>Wishlist</h3><span class="up-ch-sub" id="upWlCount">{{ wl_total }} saved</span></header>
+                        <div class="up-ch-stack">
+                            {% for c in wl_categories %}
+                                <span
+                                    style="width: {{ c.width }}%; background: {{ c.color }};"
+                                    title="{{ c.label }} — {{ c.count }}"
+                                ></span>
+                            {% else %}
+                                <span style="width: 100%;"></span>
+                            {% endfor %}
+                        </div>
+                        <ul class="up-ch-legend">
+                            {% for c in wl_categories %}
+                                <li><span class="dot" style="background: {{ c.color }}"></span>{{ c.label }} <b>{{ c.count }}</b></li>
+                            {% else %}
+                                <li class="muted">Nothing saved yet</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+
+                </section>
+
+                <!-- ================= RECENT BOOKINGS + RIGHT COLUMN ================= -->
+                <section class="up-two-col">
+
+                    <div class="up-col">
+                        <div class="up-reveal up-card">
+                            <header class="up-card-head">
+                                <h3>Recent Bookings</h3>
+                                <a href="/bookings">View all</a>
+                            </header>
+                            {% for b in bookings %}
+                                <article class="up-booking">
+                                    <div class="up-booking-photo">
+                                        {% if b.cover %}
+                                            <img
+                                                src="{{ b.cover_url }}"
+                                                alt="{{ b.title }}"
+                                                onerror="this.parentElement.classList.add('noimg'); this.remove();"
+                                            >
+                                        {% endif %}
+                                        <i data-lucide="home"></i>
+                                    </div>
+                                    <div class="up-booking-info">
+                                        <h4>{{ b.title }}</h4>
+                                        <p class="up-booking-dates"><i data-lucide="calendar"></i>{{ b.dates }}</p>
+                                        <span class="up-status up-status-{{ b.status_class }}">{{ b.status_label }}</span>
+                                    </div>
+                                    <div class="up-booking-pay">
+                                        <strong>{{ b.total_str }}</strong>
+                                        <span class="up-paychip up-pay-{{ b.pay_state }}">{{ b.pay_label }}</span>
+                                    </div>
+                                </article>
+                            {% else %}
+                                <p class="up-empty">No bookings yet — <a href="/">find your next stay</a>.</p>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="up-col">
+
+                        <div class="up-reveal up-card">
+                            <header class="up-card-head"><h3>Identity Verification</h3></header>
+                            {% if id_status == 'verified' %}
+                                <p class="up-card-txt">Your government ID is approved. You're fully verified —
+                                    hosts see a Verified badge on your profile.</p>
+                            {% elseif id_status == 'pending' %}
+                                <p class="up-card-txt">We received your ID and it's under review.
+                                    This usually takes less than 24 hours.</p>
+                            {% else %}
+                                <p class="up-card-txt">Verify your identity to build trust with hosts
+                                    and unlock faster bookings.</p>
+                            {% endif %}
+                        </div>
+
+                        <div class="up-reveal up-card">
+                            <header class="up-card-head">
+                                <h3>Payment Summary</h3>
+                                <div class="up-sum-tabs">
+                                    <button type="button" class="up-sum-tab active" data-tab="week">This week</button>
+                                    <button type="button" class="up-sum-tab" data-tab="pending">To pay</button>
+                                </div>
+                            </header>
+                            <div
+                                class="up-sum-value"
+                                data-week="{{ summary.spent_week_str }}"
+                                data-pending="{{ summary.pending_str }}"
+                            >{{ summary.spent_week_str }}</div>
+                            <p
+                                class="up-sum-cap"
+                                data-week="spent on bookings in the last 7 days"
+                                data-pending="still owed on pending bookings"
+                            >spent on bookings in the last 7 days</p>
+                            <div class="up-sum-row"><span>Total bookings</span><b>{{ summary.total_bookings }}</b></div>
+                            <div class="up-sum-row"><span>All-time spend</span><b>{{ summary.spent_all_str }}</b></div>
+                        </div>
+
+                        <div class="up-reveal up-card">
+                            <header class="up-card-head"><h3>Payment Methods</h3><a href="/payments">Manage</a></header>
+                            <div class="up-pay-method">
+                                <i data-lucide="credit-card"></i>
+                                <div>
+                                    <strong>GCash / Cash on arrival</strong>
+                                    <span>arranged per booking</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="up-reveal up-card">
+                            <header class="up-card-head"><h3>Account Security</h3></header>
+                            <p class="up-card-txt">Manage your password, active sessions and two-factor
+                                authentication from <a href="/settings">Settings</a>.</p>
+                        </div>
+
+                        <div class="up-reveal up-card">
+                            <header class="up-card-head"><h3>Need Help?</h3></header>
+                            <p class="up-card-txt">Answers about bookings, payments and refunds live in the
+                                <a href="/help">Help Center</a>.</p>
+                        </div>
+
+                    </div>
+                </section>
+
+                <!-- ================= WISHLIST ================= -->
+                <section class="up-reveal up-wl">
+                    <header class="up-card-head">
+                        <h3>My Wishlist</h3>
+                        <a href="/wishlist">View all</a>
+                    </header>
+                    <div class="up-wl-grid" id="upWishlistGrid">
+                        {% for w in wishlist %}
+                            <article class="listing-box" data-listing-id="{{ w.id }}">
+                                <div class="up-wl-photo">
+                                    {% if w.cover %}
+                                        <img
+                                            src="{{ w.cover_url }}"
+                                            alt="{{ w.title }}"
+                                            onerror="this.parentElement.classList.add('noimg'); this.remove();"
+                                        >
+                                    {% endif %}
+                                    <i data-lucide="home"></i>
+                                    <button type="button" class="up-wl-heart" aria-label="Remove from wishlist">
+                                        <i data-lucide="heart"></i>
+                                    </button>
+                                </div>
+                                <div class="up-wl-info">
+                                    <h4>{{ w.title }}</h4>
+                                    <p class="up-wl-loc"><i data-lucide="map-pin"></i>{{ w.location }}</p>
+                                    <p class="up-wl-price"><strong>₱{{ w.price_str }}</strong><span> / night</span></p>
+                                </div>
+                            </article>
+                        {% endfor %}
+                    </div>
+                    <p class="up-empty up-wl-empty" id="upWlEmpty" {% if wishlist %}style="display:none"{% endif %}>
+                        Nothing saved yet — tap the heart on any listing to save it here.
+                    </p>
+                </section>
+
+            </div>
+        </main>
+
+        {{ include('partials/footer.html.twig') }}
+
+        <!-- Lucide — guarded loader, same key as navbar (never double-runs) -->
+        <script>
+            (function () {
+                "use strict";
+                function renderRhIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
+                }
+                if (!window.__rhNavbarLucide) {
+                    window.__rhNavbarLucide = true;
+                    var s = document.createElement("script");
+                    s.src = "https://unpkg.com/lucide@latest/dist/umd/lucide.min.js";
+                    s.addEventListener("load", renderRhIcons);
+                    document.head.appendChild(s);
+                }
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", renderRhIcons);
+                } else {
+                    renderRhIcons();
+                }
+                window.addEventListener("load", renderRhIcons);
+            })();
+        </script>
+
+        <!-- Sidebar collapse — same behavior + localStorage key as legacy -->
+        <script>
+            (function () {
+                var sidebar = document.getElementById("upSidebar");
+                var toggle = document.getElementById("upSidebarToggle");
+                if (!sidebar || !toggle) {
+                    return;
+                }
+
+                var STORAGE_KEY = "roomhive_sidebar_collapsed";
+                var links = sidebar.querySelectorAll(".up-side-link");
+
+                function updateTitles(collapsed) {
+                    links.forEach(function (link) {
+                        var label = link.querySelector(".up-side-label");
+                        if (collapsed) {
+                            link.setAttribute("title", label ? label.textContent : "");
+                        } else {
+                            link.removeAttribute("title");
+                        }
+                    });
+                }
+
+                function applyState(collapsed) {
+                    sidebar.classList.toggle("collapsed", collapsed);
+                    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                    toggle.setAttribute(
+                        "aria-label",
+                        collapsed ? "Expand sidebar" : "Collapse sidebar",
+                    );
+                    updateTitles(collapsed);
+                }
+
+                var savedCollapsed = false;
+                try {
+                    savedCollapsed = localStorage.getItem(STORAGE_KEY) === "1";
+                } catch (e) {}
+                applyState(savedCollapsed);
+
+                toggle.addEventListener("click", function () {
+                    var nowCollapsed = !sidebar.classList.contains("collapsed");
+                    applyState(nowCollapsed);
+                    try {
+                        localStorage.setItem(STORAGE_KEY, nowCollapsed ? "1" : "0");
+                    } catch (e) {}
+                });
+            })();
+        </script>
+
+        <script>
+            /* Reveal failsafe — force every card into its visible state */
+            (function () {
+                function revealAll() {
+                    document.querySelectorAll(".up-reveal").forEach(function (el) {
+                        el.classList.add("in", "is-visible", "revealed");
+                    });
+                }
+                revealAll();
+                setTimeout(revealAll, 1200);
+            })();
+
+            /* Wallet donut — offset = 125.66 × (1 − pct/100) */
+            (function () {
+                var C = 125.66;
+                document.querySelectorAll(".up-ch-donut .donut-fg").forEach(function (c) {
+                    var pct = parseFloat(c.getAttribute("data-pct") || "0");
+                    if (isNaN(pct)) pct = 0;
+                    pct = Math.max(0, Math.min(100, pct));
+                    c.style.strokeDashoffset = (C * (1 - pct / 100)).toFixed(2);
+                });
+            })();
+
+            /* Payment summary tabs — swap value + caption from data attributes */
+            (function () {
+                var tabs = document.querySelectorAll(".up-sum-tab");
+                var val = document.querySelector(".up-sum-value");
+                var cap = document.querySelector(".up-sum-cap");
+                if (!tabs.length || !val) {
+                    return;
+                }
+                tabs.forEach(function (t) {
+                    t.addEventListener("click", function () {
+                        tabs.forEach(function (x) {
+                            x.classList.remove("active");
+                        });
+                        t.classList.add("active");
+                        var k = t.getAttribute("data-tab");
+                        if (val.getAttribute("data-" + k)) {
+                            val.textContent = val.getAttribute("data-" + k);
+                        }
+                        if (cap && cap.getAttribute("data-" + k)) {
+                            cap.textContent = cap.getAttribute("data-" + k);
+                        }
+                    });
+                });
+            })();
+
+            /* Avatar upload — POST /profile/avatar, sync page + navbar */
+            (function () {
+                var input = document.getElementById("avatarFileInput");
+                if (!input) {
+                    return;
+                }
+                input.addEventListener("change", function () {
+                    var f = input.files && input.files[0];
+                    if (!f) {
+                        return;
+                    }
+                    var fd = new FormData();
+                    fd.append("avatar", f);
+                    fetch("/profile/avatar", { method: "POST", body: fd })
+                        .then(function (r) {
+                            return r.json();
+                        })
+                        .then(function (d) {
+                            if (!d || !d.ok) {
+                                alert((d && d.error) || "Upload failed");
+                                return;
+                            }
+                            var url =
+                                d.url +
+                                (d.url.indexOf("?") > -1 ? "&" : "?") +
+                                "t=" +
+                                Date.now();
+                            var img = document.getElementById("upAvatarImg");
+                            if (img) {
+                                img.src = url;
+                                img.style.display = "";
+                            }
+                            var fb = document.querySelector(".up-photo-fallback");
+                            if (fb) {
+                                fb.style.display = "none";
+                            }
+                            var navImg = document.getElementById("navAccountAvatarImg");
+                            if (navImg) {
+                                navImg.src = url;
+                            }
+                        })
+                        .catch(function () {
+                            alert("Upload failed — check your connection.");
+                        });
+                });
+            })();
+
+            /* Wishlist remove — capture-phase delegation, POST /wishlist/remove */
+            document.addEventListener(
+                "click",
+                function (ev) {
+                    var t = ev.target;
+                    if (!(t instanceof Element)) {
+                        return;
+                    }
+                    var heart = t.closest(".up-wl-heart");
+                    if (!heart) {
+                        return;
+                    }
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    var box = heart.closest(".listing-box");
+                    var id = box ? box.getAttribute("data-listing-id") : null;
+                    if (!id) {
+                        return;
+                    }
+                    heart.classList.add("busy");
+                    fetch("/wishlist/remove", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                        body: "listing_id=" + encodeURIComponent(id),
+                    })
+                        .then(function (r) {
+                            return r.json();
+                        })
+                        .then(function (d) {
+                            if (d && d.ok) {
+                                if (box) {
+                                    box.remove();
+                                }
+                                var cnt = document.getElementById("upWlCount");
+                                if (cnt) {
+                                    var n = parseInt(cnt.textContent, 10);
+                                    if (!isNaN(n) && n > 0) {
+                                        cnt.textContent = n - 1 + " saved";
+                                    }
+                                }
+                                var grid = document.getElementById("upWishlistGrid");
+                                if (grid && !grid.querySelector(".listing-box")) {
+                                    var empty = document.getElementById("upWlEmpty");
+                                    if (empty) {
+                                        empty.style.display = "";
+                                    }
+                                }
+                            } else {
+                                heart.classList.remove("busy");
+                                alert((d && d.error) || "Could not remove this listing.");
+                            }
+                        })
+                        .catch(function () {
+                            heart.classList.remove("busy");
+                            alert("Network error — try again.");
+                        });
+                },
+                true,
+            );
+        </script>
+
+    </body>
+</html>

@@ -87,35 +87,36 @@ final class PagesController extends AbstractController
     }
 
     /* =========================================================
-       LOGOUT — priority: 2 makes this route WIN any path
-       collision with a leftover /logout placeholder. invalidate()
-       wipes every session key (logged_in, user_id, is_host...)
-       AND destroys the server-side session, so even the 30-day
-       cookie can only re-adopt an empty session.
+       LOGOUT — hammer version. THE FIX:
+       1) remove() deletes each auth key EXPLICITLY — even a
+          worst-case invalidate() cannot resurrect them
+       2) invalidate() then wipes the rest + rotates the ID
+       3) NO addFlash after invalidate() — writing to the
+          session after invalidating it re-activates it and
+          carried the old state forward (that WAS the bug)
+       4) no-store so this redirect can never be cached
     ========================================================== */
     #[Route('/logout', name: 'app_logout', priority: 2)]
     public function logout(Request $request): Response
     {
-        $request->getSession()->invalidate();
+        // die('LOGOUT HANDLER RAN');   /* probe — only if it still fails */
 
-        $this->addFlash('logout_success', 'You have been logged out. See you soon!');
+        $session = $request->getSession();
 
-        return $this->redirect('/');
-    }
+        /* 1) Explicitly delete the auth keys — deterministic */
+        $session->remove('logged_in');
+        $session->remove('user_id');
+        $session->remove('is_host');
+        $session->remove('avatar_path');
 
-    /* =========================================================
-       LISTING PAYMENT — placeholder until the real payment
-       flow is wired to this route (if PaymentController owns
-       app_listing_payment, DELETE this method — duplicate
-       route names crash Symfony).
-    ========================================================== */
-    #[Route('/listings/{id}/payment', name: 'app_listing_payment', requirements: ['id' => '\d+'])]
-    public function listingPayment(int $id): Response
-    {
-        return $this->render('pages/coming-soon.html.twig', [
-            'page_name'    => 'app_listing_payment',
-            'current_page' => '/listings',
-        ]);
+        /* 2) Wipe everything + rotate the session ID */
+        $session->invalidate();
+
+        /* 3) Redirect with a no-store header */
+        $response = $this->redirectToRoute('app_home');
+        $response->headers->set('Cache-Control', 'no-store, max-age=0, must-revalidate');
+
+        return $response;
     }
 
     /* =========================================================
@@ -125,6 +126,11 @@ final class PagesController extends AbstractController
        controllers. A duplicate /logout PATH here would shadow
        the real logout depending on method order (that bug
        caused "logout doesn't work").
+
+       NOTE: app_listing_payment (/listings/{id}/payment) was
+       DELETED from this controller — PaymentController::choose()
+       owns that route name. Two methods with the same route
+       name would crash Symfony.
     ========================================================== */
     #[Route('/profile', name: 'app_profile')]
     #[Route('/messages', name: 'app_messages')]
