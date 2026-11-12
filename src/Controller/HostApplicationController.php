@@ -78,7 +78,7 @@ final class HostApplicationController extends AbstractController
         ====================================================== */
         if ($request->isMethod('POST')) {
 
-            if (!$this->csrfValid($request, self::CSRF_ID, (string) $request->request->get('_token', ''))) {
+            if (!$this->csrfValid($request, self::CSRF_ID, (string) $request->request->get('csrf_token', ''))) {
                 $errors[] = 'Your session expired. Please try again.';
             }
 

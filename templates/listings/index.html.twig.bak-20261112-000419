@@ -1,0 +1,3888 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>RoomHive - Listings</title>
+
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/listings-style.css') }}">
+
+        <script>
+            document.documentElement.classList.add("js");
+        </script>
+
+        <style>
+            .js-hidden {
+                display: none !important;
+            }
+            .listings-page {
+                padding-top: 130px;
+            }
+
+            /* GRID SAFETY NET */
+            #rh-listings-results {
+                display: grid !important;
+                grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+                gap: 24px !important;
+                width: 100% !important;
+            }
+            #rh-listings-results.rh-list-view {
+                grid-template-columns: 1fr !important;
+            }
+            @media (max-width: 1180px) {
+                #rh-listings-results {
+                    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+                }
+            }
+            @media (max-width: 900px) {
+                #rh-listings-results {
+                    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                }
+            }
+            @media (max-width: 720px) {
+                #rh-listings-results {
+                    grid-template-columns: 1fr !important;
+                }
+            }
+
+            /* =====================================================
+                                                                       FILTER BAR — location, category and search extend
+                                                                    ====================================================== */
+            #filter-form {
+                display: flex !important;
+                align-items: center;
+                gap: 14px;
+            }
+            #filter-form > .filter-group,
+            #filter-form > .filter-divider {
+                flex: 0 0 auto;
+            }
+
+            #filter-form > .location-group,
+            #filter-form > .category-dd,
+            #filter-form > .search-group {
+                flex: 1 1 auto;
+            }
+            #filter-form > .location-group {
+                flex-grow: 1.6;
+            }
+
+            .location-group .location-search,
+            .category-dd .category-dd-btn {
+                width: 100%;
+                min-width: 0;
+                box-sizing: border-box;
+            }
+
+            .search-group {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .search-group .search-input {
+                flex: 1 1 auto;
+                width: auto;
+                min-width: 0;
+            }
+
+            @media (max-width: 900px) {
+                #filter-form {
+                    flex-wrap: wrap;
+                }
+                #filter-form > .location-group,
+                #filter-form > .category-dd,
+                #filter-form > .search-group {
+                    flex: 1 1 100%;
+                }
+            }
+
+            /* =====================================================
+                                                                       DROPDOWN MAKEOVER — selects, inputs, panels
+                                                                    ====================================================== */
+            .filter-group {
+                position: relative;
+            }
+
+            select.filter-select,
+            .location-search,
+            .category-dd-btn {
+                -webkit-appearance: none;
+                appearance: none;
+                border: 1.5px solid var(--rh-line, #e2e8f0);
+                border-radius: 12px;
+                background: #ffffff;
+                font-family: inherit;
+                font-size: 0.88rem;
+                font-weight: 500;
+                color: #1c2a38;
+                padding: 10px 36px 10px 40px;
+                cursor: pointer;
+                transition:
+                    border-color 0.18s ease,
+                    box-shadow 0.18s ease,
+                    background 0.18s ease;
+            }
+            select.filter-select:hover,
+            .location-search:hover,
+            .category-dd-btn:hover {
+                border-color: var(--rh-gold, #d68e0e);
+                background: #fffdf6;
+            }
+            select.filter-select:focus,
+            .location-search:focus,
+            .category-dd-btn:focus {
+                outline: none;
+                border-color: var(--rh-gold, #d68e0e);
+                box-shadow: 0 0 0 4px rgba(237, 164, 35, 0.15);
+                background: #ffffff;
+            }
+
+            .filter-arrow {
+                transition: transform 0.2s ease;
+                pointer-events: none;
+            }
+            select.filter-select:focus ~ .filter-arrow,
+            .category-dd.open .filter-arrow {
+                transform: rotate(180deg);
+            }
+
+            /* ---- CATEGORY BUTTON — icon + label row ---- */
+            .category-dd-btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 9px;
+                text-align: left;
+                white-space: nowrap;
+            }
+            .category-btn-icon {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                color: #d99218;
+                flex-shrink: 0;
+            }
+            .category-btn-icon svg {
+                width: 16px;
+                height: 16px;
+            }
+
+            /* ---- SHARED PANEL STYLES (location + category) ---- */
+            .location-suggestions,
+            .category-panel {
+                display: none;
+                position: absolute;
+                top: calc(100% + 8px);
+                left: 0;
+                min-width: 260px;
+                max-height: 320px;
+                overflow-y: auto;
+                background: #ffffff;
+                border: 1px solid var(--rh-line, #e2e8f0);
+                border-radius: 14px;
+                box-shadow: 0 18px 40px rgba(28, 42, 56, 0.16);
+                z-index: 600;
+                padding: 6px;
+                animation: locDropIn 0.16s ease;
+            }
+            @keyframes locDropIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(-6px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+            .location-suggestions.open,
+            .category-panel.open {
+                display: block;
+            }
+
+            .loc-group-label {
+                padding: 8px 12px 4px;
+                font-size: 0.68rem;
+                font-weight: 800;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: #9aa4af;
+            }
+
+            .location-suggestions button,
+            .category-panel button {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                width: 100%;
+                padding: 9px 12px;
+                border: none;
+                border-radius: 10px;
+                background: none;
+                cursor: pointer;
+                font: inherit;
+                font-size: 0.88rem;
+                font-weight: 500;
+                color: #1c2a38;
+                text-align: left;
+                transition:
+                    background 0.12s ease,
+                    color 0.12s ease;
+            }
+            .location-suggestions button:hover,
+            .location-suggestions button.highlighted,
+            .category-panel button:hover {
+                background: #fdf1dc;
+                color: #b07708;
+            }
+
+            .loc-dot {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 30px;
+                height: 30px;
+                border-radius: 9px;
+                background: #fff6e9;
+                border: 1px solid rgba(237, 164, 35, 0.35);
+                color: #d99218;
+                flex-shrink: 0;
+            }
+            .loc-dot svg {
+                width: 15px;
+                height: 15px;
+            }
+            .location-suggestions button.highlighted .loc-dot,
+            .category-panel button:hover .loc-dot {
+                background: #f6c04e;
+                color: #1c2a38;
+            }
+
+            .loc-badge {
+                margin-left: auto;
+                font-size: 0.68rem;
+                font-weight: 700;
+                color: #8a94a0;
+                background: #f1f4f7;
+                border: 1px solid #e2e8f0;
+                border-radius: 999px;
+                padding: 3px 10px;
+                white-space: nowrap;
+            }
+            .location-suggestions button.highlighted .loc-badge {
+                color: #b07708;
+                background: #fdf1dc;
+                border-color: #f0d9a8;
+            }
+            .loc-empty {
+                padding: 14px;
+                font-size: 0.85rem;
+                color: #8a94a0;
+            }
+
+            /* =====================================================
+                                       LOCATION PANEL — stage 2 extras
+                                       (back row, whole-province row, match highlight)
+                                    ====================================================== */
+            .loc-back-row {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                width: 100%;
+                padding: 8px 12px;
+                border: none;
+                border-radius: 10px;
+                background: none;
+                cursor: pointer;
+                font: inherit;
+                font-size: 0.78rem;
+                font-weight: 700;
+                color: #57655c;
+                text-align: left;
+                margin-bottom: 2px;
+                transition:
+                    background 0.12s ease,
+                    color 0.12s ease;
+            }
+            .loc-back-row:hover {
+                background: #f1f4f7;
+                color: #b07708;
+            }
+
+            .loc-all-row {
+                border-bottom: 1px dashed #e2e8f0;
+                border-radius: 10px 10px 0 0;
+                font-weight: 600;
+            }
+
+            b.loc-hl {
+                color: #b07708;
+                font-weight: 800;
+            }
+
+            /* =====================================================
+                                       CLEAR (X) BUTTON — location search
+                                       Sits in the input's 36px right padding zone.
+                                    ====================================================== */
+            .loc-clear-btn {
+                position: absolute;
+                right: 9px;
+                top: 50%;
+                transform: translateY(-50%);
+
+                display: none;
+                align-items: center;
+                justify-content: center;
+
+                width: 22px;
+                height: 22px;
+                padding: 0;
+
+                border: none;
+                border-radius: 50%;
+
+                background: #eef1f6;
+                color: #57655c;
+
+                cursor: pointer;
+                z-index: 5;
+
+                transition:
+                    background 0.15s ease,
+                    color 0.15s ease,
+                    transform 0.15s ease;
+            }
+
+            .loc-clear-btn.visible {
+                display: inline-flex;
+            }
+
+            .loc-clear-btn:hover {
+                background: #fdecec;
+                color: #a1332e;
+                transform: translateY(-50%) scale(1.08);
+            }
+
+            .loc-clear-btn svg {
+                width: 11px;
+                height: 11px;
+                display: block;
+            }
+
+            /* ---- CATEGORY PANEL specifics ---- */
+            .category-panel {
+                min-width: 240px;
+            }
+            .category-panel .cat-check {
+                margin-left: auto;
+                width: 18px;
+                height: 18px;
+                color: #d99218;
+                flex-shrink: 0;
+            }
+            .category-panel .cat-check svg {
+                width: 16px;
+                height: 16px;
+            }
+            .category-panel button.active {
+                background: #fdf3e0;
+                color: #b07708;
+                font-weight: 600;
+            }
+            .category-panel button.active .loc-dot {
+                background: #f6c04e;
+                color: #1c2a38;
+            }
+
+            /* AMENITY CHIPS ON CARDS */
+            .rh-card-amenities {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 5px;
+                margin-top: 2px;
+            }
+            .rh-chip-mini {
+                font-size: 0.68rem;
+                font-weight: 600;
+                color: #9c6a08;
+                background: #f1e3c4;
+                border: 1px solid #e2d0a8;
+                border-radius: 999px;
+                padding: 3px 9px;
+                white-space: nowrap;
+            }
+            .rh-chip-more {
+                font-size: 0.68rem;
+                font-weight: 600;
+                color: #57655c;
+                align-self: center;
+            }
+
+            /* AMENITIES BAR */
+            .filter-bar.amenities-bar {
+                position: static;
+                margin-top: 8px;
+                flex-wrap: wrap;
+                gap: 8px;
+                padding: 8px 10px;
+            }
+            .amenities-bar-label {
+                flex: 0 0 auto;
+                padding: 6px 12px;
+            }
+            .amenities-bar-title {
+                font-size: 0.88rem;
+                font-weight: 600;
+                color: var(--rh-ink, #1c1c1c);
+                white-space: nowrap;
+            }
+            .amenity-toggle-btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 7px;
+                cursor: pointer;
+                border: 1px solid var(--rh-line, #e2e8f0);
+                background: var(--rh-cloud, #f7f9fb);
+                border-radius: 999px;
+                padding: 8px 16px;
+                font-family: inherit;
+                font-size: 0.85rem;
+                font-weight: 500;
+                color: var(--rh-ink-soft, #57655c);
+                white-space: nowrap;
+                transition:
+                    border-color 0.15s ease,
+                    color 0.15s ease,
+                    background 0.15s ease;
+            }
+            .amenity-toggle-btn:hover {
+                border-color: var(--rh-gold, #d68e0e);
+                color: var(--rh-gold-deep, #9c6a08);
+            }
+            .amenity-toggle-btn.active {
+                background: var(--rh-gold-wash, #fdf3e0);
+                border-color: var(--rh-gold, #d68e0e);
+                color: var(--rh-gold-deep, #9c6a08);
+                font-weight: 600;
+            }
+            .amenity-check {
+                font-size: 0.8rem;
+                line-height: 1;
+            }
+            .amenity-ico {
+                width: 15px;
+                height: 15px;
+                opacity: 0.75;
+                flex-shrink: 0;
+            }
+            .amenity-toggle-btn.active .amenity-ico {
+                opacity: 1;
+            }
+
+            /* PRICE RANGE — LIVE */
+            .price-value {
+                transition:
+                    color 0.15s ease,
+                    transform 0.15s ease;
+            }
+            .price-value.price-live {
+                color: var(--rh-gold-deep, #9c6a08);
+                font-weight: 700;
+                transform: scale(1.08);
+            }
+
+            /* PRICE RANGE — filled track follows the thumb.
+                                       Base (unfilled) color here; JS paints the gold
+                                       gradient up to the thumb position on load + drag. */
+            .price-range {
+                -webkit-appearance: none;
+                appearance: none;
+                height: 6px;
+                border-radius: 999px;
+                background: #e2e8f0;
+                outline: none;
+                cursor: pointer;
+            }
+            .price-range::-webkit-slider-thumb {
+                -webkit-appearance: none;
+                appearance: none;
+                width: 16px;
+                height: 16px;
+                border-radius: 50%;
+                background: #d68e0e;
+                border: 2px solid #ffffff;
+                box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+                cursor: pointer;
+            }
+            .price-range::-moz-range-thumb {
+                width: 16px;
+                height: 16px;
+                border-radius: 50%;
+                background: #d68e0e;
+                border: 2px solid #ffffff;
+                box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+                cursor: pointer;
+            }
+
+            /* LUCIDE */
+            svg.lucide {
+                display: inline-block;
+                vertical-align: -0.18em;
+                flex-shrink: 0;
+            }
+            .filter-icon,
+            .filter-arrow {
+                width: 15px;
+                height: 15px;
+                flex-shrink: 0;
+            }
+            .rh-loc-ico {
+                width: 13px;
+                height: 13px;
+                flex-shrink: 0;
+            }
+            .rh-view-btn svg {
+                width: 16px;
+                height: 16px;
+                display: block;
+            }
+            .search-button svg {
+                width: 17px;
+                height: 17px;
+                display: block;
+            }
+
+            /* PAGINATION */
+            .rh-pagination {
+                display: flex;
+                gap: 6px;
+                flex-wrap: wrap;
+                align-items: center;
+                justify-content: center;
+                margin-top: 26px;
+            }
+            .rh-pagination a {
+                min-width: 36px;
+                padding: 8px 11px;
+                text-align: center;
+                border: 1px solid var(--rh-line, #e2e8f0);
+                border-radius: 9px;
+                font-size: 13px;
+                font-weight: 700;
+                text-decoration: none;
+                color: var(--rh-ink-soft, #57655c);
+                background: #ffffff;
+                transition:
+                    background 0.15s ease,
+                    color 0.15s ease;
+            }
+            .rh-pagination a:hover {
+                border-color: var(--rh-gold, #d68e0e);
+                color: var(--rh-gold-deep, #9c6a08);
+            }
+            .rh-pagination a.current {
+                color: #ffffff;
+                background: var(--rh-gold, #d68e0e);
+                border-color: var(--rh-gold, #d68e0e);
+            }
+            /* =====================================================
+                                       WISHLIST HEART — top-right of every space card
+                                    ====================================================== */
+            .rh-card-media {
+                position: relative;
+            }
+            .rh-wish-btn {
+                position: absolute;
+                top: 12px;
+                right: 12px;
+                z-index: 30;
+
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+
+                width: 38px;
+                height: 38px;
+                padding: 0;
+
+                border: none;
+                border-radius: 50%;
+
+                background: rgba(255, 255, 255, 0.92);
+                color: #1c2a38;
+
+                cursor: pointer;
+                box-shadow: 0 2px 10px rgba(28, 42, 56, 0.22);
+
+                transition:
+                    transform 0.15s ease,
+                    box-shadow 0.15s ease,
+                    background 0.15s ease;
+            }
+            .rh-wish-btn:hover {
+                transform: scale(1.08);
+                background: #ffffff;
+                box-shadow: 0 4px 14px rgba(28, 42, 56, 0.28);
+            }
+            .rh-wish-btn:active {
+                transform: scale(0.94);
+            }
+            .rh-wish-btn:focus-visible {
+                outline: 2px solid var(--rh-gold, #d68e0e);
+                outline-offset: 2px;
+            }
+            .rh-wish-btn svg {
+                width: 18px;
+                height: 18px;
+                display: block;
+            }
+            /* outline heart by default, filled heart once saved */
+            .rh-wish-btn .rh-wish-fill {
+                display: none;
+            }
+            .rh-wish-btn.saved {
+                color: #d68e0e;
+            }
+            .rh-wish-btn.saved .rh-wish-outline {
+                display: none;
+            }
+            .rh-wish-btn.saved .rh-wish-fill {
+                display: block;
+            }
+            /* GLOW — saved hearts pulse with a soft GOLD ring that
+                           radiates outward, matching the site's gold theme.
+                           Runs alongside the .pop bounce (pop animates the svg,
+                           glow animates the button's box-shadow). */
+            .rh-wish-btn.saved {
+                animation: rhWishGlow 1.6s ease-in-out infinite;
+            }
+            @keyframes rhWishGlow {
+                0%,
+                100% {
+                    box-shadow:
+                        0 0 0 0 rgba(237, 164, 35, 0.55),
+                        0 2px 10px rgba(28, 42, 56, 0.22);
+                }
+                50% {
+                    box-shadow:
+                        0 0 0 9px rgba(237, 164, 35, 0),
+                        0 2px 10px rgba(28, 42, 56, 0.22);
+                }
+            }
+            /* hover keeps the glow running (animation owns box-shadow)
+                           but still lifts + brightens so the cursor feels alive */
+            .rh-wish-btn.saved:hover {
+                transform: scale(1.08);
+                background: #ffffff;
+            }
+            /* dark mode — brighter gold on dark cards */
+            html.dark .rh-wish-btn.saved {
+                color: #f6c04e;
+                animation-name: rhWishGlowDark;
+            }
+            @keyframes rhWishGlowDark {
+                0%,
+                100% {
+                    box-shadow:
+                        0 0 0 0 rgba(246, 192, 78, 0.55),
+                        0 2px 10px rgba(0, 0, 0, 0.35);
+                }
+                50% {
+                    box-shadow:
+                        0 0 0 9px rgba(246, 192, 78, 0),
+                        0 2px 10px rgba(0, 0, 0, 0.35);
+                }
+            }
+            /* reduced motion — static glow ring, no pulsing */
+            @media (prefers-reduced-motion: reduce) {
+                .rh-wish-btn.saved,
+                html.dark .rh-wish-btn.saved {
+                    animation: none;
+                    box-shadow:
+                        0 0 0 4px rgba(237, 164, 35, 0.4),
+                        0 2px 10px rgba(28, 42, 56, 0.22);
+                }
+            }
+            /* pop animation on toggle */
+            @keyframes rhWishPop {
+                0% {
+                    transform: scale(0.6);
+                }
+                55% {
+                    transform: scale(1.25);
+                }
+                100% {
+                    transform: scale(1);
+                }
+            }
+            .rh-wish-btn.pop svg {
+                animation: rhWishPop 0.32s ease;
+            }
+
+            /* =====================================================
+                                       ENQUIRY WAITING CARD — a listing the viewer
+                                       has a PENDING application on stays in their
+                                       grid, but the card renders slightly blurred
+                                       with a 3-dot loader, the "Waiting for host
+                                       to accept" caption and a Cancel button.
+                                       Cancel posts to the SAME
+                                       /booking/cancel-booking endpoint the My
+                                       Bookings page uses (a fresh enquiry has
+                                       nothing paid, so no refund applies).
+                                    ====================================================== */
+            .listing-box {
+                position: relative;
+            }
+            /* the card content blurs; the overlay floats above it */
+            .listing-box.rh-enquiry-wait .rh-card-media,
+            .listing-box.rh-enquiry-wait .listing-box-info {
+                filter: blur(3px);
+                pointer-events: none;
+            }
+            .rh-enquiry-overlay {
+                position: absolute;
+                inset: 0;
+                z-index: 40;
+
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 9px;
+                padding: 14px;
+                text-align: center;
+
+                background: rgba(255, 255, 255, 0.55);
+                -webkit-backdrop-filter: blur(2px);
+                backdrop-filter: blur(2px);
+                border-radius: inherit;
+                cursor: default;
+            }
+            /* 3-dot loading animation */
+            .rh-enq-dots {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+            }
+            .rh-enq-dots span {
+                width: 9px;
+                height: 9px;
+                border-radius: 50%;
+                background: var(--rh-gold, #d68e0e);
+                animation: rhEnqDot 1.2s infinite ease-in-out;
+            }
+            .rh-enq-dots span:nth-child(2) {
+                animation-delay: 0.15s;
+            }
+            .rh-enq-dots span:nth-child(3) {
+                animation-delay: 0.3s;
+            }
+            @keyframes rhEnqDot {
+                0%,
+                80%,
+                100% {
+                    transform: scale(0.55);
+                    opacity: 0.35;
+                }
+                40% {
+                    transform: scale(1);
+                    opacity: 1;
+                }
+            }
+            .rh-enq-label {
+                margin: 0;
+                font-family: inherit;
+                font-size: 13.5px;
+                font-weight: 700;
+                line-height: 1.35;
+                color: #1c2a38;
+            }
+            /* Cancel — same quiet outline style as the pagination
+                           buttons; hover borrows the gold theme */
+            .rh-enq-cancel {
+                appearance: none;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                margin-top: 3px;
+                padding: 7px 24px;
+
+                border: 1px solid var(--rh-line, #e2e8f0);
+                border-radius: 9px;
+                background: #ffffff;
+                color: #1c2a38;
+                font-family: inherit;
+                font-size: 13px;
+                font-weight: 700;
+                line-height: 1;
+                cursor: pointer;
+
+                transition:
+                    background 0.15s ease,
+                    color 0.15s ease,
+                    border-color 0.15s ease;
+            }
+            .rh-enq-cancel:hover {
+                border-color: var(--rh-gold, #d68e0e);
+                color: var(--rh-gold-deep, #9c6a08);
+            }
+            .rh-enq-cancel:disabled {
+                opacity: 0.6;
+                cursor: default;
+            }
+            .rh-enq-cancel:focus-visible {
+                outline: 2px solid var(--rh-gold, #d68e0e);
+                outline-offset: 2px;
+            }
+            /* dark mode — frost turns to smoked glass */
+            html.dark .rh-enquiry-overlay {
+                background: rgba(10, 18, 28, 0.55);
+            }
+            html.dark .rh-enq-label {
+                color: #e7eef6;
+            }
+            html.dark .rh-enq-cancel {
+                background: rgba(255, 255, 255, 0.08);
+                border-color: rgba(255, 255, 255, 0.22);
+                color: #e7eef6;
+            }
+            html.dark .rh-enq-cancel:hover {
+                border-color: var(--rh-gold, #d68e0e);
+                color: #f6c04e;
+            }
+            /* reduced motion — dots hold still instead of bouncing */
+            @media (prefers-reduced-motion: reduce) {
+                .rh-enq-dots span {
+                    animation: none;
+                    opacity: 0.55;
+                    transform: scale(0.8);
+                }
+            }
+        </style>
+    </head>
+
+    <body>
+
+        {# Category icons — Lucide names per slug #}
+        {% set category_icons = {
+        'shared-bedroom': 'bed-double',
+        'private-room':   'door-open',
+        'entire-house':   'house',
+        'boarding-house': 'building-2',
+        'studio-loft':    'warehouse',
+        'apartment':      'building',
+    } %}
+
+        {# Icon currently shown IN THE BAR — matches the active filter #}
+        {% set current_category_icon = selected.category
+        ? (category_icons[selected.category] ?? 'house')
+        : 'layout-grid' %}
+
+        {% include 'partials/navbar.html.twig' with { current_page: '/listings' } %}
+
+        <main class="listings-page">
+
+            {# ============ MAIN FILTER BAR ============ #}
+            <form class="filter-bar" method="get" action="{{ path('app_listings') }}" id="filter-form">
+
+                {# LOCATION — province → towns autocomplete.
+                   Stage 1: all provinces A–Z. Stage 2: towns A–Z.
+                   Typing filters both. Free text always allowed.
+                   X button clears the location entirely. #}
+                <div class="filter-group location-group">
+                    <i data-lucide="map-pin" class="filter-icon"></i>
+                    <input
+                        type="text"
+                        class="location-search"
+                        id="location-search"
+                        placeholder="Search a province or town..."
+                        value="{{ selected.location ? selected.location ~ ', ' ~ selected.province : selected.province }}"
+                        autocomplete="off"
+                    >
+                    <button
+                        type="button"
+                        class="loc-clear-btn"
+                        id="location-clear"
+                        aria-label="Clear location search"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18 6 6 18"/>
+                            <path d="m6 6 12 12"/>
+                        </svg>
+                    </button>
+                    <input type="hidden" name="province" id="province-hidden" value="{{ selected.province }}">
+                    <input type="hidden" name="location" id="location-hidden" value="{{ selected.location }}">
+                    <div class="location-suggestions" id="location-suggestions"></div>
+                </div>
+
+                <div class="filter-divider"></div>
+
+                {# CATEGORY — custom dropdown; the BAR shows the
+               selected category's icon + label #}
+                <div class="filter-group category-dd" id="category-dd">
+                    <i data-lucide="tag" class="filter-icon"></i>
+                    <button
+                        type="button"
+                        class="category-dd-btn"
+                        id="category-btn"
+                        aria-haspopup="listbox"
+                        aria-expanded="false"
+                    >
+                        <span class="category-btn-icon" id="category-btn-icon">
+                            <i data-lucide="{{ current_category_icon }}"></i>
+                        </span>
+                        <span id="category-btn-label">{{ selected_category_label }}</span>
+                    </button>
+                    <i data-lucide="chevron-down" class="filter-arrow"></i>
+                    <input type="hidden" name="category" id="category-value" value="{{ selected.category }}">
+
+                    <div class="category-panel" id="category-panel" role="listbox">
+
+                        <button
+                            type="button"
+                            role="option"
+                            class="{{ selected.category == '' ? 'active' : '' }}"
+                            data-value=""
+                        >
+                            <span class="loc-dot"><i data-lucide="layout-grid"></i></span>
+                            <span>All Categories</span>
+                            <span class="cat-check">{% if selected.category == '' %}<i data-lucide="check"></i>{% endif %}</span>
+                        </button>
+
+                        {% for value, label in categories %}
+                            <button
+                                type="button"
+                                role="option"
+                                class="{{ selected.category == value ? 'active' : '' }}"
+                                data-value="{{ value }}"
+                            >
+                                <span class="loc-dot"><i data-lucide="{{ category_icons[value] ?? 'house' }}"></i></span>
+                                <span>{{ label }}</span>
+                                <span class="cat-check">{% if selected.category == value %}<i data-lucide="check"></i>{% endif %}</span>
+                            </button>
+                        {% endfor %}
+
+                    </div>
+                </div>
+
+                <div class="filter-divider"></div>
+
+                <div class="filter-group price-filter">
+                    <span class="price-icon">₱</span>
+                    <span class="price-value" id="price-min">0</span>
+                    <input
+                        type="range"
+                        class="price-range"
+                        id="price-range"
+                        name="price_max"
+                        min="0"
+                        max="20000"
+                        step="500"
+                        value="{{ selected.price_max }}"
+                    >
+                    <span class="price-value" id="price-max">{{ selected.price_max|number_format(0) }}</span>
+                </div>
+
+                <div class="filter-divider"></div>
+
+                <div class="filter-group search-group">
+                    <input
+                        type="text"
+                        class="search-input"
+                        name="q"
+                        placeholder="Search.."
+                        value="{{ selected.q }}"
+                    >
+                    <button class="search-button" type="submit">
+                        <i data-lucide="search"></i>
+                    </button>
+                </div>
+
+            </form>
+
+            {# ============ AMENITIES BAR ============ #}
+            <div class="filter-bar amenities-bar" id="amenities-bar">
+
+                <div class="filter-group amenities-bar-label">
+                    <i data-lucide="house" class="filter-icon"></i>
+                    <span class="amenities-bar-title">Amenities</span>
+                </div>
+
+                <div class="filter-divider"></div>
+
+                {% for key, label in amenity_options %}
+                    <label class="amenity-toggle-btn{{ key in selected.amenities ? ' active' : '' }}">
+                        <input
+                            type="checkbox"
+                            class="js-hidden"
+                            name="amenities[]"
+                            value="{{ key }}"
+                            {{ key in selected.amenities ? 'checked' : '' }}
+                            onchange="document.getElementById('filter-form').submit()"
+                        >
+                        {% if amenity_icons[key] %}
+                            <i data-lucide="{{ amenity_icons[key] }}" class="amenity-ico"></i>
+                        {% endif %}
+                        <span class="amenity-check">{{ key in selected.amenities ? '&#10003;' : '' }}</span>
+                        {{ label }}
+                    </label>
+                {% endfor %}
+
+                {% if selected.amenities is not empty %}
+                    <button type="button" class="amenity-toggle-btn" onclick="window.location='{{ path('app_listings') }}'">
+                        Clear
+                    </button>
+                {% endif %}
+
+            </div>
+
+            {# ============ LISTINGS ============ #}
+            <section class="listings-content">
+                <div class="listings-main">
+
+                    <div class="rh-results-bar">
+                        <div class="rh-toolbar">
+                            <p class="rh-results-count" id="rh-results-count">
+                                Showing {{ listings|length }} of {{ total_items }} space{{ total_items == 1 ? '' : 's' }}
+                            </p>
+                            <div class="rh-toolbar-actions">
+                                <select
+                                    class="rh-sort"
+                                    id="rh-sort"
+                                    name="sort"
+                                    form="filter-form"
+                                    aria-label="Sort listings"
+                                    onchange="document.getElementById('filter-form').submit()"
+                                >
+                                    <option value="featured" {{ selected.sort == 'featured' ? 'selected' : '' }}>Featured</option>
+                                    <option value="price-asc" {{ selected.sort == 'price-asc' ? 'selected' : '' }}>Price: Low &rarr; High</option>
+                                    <option value="price-desc" {{ selected.sort == 'price-desc' ? 'selected' : '' }}>Price: High &rarr; Low</option>
+                                </select>
+                                <div class="rh-view-toggle" role="group" aria-label="Layout">
+                                    <button type="button" class="rh-view-btn active" data-view="grid" aria-label="Grid view"><i data-lucide="layout-grid"></i></button>
+                                    <button type="button" class="rh-view-btn" data-view="list" aria-label="List view"><i data-lucide="list"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="listings-results" id="rh-listings-results">
+
+                        {% if listings is empty %}
+                            <div class="rh-empty-state">
+                                <p class="rh-empty-title">No listings match your filters</p>
+                                <p class="rh-empty-subtitle">
+                                    Try widening your price range, removing an amenity,
+                                    or searching a different area.
+                                </p>
+                                {% if has_active_filters %}
+                                    <a class="rh-empty-clear-btn" href="{{ path('app_listings') }}">Clear all filters</a>
+                                {% endif %}
+                            </div>
+                        {% endif %}
+
+                        {% for listing in listings %}
+                            {% set isNew = listing.createdAt >= date('-14 days') %}
+                            {% set enqPending = listing.enquiryPending ?? false %}
+                            {% set chips = listing.amenities %}
+                            {% if listing.hasParking and 'parking' not in chips %}
+                                {% set chips = ['parking']|merge(chips) %}
+                            {% endif %}
+
+                            <a
+                                href="{{ path('app_listing_detail', { id: listing.id }) }}"
+                                class="listing-box{{ enqPending ? ' rh-enquiry-wait' : '' }}"
+                            >
+
+                                <div class="rh-card-media">
+                                    <img src="{{ asset(listing.coverImage) }}" alt="{{ listing.title }}">
+                                    <div class="rh-card-badges">
+                                        {% if isNew %}<span class="rh-badge rh-badge-new">New</span>{% endif %}
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        class="rh-wish-btn{{ listing.id in wishlist_ids|default([]) ? ' saved' : '' }}"
+                                        data-listing-id="{{ listing.id }}"
+                                        aria-pressed="{{ listing.id in wishlist_ids|default([]) ? 'true' : 'false' }}"
+                                        aria-label="{{ listing.id in wishlist_ids|default([]) ? 'Remove from wishlist' : 'Save to wishlist' }}"
+                                        title="{{ listing.id in wishlist_ids|default([]) ? 'Remove from wishlist' : 'Save to wishlist' }}"
+                                    >
+                                        <svg class="rh-wish-outline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>
+                                        </svg>
+                                        <svg class="rh-wish-fill" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+                                            <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>
+                                        </svg>
+                                    </button>
+                                </div>
+
+                                <div class="listing-box-info">
+                                    <div class="rh-card-title-row">
+                                        <h4 class="listing-box-title">{{ listing.title }}</h4>
+                                        <span class="rh-rating-none">No reviews yet</span>
+                                    </div>
+
+                                    <div class="listing-box-location">
+                                        <i data-lucide="map-pin" class="rh-loc-ico"></i>
+                                        <span>{{ listing.location }}{% if listing.province %}, {{ listing.province }}{% endif %}</span>
+                                    </div>
+
+                                    <div class="rh-card-price-row">
+                                        <span class="rh-card-price">
+                                            &#8369; {{ listing.price|number_format(0) }}
+                                            <span class="rh-card-per">/ month</span>
+                                        </span>
+                                    </div>
+
+                                    <div class="rh-card-amenities">
+                                        {% for key in chips|slice(0, 3) %}
+                                            <span class="rh-chip-mini">{{ amenity_options[key] ?? key|replace({'-': ' '})|title }}</span>
+                                        {% endfor %}
+                                        {% if chips|length > 3 %}
+                                            <span class="rh-chip-more">+{{ chips|length - 3 }} more</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+
+                                {% if enqPending %}
+                                    {# ENQUIRY WAITING CARD — this viewer has
+                                       a PENDING application on this space:
+                                       the card goes slightly blurred with a
+                                       3-dot loader + "Waiting for host to
+                                       accept" + a Cancel button. The card
+                                       itself still links to the detail page
+                                       (which shows the tracking note); only
+                                       the Cancel button intercepts clicks. #}
+                                    <div class="rh-enquiry-overlay" role="status" aria-live="polite">
+                                        <div class="rh-enq-dots" aria-hidden="true">
+                                            <span></span><span></span><span></span>
+                                        </div>
+                                        <p class="rh-enq-label">Waiting for host to accept</p>
+                                        <button
+                                            type="button"
+                                            class="rh-enq-cancel"
+                                            data-booking-id="{{ listing.enquiryBookingId }}"
+                                            title="Cancel this enquiry"
+                                        >Cancel</button>
+                                    </div>
+                                {% endif %}
+
+                            </a>
+                        {% endfor %}
+
+                    </div>
+
+                    {% if total_pages > 1 %}
+                        <div class="rh-pagination">
+                            {% for p in 1..total_pages %}
+                                <a
+                                    href="{{ path('app_listings', app.request.query.all|merge({ page: p })) }}"
+                                    class="{{ p == page ? 'current' : '' }}"
+                                >{{ p }}</a>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                </div>
+            </section>
+
+        </main>
+
+        {% include 'partials/footer.html.twig' %}
+
+        <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+        <script>
+            function rhRefreshIcons() {
+                if (window.lucide && typeof lucide.createIcons === "function") {
+                    lucide.createIcons();
+                }
+            }
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", rhRefreshIcons);
+            } else {
+                rhRefreshIcons();
+            }
+        </script>
+
+        <script>
+            (function () {
+                "use strict";
+
+                /* =====================================================
+                                                                           CATEGORY DROPDOWN — custom panel + bar icon swap
+                                                                        ====================================================== */
+                var catGroup = document.getElementById("category-dd");
+                var catBtn = document.getElementById("category-btn");
+                var catPanel = document.getElementById("category-panel");
+                var catValue = document.getElementById("category-value");
+                var catIcon = document.getElementById("category-btn-icon");
+                var catLabel = document.getElementById("category-btn-label");
+
+                function closeCategory() {
+                    if (!catPanel) {
+                        return;
+                    }
+                    catPanel.classList.remove("open");
+                    if (catGroup) {
+                        catGroup.classList.remove("open");
+                    }
+                    if (catBtn) {
+                        catBtn.setAttribute("aria-expanded", "false");
+                    }
+                }
+
+                if (catGroup && catBtn && catPanel && catValue) {
+                    catBtn.addEventListener("click", function (e) {
+                        e.stopPropagation();
+                        var willOpen = !catPanel.classList.contains("open");
+                        catPanel.classList.toggle("open", willOpen);
+                        catGroup.classList.toggle("open", willOpen);
+                        catBtn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+                    });
+
+                    catPanel
+                        .querySelectorAll("button[data-value]")
+                        .forEach(function (item) {
+                            item.addEventListener("click", function () {
+                                catValue.value = item.dataset.value;
+
+                                /* swap the BAR's icon + label to the picked one.
+                                                                                       The panel's .loc-dot already holds the rendered
+                                                                                       <svg> (createIcons ran), so clone it directly. */
+                                var dot = item.querySelector(".loc-dot");
+                                if (catIcon && dot) {
+                                    catIcon.innerHTML = dot.innerHTML;
+                                }
+                                if (catLabel && item.children[1]) {
+                                    catLabel.textContent = item.children[1].textContent;
+                                }
+
+                                closeCategory();
+                                document.getElementById("filter-form").submit();
+                            });
+                        });
+
+                    document.addEventListener("click", function (e) {
+                        if (!e.target.closest("#category-dd")) {
+                            closeCategory();
+                        }
+                    });
+
+                    document.addEventListener("keydown", function (e) {
+                        if (e.key === "Escape") {
+                            closeCategory();
+                        }
+                    });
+                }
+            })();
+        </script>
+
+        <script>
+            (function () {
+                "use strict";
+
+                /* =====================================================
+                                           PHILIPPINE LOCATIONS — dataset (all provinces).
+                                        ====================================================== */
+                var PH = {
+                    "Metro Manila": [
+                        "Caloocan",
+                        "Las Piñas",
+                        "Makati",
+                        "Malabon",
+                        "Mandaluyong",
+                        "Manila",
+                        "Marikina",
+                        "Muntinlupa",
+                        "Navotas",
+                        "Parañaque",
+                        "Pasay",
+                        "Pasig",
+                        "Pateros",
+                        "Quezon City",
+                        "San Juan",
+                        "Taguig",
+                        "Valenzuela",
+                    ],
+                    Abra: [
+                        "Bangued",
+                        "Bucay",
+                        "Bucloc",
+                        "Daguioman",
+                        "Danglas",
+                        "Dolores",
+                        "La Paz",
+                        "Lacub",
+                        "Lagangilang",
+                        "Lagayan",
+                        "Langiden",
+                        "Licuan-Baay",
+                        "Luba",
+                        "Malibcong",
+                        "Manabo",
+                        "Peñarrubia",
+                        "Pidigan",
+                        "Pilar",
+                        "Sallapadan",
+                        "San Isidro",
+                        "San Juan",
+                        "San Quintin",
+                        "Tineg",
+                        "Tayum",
+                        "Villaviciosa",
+                    ],
+                    "Agusan del Norte": [
+                        "Buenavista",
+                        "Butuan City",
+                        "Cabadbaran City",
+                        "Carmen",
+                        "Jabonga",
+                        "Kitcharao",
+                        "Las Nieves",
+                        "Magallanes",
+                        "Nasipit",
+                        "Remedios T. Romualdez",
+                        "Santiago",
+                        "Tubay",
+                    ],
+                    "Agusan del Sur": [
+                        "Bayugan City",
+                        "Bunawan",
+                        "Esperanza",
+                        "La Paz",
+                        "Loreto",
+                        "Prosperidad",
+                        "Rosario",
+                        "San Francisco",
+                        "San Luis",
+                        "Santa Josefa",
+                        "Sibagat",
+                        "Talacogon",
+                        "Trento",
+                        "Veruela",
+                    ],
+                    Aklan: [
+                        "Altavas",
+                        "Balete",
+                        "Banga",
+                        "Batan",
+                        "Buruanga",
+                        "Ibajay",
+                        "Kalibo",
+                        "Lezo",
+                        "Libacao",
+                        "Madalag",
+                        "Makato",
+                        "Malay (Boracay)",
+                        "Malinao",
+                        "Nabas",
+                        "New Washington",
+                        "Numancia",
+                        "Tangalan",
+                    ],
+                    Albay: [
+                        "Bacacay",
+                        "Camalig",
+                        "Daraga",
+                        "Guinobatan",
+                        "Jovellar",
+                        "Legazpi City",
+                        "Libon",
+                        "Ligao City",
+                        "Malilipot",
+                        "Malinao",
+                        "Manito",
+                        "Oas",
+                        "Pio Duran",
+                        "Polangui",
+                        "Rapu-Rapu",
+                        "Santo Domingo",
+                        "Tabaco City",
+                        "Tiwi",
+                    ],
+                    Antique: [
+                        "Anini-y",
+                        "Barbaza",
+                        "Belison",
+                        "Bugasong",
+                        "Caluya",
+                        "Culasi",
+                        "Hamtic",
+                        "Laua-an",
+                        "Libertad",
+                        "Pandan",
+                        "Patnongon",
+                        "San Jose de Buenavista",
+                        "San Remigio",
+                        "Sebaste",
+                        "Sibalom",
+                        "Tibiao",
+                        "Tobias Fornier",
+                        "Valderrama",
+                    ],
+                    Apayao: [
+                        "Calanasan",
+                        "Conner",
+                        "Flora",
+                        "Kabugao",
+                        "Luna",
+                        "Pudtol",
+                        "Santa Marcela",
+                    ],
+                    Aurora: [
+                        "Baler",
+                        "Casiguran",
+                        "Dilasag",
+                        "Dinalungan",
+                        "Dipaculao",
+                        "Maria Aurora",
+                        "San Luis",
+                    ],
+                    Basilan: [
+                        "Isabela City",
+                        "Lamitan City",
+                        "Lantawan",
+                        "Maluso",
+                        "Sumisip",
+                        "Tipo-Tipo",
+                        "Tuburan",
+                    ],
+                    Bataan: [
+                        "Abucay",
+                        "Bagac",
+                        "Balanga City",
+                        "Dinalupihan",
+                        "Hermosa",
+                        "Limay",
+                        "Mariveles",
+                        "Morong",
+                        "Orani",
+                        "Orion",
+                        "Pilar",
+                        "Samal",
+                    ],
+                    Batanes: ["Basco", "Itbayat", "Ivana", "Mahatao", "Sabtang", "Uyugan"],
+                    Batangas: [
+                        "Alangilan",
+                        "Batangas City",
+                        "Bauan",
+                        "Calaca",
+                        "Calatagan",
+                        "Cuenca",
+                        "Ibaan",
+                        "Laurel",
+                        "Lemery",
+                        "Lian",
+                        "Lipa City",
+                        "Lobo",
+                        "Mabini",
+                        "Malvar",
+                        "Mataasnakahoy",
+                        "Nasugbu",
+                        "Padre Garcia",
+                        "Rosario",
+                        "San Jose",
+                        "San Juan",
+                        "San Luis",
+                        "San Nicolas",
+                        "San Pascual",
+                        "Santa Teresita",
+                        "Tanauan City",
+                        "Santo Tomas",
+                        "Taysan",
+                        "Tingloy",
+                        "Tuy",
+                    ],
+                    Benguet: [
+                        "Atok",
+                        "Bakun",
+                        "Bokod",
+                        "Buguias",
+                        "Itogon",
+                        "Kabayan",
+                        "Kapangan",
+                        "Kibungan",
+                        "La Trinidad",
+                        "Mankayan",
+                        "Sablan",
+                        "Tuba",
+                        "Tublay",
+                    ],
+                    Biliran: [
+                        "Almeria",
+                        "Biliran",
+                        "Cabucgayan",
+                        "Caibiran",
+                        "Culaba",
+                        "Kawayan",
+                        "Maripipi",
+                        "Naval",
+                    ],
+                    Bohol: [
+                        "Alburquerque",
+                        "Anda",
+                        "Antequera",
+                        "Baclayon",
+                        "Balilihan",
+                        "Batuan",
+                        "Bien Unido",
+                        "Bilar",
+                        "Buenavista",
+                        "Calape",
+                        "Candijay",
+                        "Carmen",
+                        "Catigbian",
+                        "Clarin",
+                        "Corella",
+                        "Cortes",
+                        "Dagohoy",
+                        "Danao",
+                        "Dauis",
+                        "Dimiao",
+                        "Duero",
+                        "Garcia Hernandez",
+                        "Getafe",
+                        "Guindulman",
+                        "Inabanga",
+                        "Jagna",
+                        "Lila",
+                        "Loay",
+                        "Loboc",
+                        "Loon",
+                        "Mabini",
+                        "Maribojoc",
+                        "Panglao",
+                        "Pilar",
+                        "Pres. Carlos P. Garcia",
+                        "Sagbayan",
+                        "San Isidro",
+                        "San Miguel",
+                        "Sevilla",
+                        "Sierra Bullones",
+                        "Sikatuna",
+                        "Tagbilaran City",
+                        "Talibon",
+                        "Trinidad",
+                        "Tubigon",
+                        "Ubay",
+                        "Valencia",
+                    ],
+                    Bukidnon: [
+                        "Baungon",
+                        "Cabanglasan",
+                        "Damulog",
+                        "Dangcagan",
+                        "Don Carlos",
+                        "Impasugong",
+                        "Kadingilan",
+                        "Kalilangan",
+                        "Kibawe",
+                        "Kitaotao",
+                        "Lantapan",
+                        "Libona",
+                        "Malitbog",
+                        "Manolo Fortich",
+                        "Maramag",
+                        "Pangantucan",
+                        "Quezon",
+                        "San Fernando",
+                        "Sumilao",
+                        "Talakag",
+                        "Malaybalay City",
+                        "Valencia City",
+                    ],
+                    Bulacan: [
+                        "Angat",
+                        "Balagtas",
+                        "Baliuag",
+                        "Bocaue",
+                        "Bulakan",
+                        "Bustos",
+                        "Calumpit",
+                        "Doña Remedios Trinidad",
+                        "Guiguinto",
+                        "Hagonoy",
+                        "Malolos City",
+                        "Marilao",
+                        "Meycauayan City",
+                        "Norzagaray",
+                        "Obando",
+                        "Pandi",
+                        "Paombong",
+                        "Plaridel",
+                        "Pulilan",
+                        "San Ildefonso",
+                        "San Jose del Monte City",
+                        "San Miguel",
+                        "San Rafael",
+                        "Santa Maria",
+                    ],
+                    Cagayan: [
+                        "Abulug",
+                        "Alcala",
+                        "Allacapan",
+                        "Amulung",
+                        "Aparri",
+                        "Baggao",
+                        "Ballesteros",
+                        "Buguey",
+                        "Calayan",
+                        "Camalaniugan",
+                        "Claveria",
+                        "Enrile",
+                        "Gattaran",
+                        "Gonzaga",
+                        "Iguig",
+                        "Lal-lo",
+                        "Lasam",
+                        "Pamplona",
+                        "Peñablanca",
+                        "Piat",
+                        "Rizal",
+                        "Sanchez-Mira",
+                        "Santa Ana",
+                        "Santa Praxedes",
+                        "Santa Teresita",
+                        "Santo Niño",
+                        "Solana",
+                        "Tuao",
+                        "Tuguegarao City",
+                    ],
+                    "Camarines Norte": [
+                        "Basud",
+                        "Capalonga",
+                        "Daet",
+                        "Jose Panganiban",
+                        "Labo",
+                        "Mercedes",
+                        "Paracale",
+                        "Santa Elena",
+                        "Talisay",
+                        "Vinzons",
+                    ],
+                    "Camarines Sur": [
+                        "Baao",
+                        "Balatan",
+                        "Bato",
+                        "Bombon",
+                        "Buhi",
+                        "Bula",
+                        "Cabusao",
+                        "Calabanga",
+                        "Camaligan",
+                        "Canaman",
+                        "Caramoan",
+                        "Del Gallego",
+                        "Gainza",
+                        "Garchitorena",
+                        "Goa",
+                        "Iriga City",
+                        "Lagonoy",
+                        "Libmanan",
+                        "Lupi",
+                        "Milaor",
+                        "Minalabac",
+                        "Nabua",
+                        "Naga City",
+                        "Ocampo",
+                        "Pamplona",
+                        "Pasacao",
+                        "Pili",
+                        "Presentacion",
+                        "Ragay",
+                        "Sagñay",
+                        "San Fernando",
+                        "San Jose",
+                        "Sipocot",
+                        "Siruma",
+                        "Tigaon",
+                        "Tinambac",
+                    ],
+                    Camiguin: ["Catarman", "Guinsiliban", "Mahinog", "Mambajao", "Sagay"],
+                    Capiz: [
+                        "Cuartero",
+                        "Dao",
+                        "Dumalag",
+                        "Dumarao",
+                        "Ivisan",
+                        "Jamindan",
+                        "Maayon",
+                        "Mambusao",
+                        "Panay",
+                        "Panitan",
+                        "Pilar",
+                        "Pontevedra",
+                        "President Roxas",
+                        "Roxas City",
+                        "Sapian",
+                        "Sigma",
+                        "Tapaz",
+                    ],
+                    Catanduanes: [
+                        "Bagamanoc",
+                        "Baras",
+                        "Bato",
+                        "Caramoran",
+                        "Gigmoto",
+                        "Pandan",
+                        "Panganiban",
+                        "San Andres",
+                        "San Miguel",
+                        "Viga",
+                        "Virac",
+                    ],
+                    Cavite: [
+                        "Alfonso",
+                        "Amadeo",
+                        "Bacoor City",
+                        "Carmona",
+                        "Cavite City",
+                        "Dasmariñas City",
+                        "General Mariano Alvarez",
+                        "General Trias City",
+                        "Imus City",
+                        "Indang",
+                        "Kawit",
+                        "Magallanes",
+                        "Maragondon",
+                        "Mendez",
+                        "Naic",
+                        "Noveleta",
+                        "Rosario",
+                        "Silang",
+                        "Tagaytay City",
+                        "Tanza",
+                        "Ternate",
+                        "Trece Martires City",
+                    ],
+                    Cebu: [
+                        "Alcantara",
+                        "Alcoy",
+                        "Alegria",
+                        "Aloguinsan",
+                        "Argao",
+                        "Asturias",
+                        "Badian",
+                        "Balamban",
+                        "Bantayan",
+                        "Barili",
+                        "Bogo City",
+                        "Boljoon",
+                        "Borbon",
+                        "Carcar City",
+                        "Carmen",
+                        "Catmon",
+                        "Cebu City",
+                        "Compostela",
+                        "Consolacion",
+                        "Cordova",
+                        "Daanbantayan",
+                        "Dalaguete",
+                        "Danao City",
+                        "Dumanjug",
+                        "Ginatilan",
+                        "Lapu-Lapu City",
+                        "Liloan",
+                        "Madridejos",
+                        "Malabuyoc",
+                        "Mandaue City",
+                        "Medellin",
+                        "Minglanilla",
+                        "Moalboal",
+                        "Naga City",
+                        "Oslob",
+                        "Pilar",
+                        "Pinamungahan",
+                        "Poro",
+                        "Ronda",
+                        "Samboan",
+                        "San Fernando",
+                        "San Francisco",
+                        "San Remigio",
+                        "Santa Fe",
+                        "Santander",
+                        "Sibonga",
+                        "Sogod",
+                        "Tabogon",
+                        "Tabuelan",
+                        "Talisay City",
+                        "Toledo City",
+                        "Tuburan",
+                        "Tudela",
+                    ],
+                    Cotabato: [
+                        "Alamada",
+                        "Aleosan",
+                        "Antipas",
+                        "Arakan",
+                        "Banisilan",
+                        "Carmen",
+                        "Kabacan",
+                        "Kidapawan City",
+                        "Libungan",
+                        "M'lang",
+                        "Magpet",
+                        "Makilala",
+                        "Matalam",
+                        "Midsayap",
+                        "Pigcawayan",
+                        "Pikit",
+                        "President Roxas",
+                        "Tulunan",
+                    ],
+                    "Cotabato City": ["Cotabato City"],
+                    "Davao de Oro": [
+                        "Compostela",
+                        "Laak",
+                        "Mabini",
+                        "Maco",
+                        "Maragusan",
+                        "Mawab",
+                        "Monkayo",
+                        "Montevista",
+                        "Nabunturan",
+                        "New Bataan",
+                        "Pantukan",
+                    ],
+                    "Davao del Norte": [
+                        "Asuncion",
+                        "Braulio E. Dujali",
+                        "Carmen",
+                        "Kapalong",
+                        "New Corella",
+                        "Panabo City",
+                        "Samal City",
+                        "San Isidro",
+                        "Santo Tomas",
+                        "Tagum City",
+                        "Talaingod",
+                    ],
+                    "Davao del Sur": [
+                        "Bansalan",
+                        "Digos City",
+                        "Hagonoy",
+                        "Kiblawan",
+                        "Magsaysay",
+                        "Malalag",
+                        "Matanao",
+                        "Padada",
+                        "Santa Cruz",
+                        "Sulop",
+                    ],
+                    "Davao City": [
+                        "Baguio District",
+                        "Buhangin",
+                        "Bunawan",
+                        "Calinan",
+                        "Catalunan Grande",
+                        "Matina",
+                        "Mintal",
+                        "Panacan",
+                        "Sasa",
+                        "Talomo",
+                        "Toril",
+                        "Tugbok",
+                    ],
+                    "Davao Occidental": [
+                        "Don Marcelino",
+                        "Jose Abad Santos",
+                        "Malita",
+                        "Santa Maria",
+                        "Sarangani",
+                    ],
+                    "Davao Oriental": [
+                        "Baganga",
+                        "Banaybanay",
+                        "Boston",
+                        "Caraga",
+                        "Cateel",
+                        "Governor Generoso",
+                        "Lupon",
+                        "Manay",
+                        "Mati City",
+                        "San Isidro",
+                        "Tarragona",
+                    ],
+                    "Dinagat Islands": [
+                        "Basilisa",
+                        "Cagdianao",
+                        "Dinagat",
+                        "Libjo",
+                        "Loreto",
+                        "San Jose",
+                        "Tubajon",
+                    ],
+                    "Eastern Samar": [
+                        "Arteche",
+                        "Balangiga",
+                        "Balangkayan",
+                        "Borongan City",
+                        "Can-avid",
+                        "Dolores",
+                        "General MacArthur",
+                        "Giporlos",
+                        "Guiuan",
+                        "Hernani",
+                        "Jipapad",
+                        "Llorente",
+                        "Maslog",
+                        "Maydolong",
+                        "Mercedes",
+                        "Oras",
+                        "Quinapondan",
+                        "Salcedo",
+                        "San Julian",
+                        "San Policarpo",
+                        "Sulat",
+                        "Taft",
+                    ],
+                    Guimaras: [
+                        "Buenavista",
+                        "Jordan",
+                        "Nueva Valencia",
+                        "San Lorenzo",
+                        "Sibunag",
+                    ],
+                    Ifugao: [
+                        "Aguinaldo",
+                        "Alfonso Lista",
+                        "Asipulo",
+                        "Banaue",
+                        "Hingyon",
+                        "Hungduan",
+                        "Kiangan",
+                        "Lagawe",
+                        "Lamut",
+                        "Mayoyao",
+                        "Tinoc",
+                    ],
+                    "Ilocos Norte": [
+                        "Adams",
+                        "Bacarra",
+                        "Badoc",
+                        "Banna",
+                        "Bangui",
+                        "Batac City",
+                        "Burgos",
+                        "Carasi",
+                        "Currimao",
+                        "Dingras",
+                        "Dumalneg",
+                        "Laoag City",
+                        "Marcos",
+                        "Nueva Era",
+                        "Pagudpud",
+                        "Paoay",
+                        "Pasuquin",
+                        "Piddig",
+                        "Pinili",
+                        "San Nicolas",
+                        "Sarrat",
+                        "Solsona",
+                        "Vintar",
+                    ],
+                    "Ilocos Sur": [
+                        "Alilem",
+                        "Banayoyo",
+                        "Bantay",
+                        "Burgos",
+                        "Cabugao",
+                        "Candon City",
+                        "Caoayan",
+                        "Cervantes",
+                        "Galimuyod",
+                        "Gregorio Del Pilar",
+                        "Lidlidda",
+                        "Magsingal",
+                        "Nagbukel",
+                        "Narvacan",
+                        "Quirino",
+                        "Salcedo",
+                        "San Emilio",
+                        "San Esteban",
+                        "San Ildefonso",
+                        "San Juan",
+                        "San Vicente",
+                        "Santa",
+                        "Santa Catalina",
+                        "Santa Cruz",
+                        "Santa Lucia",
+                        "Santa Maria",
+                        "Santiago",
+                        "Santo Domingo",
+                        "Sigay",
+                        "Sinait",
+                        "Sugpon",
+                        "Suyo",
+                        "Tagudin",
+                        "Vigan City",
+                    ],
+                    Iloilo: [
+                        "Ajuy",
+                        "Alimodian",
+                        "Anilao",
+                        "Badiangan",
+                        "Balasan",
+                        "Banate",
+                        "Barotac Nuevo",
+                        "Barotac Viejo",
+                        "Batad",
+                        "Cabatuan",
+                        "Calinog",
+                        "Carles",
+                        "Concepcion",
+                        "Dingle",
+                        "Dueñas",
+                        "Dumangas",
+                        "Estancia",
+                        "Guimbal",
+                        "Igbaras",
+                        "Iloilo City",
+                        "Janiuay",
+                        "Lambunao",
+                        "Leganes",
+                        "Lemery",
+                        "Leon",
+                        "Maasin",
+                        "Miagao",
+                        "Mina",
+                        "New Lucena",
+                        "Oton",
+                        "Passi City",
+                        "Pavia",
+                        "Pototan",
+                        "San Dionisio",
+                        "San Enrique",
+                        "San Joaquin",
+                        "San Miguel",
+                        "San Rafael",
+                        "Santa Barbara",
+                        "Sara",
+                        "Tigbauan",
+                        "Tubungan",
+                        "Zarraga",
+                    ],
+                    Isabela: [
+                        "Alicia",
+                        "Angadanan",
+                        "Aurora",
+                        "Benito Soliven",
+                        "Burgos",
+                        "Cabagan",
+                        "Cabatuan",
+                        "Cauayan City",
+                        "Cordon",
+                        "Delfin Albano",
+                        "Dinapigue",
+                        "Divilacan",
+                        "Echague",
+                        "Gamu",
+                        "Ilagan City",
+                        "Jones",
+                        "Maconacon",
+                        "Mallig",
+                        "Naguilian",
+                        "Palanan",
+                        "Quezon",
+                        "Quirino",
+                        "Ramon",
+                        "Reina Mercedes",
+                        "Roxas",
+                        "San Agustin",
+                        "San Guillermo",
+                        "San Isidro",
+                        "San Manuel",
+                        "San Mariano",
+                        "San Mateo",
+                        "San Pablo",
+                        "Santa Maria",
+                        "Santiago City",
+                        "Santo Tomas",
+                        "Tumauini",
+                    ],
+                    Kalinga: [
+                        "Balbalan",
+                        "Lubuagan",
+                        "Pasil",
+                        "Pinukpuk",
+                        "Rizal",
+                        "Tabuk City",
+                        "Tanudan",
+                        "Tinglayan",
+                    ],
+                    "La Union": [
+                        "Agoo",
+                        "Aringay",
+                        "Bacnotan",
+                        "Bagulin",
+                        "Balaoan",
+                        "Bangar",
+                        "Bauang",
+                        "Burgos",
+                        "Caba",
+                        "Luna",
+                        "Naguilian",
+                        "Pugo",
+                        "Rosario",
+                        "San Fernando City",
+                        "San Gabriel",
+                        "San Juan",
+                        "Santo Tomas",
+                        "Santol",
+                        "Sudipen",
+                        "Tubao",
+                    ],
+                    Laguna: [
+                        "Alaminos",
+                        "Bay",
+                        "Biñan City",
+                        "Cabuyao City",
+                        "Calamba City",
+                        "Calauan",
+                        "Cavinti",
+                        "Famy",
+                        "Kalayaan",
+                        "Liliw",
+                        "Los Baños",
+                        "Luisiana",
+                        "Lumban",
+                        "Mabitac",
+                        "Magdalena",
+                        "Majayjay",
+                        "Nagcarlan",
+                        "Paete",
+                        "Pagsanjan",
+                        "Pakil",
+                        "Pangil",
+                        "Pila",
+                        "Rizal",
+                        "San Pablo City",
+                        "Santa Cruz",
+                        "Santa Maria",
+                        "Santa Rosa City",
+                        "Siniloan",
+                        "Victoria",
+                    ],
+                    "Lanao del Norte": [
+                        "Bacolod",
+                        "Balo-i",
+                        "Baroy",
+                        "Iligan City",
+                        "Kapatagan",
+                        "Kauswagan",
+                        "Kolambugan",
+                        "Lala",
+                        "Linamon",
+                        "Maigo",
+                        "Magsaysay",
+                        "Matungao",
+                        "Munai",
+                        "Nunungan",
+                        "Pantar",
+                        "Poona Piagapo",
+                        "Salvador",
+                        "Sapad",
+                        "Tagoloan",
+                        "Tangcal",
+                        "Tubod",
+                    ],
+                    "Lanao del Sur": [
+                        "Bacolod-Kalawi",
+                        "Balabagan",
+                        "Balindong",
+                        "Bayang",
+                        "Binidayan",
+                        "Buenavista",
+                        "Butig",
+                        "Calanogas",
+                        "Ditsaan-Ramain",
+                        "Ganassi",
+                        "Kapai",
+                        "Kapatagan",
+                        "Lumba-Bayabao",
+                        "Lumbatan",
+                        "Lumbayanague",
+                        "Madalum",
+                        "Madamba",
+                        "Maguing",
+                        "Malabang",
+                        "Marantao",
+                        "Marawi City",
+                        "Marogong",
+                        "Masiu",
+                        "Mulondo",
+                        "Pagayawan",
+                        "Piagapo",
+                        "Poona Bayabao",
+                        "Pualas",
+                        "Saguiaran",
+                        "Sultan Dumalondong",
+                        "Tamparan",
+                        "Taraka",
+                        "Tugaya",
+                        "Wao",
+                    ],
+                    Leyte: [
+                        "Abuyog",
+                        "Alangalang",
+                        "Albuera",
+                        "Babatngon",
+                        "Barugo",
+                        "Bato",
+                        "Baybay City",
+                        "Burauen",
+                        "Calubian",
+                        "Capoocan",
+                        "Carigara",
+                        "Dagami",
+                        "Dulag",
+                        "Hilongos",
+                        "Hindang",
+                        "Inopacan",
+                        "Isabel",
+                        "Jaro",
+                        "Javier",
+                        "Julita",
+                        "Kananga",
+                        "La Paz",
+                        "Leyte",
+                        "MacArthur",
+                        "Mahaplag",
+                        "Matag-ob",
+                        "Matalom",
+                        "Mayorga",
+                        "Merida",
+                        "Ormoc City",
+                        "Palo",
+                        "Palompon",
+                        "Pastrana",
+                        "San Miguel",
+                        "Santa Fe",
+                        "Tacloban City",
+                        "Tabango",
+                        "Tabontabon",
+                        "Tanauan",
+                        "Tolosa",
+                        "Tunga",
+                        "Villaba",
+                    ],
+                    "Maguindanao del Norte": [
+                        "Cotabato City",
+                        "Datu Odin Sinsuat",
+                        "Parang",
+                        "Sultan Kudarat",
+                        "Upi",
+                        "Buldon",
+                        "Barira",
+                        "Matanog",
+                        "Northern Kabuntalan",
+                        "Kabuntalan",
+                        "Datu Blah T. Sinsuat",
+                    ],
+                    "Maguindanao del Sur": [
+                        "Buluan",
+                        "Shariff Aguak",
+                        "Datu Piang",
+                        "Datu Paglas",
+                        "Mamasapano",
+                        "General Salipada K. Pendatun",
+                        "Datu Saudi-Ampatuan",
+                        "Datu Unsay",
+                        "Talayan",
+                        "Datu Abdullah Sangki",
+                    ],
+                    Marinduque: [
+                        "Boac",
+                        "Buenavista",
+                        "Gasan",
+                        "Mogpog",
+                        "Santa Cruz",
+                        "Torrijos",
+                    ],
+                    Masbate: [
+                        "Aroroy",
+                        "Baleno",
+                        "Balud",
+                        "Batuan",
+                        "Cataingan",
+                        "Cawayan",
+                        "Claveria",
+                        "Dimasalang",
+                        "Esperanza",
+                        "Masbate City",
+                        "Mandaon",
+                        "Milagros",
+                        "Mobo",
+                        "Monreal",
+                        "Palanas",
+                        "Pio V. Corpuz",
+                        "Placer",
+                        "San Fernando",
+                        "San Jacinto",
+                        "San Pascual",
+                    ],
+                    "Misamis Occidental": [
+                        "Aloran",
+                        "Baliangao",
+                        "Bonifacio",
+                        "Calamba",
+                        "Clarin",
+                        "Concepcion",
+                        "Don Victoriano Chiongbian",
+                        "Jimenez",
+                        "Lopez Jaena",
+                        "Oroquieta City",
+                        "Ozamiz City",
+                        "Panaon",
+                        "Plaridel",
+                        "Sapang Dalaga",
+                        "Sinacaban",
+                        "Tangub City",
+                        "Tudela",
+                    ],
+                    "Misamis Oriental": [
+                        "Alubijid",
+                        "Balingasag",
+                        "Balingoan",
+                        "Binuangan",
+                        "Cagayan de Oro City",
+                        "Claveria",
+                        "El Salvador City",
+                        "Gitagum",
+                        "Gingoog City",
+                        "Initao",
+                        "Jasaan",
+                        "Kinoguitan",
+                        "Laguindingan",
+                        "Libertad",
+                        "Lugait",
+                        "Manticao",
+                        "Medellin",
+                        "Misamis",
+                        "Naawan",
+                        "Opol",
+                        "Salay",
+                        "Sugbongcogon",
+                        "Tagoloan",
+                        "Talisayan",
+                        "Villanueva",
+                    ],
+                    "Mountain Province": [
+                        "Barlig",
+                        "Bauko",
+                        "Besao",
+                        "Bontoc",
+                        "Natonin",
+                        "Paracelis",
+                        "Sabangan",
+                        "Sadanga",
+                        "Sagada",
+                        "Tadian",
+                    ],
+                    "Negros Occidental": [
+                        "Bacolod City",
+                        "Bago City",
+                        "Binalbagan",
+                        "Cadiz City",
+                        "Calatrava",
+                        "Candoni",
+                        "Cauayan",
+                        "E.B. Magalona",
+                        "Escalante City",
+                        "Himamaylan City",
+                        "Hinigaran",
+                        "Hinoba-an",
+                        "Ilog",
+                        "Isabela",
+                        "Kabankalan City",
+                        "La Carlota City",
+                        "La Castellana",
+                        "Manapla",
+                        "Moises Padilla",
+                        "Murcia",
+                        "Pontevedra",
+                        "Pulupandan",
+                        "Sagay City",
+                        "Salvador Benedicto",
+                        "San Carlos City",
+                        "San Enrique",
+                        "Silay City",
+                        "Sipalay City",
+                        "Talisay City",
+                        "Toboso",
+                        "Valladolid",
+                        "Victorias City",
+                    ],
+                    "Negros Oriental": [
+                        "Amlan",
+                        "Ayungon",
+                        "Bacong",
+                        "Bais City",
+                        "Basay",
+                        "Bayawan City",
+                        "Bindoy",
+                        "Canlaon City",
+                        "Dauin",
+                        "Dumaguete City",
+                        "Guihulngan City",
+                        "Jimalalud",
+                        "La Libertad",
+                        "Mabinay",
+                        "Manjuyod",
+                        "Pamplona",
+                        "San Jose",
+                        "Santa Catalina",
+                        "Siaton",
+                        "Sibulan",
+                        "Tanjay City",
+                        "Tayasan",
+                        "Valencia",
+                        "Vallehermoso",
+                        "Zamboanguita",
+                    ],
+                    "Northern Samar": [
+                        "Allen",
+                        "Biri",
+                        "Bobon",
+                        "Capul",
+                        "Catarman",
+                        "Catubig",
+                        "Gamay",
+                        "Laoang",
+                        "Lapinig",
+                        "Las Navas",
+                        "Lavezares",
+                        "Mapanas",
+                        "Mondragon",
+                        "Palapag",
+                        "Pambujan",
+                        "Rosario",
+                        "San Antonio",
+                        "San Isidro",
+                        "San Jose",
+                        "San Roque",
+                        "San Vicente",
+                        "Silvino Lobos",
+                        "Victoria",
+                    ],
+                    "Nueva Ecija": [
+                        "Aliaga",
+                        "Bongabon",
+                        "Cabanatuan City",
+                        "Carranglan",
+                        "Cuyapo",
+                        "Gapan City",
+                        "General Mamerto Natividad",
+                        "General Tinio",
+                        "Guimba",
+                        "Jaen",
+                        "Laur",
+                        "Licab",
+                        "Llanera",
+                        "Lupao",
+                        "Nampicuan",
+                        "Palayan City",
+                        "Pantabangan",
+                        "Peñaranda",
+                        "Quezon",
+                        "Rizal",
+                        "San Antonio",
+                        "San Isidro",
+                        "San Leonardo",
+                        "San Jose City",
+                        "Santa Rosa",
+                        "Santo Domingo",
+                        "Talavera",
+                        "Talugtug",
+                        "Zaragoza",
+                    ],
+                    "Nueva Vizcaya": [
+                        "Ambaguio",
+                        "Aritao",
+                        "Bagabag",
+                        "Bambang",
+                        "Bayombong",
+                        "Diadi",
+                        "Dupax del Norte",
+                        "Dupax del Sur",
+                        "Kasibu",
+                        "Kayapa",
+                        "Quezon",
+                        "Santa Fe",
+                        "Solano",
+                        "Villaverde",
+                    ],
+                    "Occidental Mindoro": [
+                        "Abra de Ilog",
+                        "Calintaan",
+                        "Looc",
+                        "Magsaysay",
+                        "Mamburao",
+                        "Paluan",
+                        "Rizal",
+                        "Sablayan",
+                        "San Jose",
+                        "Santa Cruz",
+                    ],
+                    "Oriental Mindoro": [
+                        "Baco",
+                        "Bansud",
+                        "Bongabong",
+                        "Bulalacao",
+                        "Calapan City",
+                        "Gloria",
+                        "Mansalay",
+                        "Naujan",
+                        "Pinamalayan",
+                        "Pola",
+                        "Puerto Galera",
+                        "Roxas",
+                        "San Teodoro",
+                        "Socorro",
+                        "Victoria",
+                    ],
+                    Palawan: [
+                        "Aborlan",
+                        "Agutaya",
+                        "Araceli",
+                        "Balabac",
+                        "Bataraza",
+                        "Brooke's Point",
+                        "Busuanga",
+                        "Cagayancillo",
+                        "Coron",
+                        "Culion",
+                        "Cuyo",
+                        "Dumaran",
+                        "El Nido",
+                        "Kalayaan",
+                        "Linapacan",
+                        "Magsaysay",
+                        "Narra",
+                        "Puerto Princesa City",
+                        "Quezon",
+                        "Rizal",
+                        "Roxas",
+                        "San Vicente",
+                        "Sofronio Española",
+                        "Taytay",
+                    ],
+                    Pampanga: [
+                        "Angeles City",
+                        "Apalit",
+                        "Arayat",
+                        "Bacolor",
+                        "Candaba",
+                        "Floridablanca",
+                        "Guagua",
+                        "Lubao",
+                        "Mabalacat City",
+                        "Macabebe",
+                        "Magalang",
+                        "Masantol",
+                        "Mexico",
+                        "Minalin",
+                        "Porac",
+                        "San Fernando City",
+                        "San Luis",
+                        "San Simon",
+                        "Santa Ana",
+                        "Santa Rita",
+                        "Santo Tomas",
+                        "Sasmuan",
+                    ],
+                    Pangasinan: [
+                        "Agno",
+                        "Alaminos City",
+                        "Anda",
+                        "Asingan",
+                        "Balungao",
+                        "Bani",
+                        "Basista",
+                        "Bayambang",
+                        "Bautista",
+                        "Binmaley",
+                        "Bolinao",
+                        "Bugallon",
+                        "Burgos",
+                        "Calasiao",
+                        "Dagupan City",
+                        "Dasol",
+                        "Infanta",
+                        "Labrador",
+                        "Laoac",
+                        "Lingayen",
+                        "Mabini",
+                        "Malasiqui",
+                        "Manaoag",
+                        "Mangaldan",
+                        "Mangatarem",
+                        "Mapandan",
+                        "Natividad",
+                        "Pozorrubio",
+                        "Rosales",
+                        "San Carlos City",
+                        "San Fabian",
+                        "San Jacinto",
+                        "San Manuel",
+                        "San Nicolas",
+                        "San Quintin",
+                        "Sison",
+                        "Sta. Barbara",
+                        "Sta. Maria",
+                        "Sto. Tomas",
+                        "Tayug",
+                        "Umingan",
+                        "Urdaneta City",
+                        "Villasis",
+                    ],
+                    Quezon: [
+                        "Agdangan",
+                        "Alabat",
+                        "Atimonan",
+                        "Buenavista",
+                        "Burdeos",
+                        "Calauag",
+                        "Candelaria",
+                        "Catanauan",
+                        "Dolores",
+                        "General Luna",
+                        "General Nakar",
+                        "Guinayangan",
+                        "Gumaca",
+                        "Infanta",
+                        "Jomalig",
+                        "Lopez",
+                        "Lucban",
+                        "Lucena City",
+                        "Macalelon",
+                        "Mauban",
+                        "Mulanay",
+                        "Padre Burgos",
+                        "Pagbilao",
+                        "Panukulan",
+                        "Patnanungan",
+                        "Perez",
+                        "Pitogo",
+                        "Plaridel",
+                        "Polillo",
+                        "Quezon",
+                        "Real",
+                        "Sampaloc",
+                        "San Andres",
+                        "San Antonio",
+                        "San Francisco",
+                        "San Narciso",
+                        "Sariaya",
+                        "Tagkawayan",
+                        "Tayabas City",
+                        "Tiaong",
+                        "Unisan",
+                    ],
+                    Quirino: [
+                        "Aglipay",
+                        "Cabarroguis",
+                        "Diffun",
+                        "Maddela",
+                        "Nagtipunan",
+                        "Saguday",
+                    ],
+                    Rizal: [
+                        "Angono",
+                        "Antipolo City",
+                        "Baras",
+                        "Binangonan",
+                        "Cainta",
+                        "Cardona",
+                        "Jalajala",
+                        "Morong",
+                        "Pililla",
+                        "Rodriguez",
+                        "San Mateo",
+                        "Tanay",
+                        "Taytay",
+                        "Teresa",
+                    ],
+                    Romblon: [
+                        "Alcantara",
+                        "Banton",
+                        "Cajidiocan",
+                        "Calatrava",
+                        "Concepcion",
+                        "Corcuera",
+                        "Ferrol",
+                        "Looc",
+                        "Magdiwang",
+                        "Odiongan",
+                        "Romblon",
+                        "San Andres",
+                        "San Agustin",
+                        "San Fernando",
+                        "San Jose",
+                        "Santa Fe",
+                        "Santa Maria",
+                    ],
+                    Samar: [
+                        "Almagro",
+                        "Basey",
+                        "Calbayog City",
+                        "Calbiga",
+                        "Catbalogan City",
+                        "Daram",
+                        "Gandara",
+                        "Hinabangan",
+                        "Jiabong",
+                        "Marabut",
+                        "Matuguinao",
+                        "Motiong",
+                        "Pagsanghan",
+                        "Paranas",
+                        "Pinabacdao",
+                        "San Jorge",
+                        "San Sebastian",
+                        "Santa Rita",
+                        "Santo Niño",
+                        "Tagapul-an",
+                        "Talalora",
+                        "Tarangnan",
+                        "Villareal",
+                        "Zumarraga",
+                    ],
+                    Sarangani: [
+                        "Alabel",
+                        "Glan",
+                        "Kiamba",
+                        "Maasim",
+                        "Maitum",
+                        "Malapatan",
+                        "Malungon",
+                    ],
+                    Siquijor: [
+                        "Enrique Villanueva",
+                        "Larena",
+                        "Lazi",
+                        "Maria",
+                        "San Juan",
+                        "Siquijor",
+                    ],
+                    Sorsogon: [
+                        "Barcelona",
+                        "Bulan",
+                        "Bulusan",
+                        "Casiguran",
+                        "Castilla",
+                        "Donsol",
+                        "Gubat",
+                        "Irosin",
+                        "Juban",
+                        "Magallanes",
+                        "Matnog",
+                        "Pilar",
+                        "Prieto Diaz",
+                        "Santa Magdalena",
+                        "Sorsogon City",
+                    ],
+                    "South Cotabato": [
+                        "Banga",
+                        "Koronadal City",
+                        "Lake Sebu",
+                        "Norala",
+                        "Polomolok",
+                        "Santo Niño",
+                        "Surallah",
+                        "T'boli",
+                        "Tampakan",
+                        "Tantangan",
+                        "Tupi",
+                        "General Santos City",
+                    ],
+                    "Southern Leyte": [
+                        "Anahawan",
+                        "Bontoc",
+                        "Hinunangan",
+                        "Hinundayan",
+                        "Liloan",
+                        "Limasawa",
+                        "Macrohon",
+                        "Maasin City",
+                        "Malitbog",
+                        "Padre Burgos",
+                        "Pintuyan",
+                        "San Francisco",
+                        "San Juan",
+                        "San Ricardo",
+                        "Silago",
+                        "Sogod",
+                        "St. Bernard",
+                        "Tomas Oppus",
+                    ],
+                    "Sultan Kudarat": [
+                        "Bagumbayan",
+                        "Columbio",
+                        "Esperanza",
+                        "Isulan",
+                        "Kalamansig",
+                        "Lambayong",
+                        "Lebak",
+                        "Lutayan",
+                        "Palimbang",
+                        "President Quirino",
+                        "Senator Ninoy Aquino",
+                        "Tacurong City",
+                    ],
+                    Sulu: [
+                        "Indanan",
+                        "Jolo",
+                        "Kalingalan Caluang",
+                        "Lugus",
+                        "Luuk",
+                        "Maimbung",
+                        "Pandami",
+                        "Panglima Estino",
+                        "Pangutaran",
+                        "Parang",
+                        "Pata",
+                        "Patikul",
+                        "Siasi",
+                        "Talipao",
+                        "Tapul",
+                        "Tongkil",
+                    ],
+                    "Surigao del Norte": [
+                        "Alegria",
+                        "Bacuag",
+                        "Burgos",
+                        "Claver",
+                        "Dapa",
+                        "Del Carmen",
+                        "General Luna",
+                        "Gigaquit",
+                        "Mainit",
+                        "Malimono",
+                        "Pilar",
+                        "Placer",
+                        "San Benito",
+                        "San Francisco",
+                        "San Isidro",
+                        "Sison",
+                        "Socorro",
+                        "Surigao City",
+                        "Tagana-an",
+                        "Tubod",
+                    ],
+                    "Surigao del Sur": [
+                        "Barobo",
+                        "Bayabas",
+                        "Bislig City",
+                        "Cagwait",
+                        "Cantilan",
+                        "Carmen",
+                        "Cortes",
+                        "Hinatuan",
+                        "Lanuza",
+                        "Lianga",
+                        "Lingig",
+                        "Madrid",
+                        "Marihatag",
+                        "San Agustin",
+                        "San Miguel",
+                        "Tagbina",
+                        "Tago",
+                        "Tandag City",
+                    ],
+                    Tarlac: [
+                        "Anao",
+                        "Bamban",
+                        "Camiling",
+                        "Capas",
+                        "Concepcion",
+                        "Gerona",
+                        "La Paz",
+                        "Mayantoc",
+                        "Moncada",
+                        "Paniqui",
+                        "Pura",
+                        "Ramos",
+                        "San Clemente",
+                        "San Jose",
+                        "San Manuel",
+                        "Santa Ignacia",
+                        "Tarlac City",
+                        "Victoria",
+                    ],
+                    "Tawi-Tawi": [
+                        "Bongao",
+                        "Languyan",
+                        "Mapun",
+                        "Panglima Sugala",
+                        "Sapa-Sapa",
+                        "Sibutu",
+                        "Simunul",
+                        "Sitangkai",
+                        "South Ubian",
+                        "Tandubas",
+                        "Turtle Islands",
+                    ],
+                    Zambales: [
+                        "Botolan",
+                        "Cabangan",
+                        "Candelaria",
+                        "Castillejos",
+                        "Iba",
+                        "Masinloc",
+                        "Olongapo City",
+                        "Palauig",
+                        "San Antonio",
+                        "San Felipe",
+                        "San Marcelino",
+                        "San Narciso",
+                        "Santa Cruz",
+                    ],
+                    "Zamboanga del Norte": [
+                        "Baliguian",
+                        "Dapitan City",
+                        "Dipolog City",
+                        "Godod",
+                        "Gutalac",
+                        "Jose Dalman",
+                        "Kalawit",
+                        "Katipunan",
+                        "La Libertad",
+                        "Labason",
+                        "Liloy",
+                        "Manukan",
+                        "Mutia",
+                        "Piñan",
+                        "Polanco",
+                        "Pres. Manuel A. Roxas",
+                        "Rizal",
+                        "Salug",
+                        "Sergio Osmeña Sr.",
+                        "Siayan",
+                        "Sibuco",
+                        "Sibutad",
+                        "Sirawai",
+                        "Sindangan",
+                        "Siocon",
+                        "Tampilisan",
+                    ],
+                    "Zamboanga del Sur": [
+                        "Aurora",
+                        "Bayog",
+                        "Dimataling",
+                        "Dinas",
+                        "Dumalinao",
+                        "Dumingag",
+                        "Guipos",
+                        "Josefina",
+                        "Kumalarang",
+                        "Lakewood",
+                        "Lapuyan",
+                        "Mahayag",
+                        "Margosatubig",
+                        "Midsalip",
+                        "Molave",
+                        "Pagadian City",
+                        "Pitogo",
+                        "Ramon Magsaysay",
+                        "San Miguel",
+                        "San Pablo",
+                        "Sominot",
+                        "Tabina",
+                        "Tambulig",
+                        "Tigbao",
+                        "Tukuran",
+                        "Vincenzo A. Sagun",
+                        "Zamboanga City",
+                    ],
+                    "Zamboanga Sibugay": [
+                        "Alicia",
+                        "Buug",
+                        "Diplahan",
+                        "Imelda",
+                        "Ipil",
+                        "Kabasalan",
+                        "Mabuhay",
+                        "Malangas",
+                        "Naga",
+                        "Olutanga",
+                        "Payao",
+                        "Roseller Lim",
+                        "Siay",
+                        "Talusan",
+                        "Titay",
+                        "Tungawan",
+                    ],
+                };
+
+                /* =====================================================
+                                           LOCATION AUTOCOMPLETE — A–Z provinces → towns
+                                           Stage 1: click/focus (empty) → ALL provinces A–Z
+                                                    under letter headers
+                                           Stage 2: picked province → its towns A–Z,
+                                                    "All of {Province}", back row
+                                           Typing:  filters provinces AND towns at any stage
+                                           Free text is never blocked — on submit, whatever
+                                           is typed lands in the hidden fields.
+                                           X button clears the location entirely and
+                                           refreshes the results (other filters kept).
+                                        ====================================================== */
+                var input = document.getElementById("location-search");
+                var panel = document.getElementById("location-suggestions");
+                var form = document.getElementById("filter-form");
+                var provHid = document.getElementById("province-hidden");
+                var locHid = document.getElementById("location-hidden");
+                var clearBtn = document.getElementById("location-clear");
+
+                if (!input || !panel || !form || !provHid || !locHid) {
+                    return;
+                }
+
+                var items = [];
+                var active = -1;
+                var mode = "province"; /* 'province' | 'town' */
+                var currentProvince = "";
+
+                var ICON_PROVINCE =
+                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>';
+                var ICON_TOWN =
+                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>';
+
+                function norm(s) {
+                    return (s || "").toLowerCase().replace(/\s+/g, " ").trim();
+                }
+
+                function sortedProvinces() {
+                    return Object.keys(PH).sort(function (a, b) {
+                        return a.localeCompare(b);
+                    });
+                }
+
+                function sortedTowns(province) {
+                    return (PH[province] || []).slice().sort(function (a, b) {
+                        return a.localeCompare(b);
+                    });
+                }
+
+                function isOpen() {
+                    return panel.classList.contains("open");
+                }
+
+                function closePanel() {
+                    panel.classList.remove("open");
+                    panel.innerHTML = "";
+                    items = [];
+                    active = -1;
+                }
+
+                function setActive(idx) {
+                    if (!items.length) {
+                        return;
+                    }
+                    if (active >= 0 && items[active]) {
+                        items[active].classList.remove("highlighted");
+                    }
+                    active = (idx + items.length) % items.length;
+                    items[active].classList.add("highlighted");
+                    items[active].scrollIntoView({ block: "nearest" });
+                }
+
+                /* label with the typed match highlighted */
+                function makeLabel(text, q) {
+                    var span = document.createElement("span");
+                    if (q) {
+                        var i = text.toLowerCase().indexOf(q.toLowerCase());
+                        if (i >= 0) {
+                            span.appendChild(document.createTextNode(text.slice(0, i)));
+                            var b = document.createElement("b");
+                            b.className = "loc-hl";
+                            b.textContent = text.substr(i, q.length);
+                            span.appendChild(b);
+                            span.appendChild(
+                                document.createTextNode(text.slice(i + q.length)),
+                            );
+                            return span;
+                        }
+                    }
+                    span.textContent = text;
+                    return span;
+                }
+
+                function makeButton(name, badgeText, iconSvg, onClick, q) {
+                    var btn = document.createElement("button");
+                    btn.type = "button";
+
+                    var dot = document.createElement("span");
+                    dot.className = "loc-dot";
+                    dot.innerHTML = iconSvg;
+                    btn.appendChild(dot);
+
+                    btn.appendChild(makeLabel(name, q || ""));
+
+                    if (badgeText) {
+                        var badge = document.createElement("span");
+                        badge.className = "loc-badge";
+                        badge.textContent = badgeText;
+                        btn.appendChild(badge);
+                    }
+
+                    btn.addEventListener("click", onClick);
+                    return btn;
+                }
+
+                function findProvince(name) {
+                    var n = (name || "").trim().toLowerCase();
+                    if (!n) {
+                        return "";
+                    }
+
+                    var exact = null;
+                    var starts = [];
+
+                    Object.keys(PH).forEach(function (p) {
+                        var lp = p.toLowerCase();
+                        if (lp === n) {
+                            exact = p;
+                        } else if (lp.startsWith(n)) {
+                            starts.push(p);
+                        }
+                    });
+
+                    if (exact) {
+                        return exact;
+                    }
+                    return starts.length === 1 ? starts[0] : "";
+                }
+
+                /* Keep the hidden fields in step with what's typed so
+                                           free-text searches still reach the server. */
+                function syncHiddenFromText() {
+                    var v = input.value.trim();
+
+                    if (!v) {
+                        provHid.value = "";
+                        locHid.value = "";
+                        return;
+                    }
+
+                    /* "Town, Province" with a known province? */
+                    var comma = v.indexOf(",");
+                    if (comma > 0) {
+                        var townPart = v.slice(0, comma).trim();
+                        var provPart = v.slice(comma + 1).trim();
+                        if (townPart && PH.hasOwnProperty(provPart)) {
+                            provHid.value = provPart;
+                            locHid.value = townPart;
+                            return;
+                        }
+                    }
+
+                    var province = findProvince(v);
+                    if (province) {
+                        provHid.value = province;
+                        locHid.value = "";
+                        return;
+                    }
+
+                    /* Free text — goes through the location LIKE filter */
+                    provHid.value = "";
+                    locHid.value = v;
+                }
+
+                /* ---------- CLEAR (X) BUTTON ---------- */
+                function updateClearBtn() {
+                    if (clearBtn) {
+                        clearBtn.classList.toggle("visible", input.value.trim() !== "");
+                    }
+                }
+
+                if (clearBtn) {
+                    clearBtn.addEventListener("click", function (e) {
+                        e.stopPropagation();
+
+                        /* wipe everything location-related */
+                        input.value = "";
+                        provHid.value = "";
+                        locHid.value = "";
+                        mode = "province";
+                        currentProvince = "";
+                        closePanel();
+                        updateClearBtn();
+
+                        /* refresh results WITHOUT the location filter —
+                                                   category, price, amenities and q are kept.
+                                                   Remove this form.submit() line if the X should
+                                                   only clear the box (user presses Search after). */
+                        form.submit();
+                    });
+                }
+
+                /* ---------- STAGE 1 — provinces (A–Z) ---------- */
+                function renderProvinceStage(query) {
+                    panel.innerHTML = "";
+                    items = [];
+                    active = -1;
+
+                    var q = norm(query);
+                    var frag = document.createDocumentFragment();
+
+                    if (q === "") {
+                        /* ALL provinces, grouped under letter headers */
+                        var letter = "";
+                        sortedProvinces().forEach(function (province) {
+                            if (province.charAt(0) !== letter) {
+                                letter = province.charAt(0);
+                                var head = document.createElement("div");
+                                head.className = "loc-group-label";
+                                head.textContent = letter;
+                                frag.appendChild(head);
+                            }
+
+                            var btn = makeButton(
+                                province,
+                                "Province",
+                                ICON_PROVINCE,
+                                function () {
+                                    onPickProvince(province);
+                                },
+                                "",
+                            );
+                            frag.appendChild(btn);
+                            items.push(btn);
+                        });
+
+                        panel.appendChild(frag);
+                        panel.classList.add("open");
+                        updateClearBtn();
+                        return;
+                    }
+
+                    /* typing — provinces first, then towns everywhere */
+                    var provs = [];
+                    var towns = [];
+
+                    sortedProvinces().forEach(function (province) {
+                        var lp = province.toLowerCase();
+                        if (lp.startsWith(q)) {
+                            provs.push(province);
+                        }
+                    });
+                    sortedProvinces().forEach(function (province) {
+                        var lp = province.toLowerCase();
+                        if (!lp.startsWith(q) && lp.indexOf(q) !== -1) {
+                            provs.push(province);
+                        }
+                    });
+
+                    if (q.length >= 2) {
+                        var townStarts = [];
+                        var townContains = [];
+                        sortedProvinces().forEach(function (province) {
+                            sortedTowns(province).forEach(function (town) {
+                                var lt = town.toLowerCase();
+                                if (lt.startsWith(q)) {
+                                    townStarts.push({ town: town, province: province });
+                                } else if (lt.indexOf(q) !== -1) {
+                                    townContains.push({ town: town, province: province });
+                                }
+                            });
+                        });
+                        towns = townStarts.concat(townContains);
+                    }
+
+                    if (!provs.length && !towns.length) {
+                        var empty = document.createElement("div");
+                        empty.className = "loc-empty";
+                        empty.textContent =
+                            'No location found for "' +
+                            query +
+                            '" — press Enter to search it anyway.';
+                        panel.appendChild(empty);
+                        panel.classList.add("open");
+                        updateClearBtn();
+                        return;
+                    }
+
+                    if (provs.length) {
+                        var ph = document.createElement("div");
+                        ph.className = "loc-group-label";
+                        ph.textContent = "Provinces";
+                        frag.appendChild(ph);
+
+                        provs.slice(0, 6).forEach(function (province) {
+                            var btn = makeButton(
+                                province,
+                                "Province",
+                                ICON_PROVINCE,
+                                function () {
+                                    onPickProvince(province);
+                                },
+                                q,
+                            );
+                            frag.appendChild(btn);
+                            items.push(btn);
+                        });
+                    }
+
+                    if (towns.length) {
+                        var th = document.createElement("div");
+                        th.className = "loc-group-label";
+                        th.textContent = "Cities & Towns";
+                        frag.appendChild(th);
+
+                        towns.slice(0, 10).forEach(function (match) {
+                            var btn = makeButton(
+                                match.town,
+                                match.province,
+                                ICON_TOWN,
+                                function () {
+                                    onPickTown(match.town, match.province);
+                                },
+                                q,
+                            );
+                            frag.appendChild(btn);
+                            items.push(btn);
+                        });
+                    }
+
+                    panel.appendChild(frag);
+                    panel.classList.add("open");
+                    updateClearBtn();
+                }
+
+                /* ---------- STAGE 2 — towns of one province ---------- */
+                function townQuery() {
+                    var v = input.value;
+                    var lv = v.toLowerCase();
+                    var lp = currentProvince.toLowerCase();
+
+                    /* strip a leading "Iloilo" / "Iloilo, " so the rest
+                                               of the typed text filters the town list */
+                    if (lv.startsWith(lp)) {
+                        v = v.slice(currentProvince.length);
+                        if (v.charAt(0) === ",") {
+                            v = v.slice(1);
+                        }
+                    }
+                    return norm(v);
+                }
+
+                function renderTownStage() {
+                    panel.innerHTML = "";
+                    items = [];
+                    active = -1;
+
+                    var q = townQuery();
+                    var frag = document.createDocumentFragment();
+
+                    /* back to all provinces */
+                    var back = document.createElement("button");
+                    back.type = "button";
+                    back.className = "loc-back-row";
+                    back.innerHTML = "&#8592; All provinces";
+                    back.addEventListener("click", function () {
+                        onBackToProvinces();
+                    });
+                    frag.appendChild(back);
+
+                    /* whole-province option */
+                    var allBtn = makeButton(
+                        "All of " + currentProvince,
+                        "whole province",
+                        ICON_PROVINCE,
+                        function () {
+                            onPickWholeProvince();
+                        },
+                        q,
+                    );
+                    allBtn.classList.add("loc-all-row");
+                    frag.appendChild(allBtn);
+                    items.push(allBtn);
+
+                    var inProvince = [];
+                    sortedTowns(currentProvince).forEach(function (town) {
+                        if (q === "" || norm(town).indexOf(q) !== -1) {
+                            inProvince.push(town);
+                        }
+                    });
+
+                    inProvince.forEach(function (town) {
+                        var btn = makeButton(
+                            town,
+                            currentProvince,
+                            ICON_TOWN,
+                            function () {
+                                onPickTown(town, currentProvince);
+                            },
+                            q,
+                        );
+                        frag.appendChild(btn);
+                        items.push(btn);
+                    });
+
+                    /* typed a town from another province? offer it */
+                    var others = [];
+                    if (q.length >= 2) {
+                        sortedProvinces().forEach(function (province) {
+                            if (province === currentProvince) {
+                                return;
+                            }
+                            sortedTowns(province).forEach(function (town) {
+                                if (norm(town).indexOf(q) !== -1) {
+                                    others.push({ town: town, province: province });
+                                }
+                            });
+                        });
+                    }
+
+                    if (others.length) {
+                        var oh = document.createElement("div");
+                        oh.className = "loc-group-label";
+                        oh.textContent = "Other provinces";
+                        frag.appendChild(oh);
+
+                        others.slice(0, 8).forEach(function (match) {
+                            var btn = makeButton(
+                                match.town,
+                                match.province,
+                                ICON_TOWN,
+                                function () {
+                                    onPickTown(match.town, match.province);
+                                },
+                                q,
+                            );
+                            frag.appendChild(btn);
+                            items.push(btn);
+                        });
+                    }
+
+                    if (!inProvince.length && !others.length) {
+                        var empty = document.createElement("div");
+                        empty.className = "loc-empty";
+                        empty.textContent =
+                            "No towns in " +
+                            currentProvince +
+                            ' match "' +
+                            input.value +
+                            '" — press Enter to search it anyway.';
+                        frag.appendChild(empty);
+                    }
+
+                    panel.appendChild(frag);
+                    panel.classList.add("open");
+                    updateClearBtn();
+                }
+
+                /* ---------- PICKS ---------- */
+                function onPickProvince(province) {
+                    mode = "town";
+                    currentProvince = province;
+                    input.value = province;
+                    provHid.value = province;
+                    locHid.value = "";
+                    renderTownStage();
+                    input.focus();
+                }
+
+                function onPickWholeProvince() {
+                    provHid.value = currentProvince;
+                    locHid.value = "";
+                    input.value = currentProvince;
+                    closePanel();
+                    form.submit();
+                }
+
+                function onPickTown(town, province) {
+                    provHid.value = province;
+                    locHid.value = town;
+                    input.value = town + ", " + province;
+                    closePanel();
+                    form.submit();
+                }
+
+                function onBackToProvinces() {
+                    mode = "province";
+                    currentProvince = "";
+                    input.value = "";
+                    provHid.value = "";
+                    locHid.value = "";
+                    renderProvinceStage("");
+                    input.focus();
+                }
+
+                /* ---------- OPEN (click / focus / typing) ---------- */
+                function startSuggestions() {
+                    var v = input.value.trim();
+                    var comma = v.indexOf(",");
+
+                    /* box already holds "Town, Province"? → reopen town stage */
+                    if (comma > 0) {
+                        var provPart = v.slice(comma + 1).trim();
+                        if (provPart && PH.hasOwnProperty(provPart)) {
+                            mode = "town";
+                            currentProvince = provPart;
+                            renderTownStage();
+                            return;
+                        }
+                    }
+
+                    /* box holds exactly a province name? → its towns */
+                    var province = findProvince(v);
+                    if (province && norm(v) === province.toLowerCase()) {
+                        mode = "town";
+                        currentProvince = province;
+                        renderTownStage();
+                        return;
+                    }
+
+                    mode = "province";
+                    currentProvince = "";
+                    renderProvinceStage(input.value);
+                }
+
+                input.addEventListener("focus", startSuggestions);
+                input.addEventListener("click", function () {
+                    if (!isOpen()) {
+                        startSuggestions();
+                    }
+                });
+
+                input.addEventListener("input", function () {
+                    if (mode === "town") {
+                        renderTownStage();
+                    } else {
+                        syncHiddenFromText();
+                        renderProvinceStage(input.value);
+                    }
+                });
+
+                /* keyboard */
+                input.addEventListener("keydown", function (e) {
+                    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                        e.preventDefault();
+                        if (!isOpen()) {
+                            startSuggestions();
+                            return;
+                        }
+                        if (items.length) {
+                            setActive(e.key === "ArrowDown" ? active + 1 : active - 1);
+                        }
+                    } else if (e.key === "Enter") {
+                        if (isOpen() && active >= 0 && items[active]) {
+                            e.preventDefault();
+                            items[active].click();
+                        }
+                        /* no highlight → native submit runs; the form
+                                                   submit handler fills the hidden fields */
+                    } else if (e.key === "Escape") {
+                        closePanel();
+                    } else if (e.key === "Tab") {
+                        closePanel();
+                    }
+                });
+
+                /* native submit — typed text lands in the hidden fields */
+                form.addEventListener("submit", function () {
+                    if (input.value.trim() !== "") {
+                        syncHiddenFromText();
+                    }
+                });
+
+                /* click outside closes */
+                document.addEventListener("click", function (e) {
+                    if (!e.target.closest(".location-group")) {
+                        closePanel();
+                    }
+                });
+
+                /* initial state — show X if the box arrived pre-filled */
+                updateClearBtn();
+            })();
+        </script>
+
+        <script>
+            (function () {
+                "use strict";
+
+                /* =====================================================
+                                           PRICE RANGE — gold fill follows the thumb,
+                                           live label + auto-submit on release
+                                        ====================================================== */
+                var range = document.getElementById("price-range");
+                var maxLabel = document.getElementById("price-max");
+                var form = document.getElementById("filter-form");
+
+                if (range && maxLabel && form) {
+                    /* Paint the track: gold gradient up to the thumb,
+                                               grey for the rest. Called on load and on drag. */
+                    function paintTrack() {
+                        var min = Number(range.min) || 0;
+                        var max = Number(range.max) || 0;
+                        var val = Number(range.value) || 0;
+                        var pct = max > min ? ((val - min) / (max - min)) * 100 : 0;
+
+                        range.style.background =
+                            "linear-gradient(to right," +
+                            " #f6c04e 0%," +
+                            " #d68e0e " +
+                            pct +
+                            "%," +
+                            " #e2e8f0 " +
+                            pct +
+                            "%," +
+                            " #e2e8f0 100%)";
+                    }
+
+                    /* live label + repaint while dragging */
+                    range.addEventListener("input", function () {
+                        maxLabel.textContent = Number(range.value).toLocaleString();
+                        maxLabel.classList.add("price-live");
+                        paintTrack();
+                    });
+
+                    /* submit when the thumb is released */
+                    range.addEventListener("change", function () {
+                        maxLabel.classList.remove("price-live");
+                        form.submit();
+                    });
+
+                    /* initial paint (restores the fill on reload) */
+                    paintTrack();
+                }
+
+                /* =====================================================
+                                           VIEW TOGGLE — grid / list
+                                        ====================================================== */
+                var results = document.getElementById("rh-listings-results");
+                var viewBtns = document.querySelectorAll(".rh-view-btn");
+
+                if (results && viewBtns.length) {
+                    viewBtns.forEach(function (btn) {
+                        btn.addEventListener("click", function () {
+                            viewBtns.forEach(function (b) {
+                                b.classList.remove("active");
+                            });
+                            btn.classList.add("active");
+
+                            if (btn.dataset.view === "list") {
+                                results.classList.add("rh-list-view");
+                            } else {
+                                results.classList.remove("rh-list-view");
+                            }
+                        });
+                    });
+                }
+            })();
+        </script>
+
+        <!-- Wishlist hearts — toggle via POST /wishlist/toggle (guests → /login) -->
+        <script>
+            (function () {
+                "use strict";
+
+                /* =====================================================
+                                           WISHLIST HEARTS — every card's heart button
+                                           posts listing_id to /wishlist/toggle.
+
+                                           Two response shapes are supported because
+                                           different installs of WishlistController
+                                           answer differently:
+                                              { ok, added, count }   (added: true/false)
+                                              { ok, saved }          (saved: true/false)
+
+                                           OPTIMISTIC UI: the heart glows the instant
+                                           the user clicks — we don't wait for the
+                                           server. If the request fails or the server
+                                           disagrees, we revert to the prior state.
+
+                                           preventDefault + stopPropagation keep the
+                                           card's <a> link from firing.
+                                        ====================================================== */
+                document.addEventListener("click", function (e) {
+                    var btn = e.target.closest(".rh-wish-btn");
+                    if (!btn) {
+                        return;
+                    }
+
+                    /* the whole card is a link — do not navigate */
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    var listingId = parseInt(btn.dataset.listingId, 10);
+                    if (!listingId) {
+                        return;
+                    }
+                    if (btn.dataset.busy === "1") {
+                        return;
+                    }
+                    btn.dataset.busy = "1";
+
+                    /* ---- OPTIMISTIC UI: toggle immediately ----
+                                   remember the prior state so we can revert on
+                                   failure. */
+                    var wasSaved = btn.classList.contains("saved");
+                    var nowSaved = !wasSaved;
+
+                    function applyState(saved) {
+                        btn.classList.toggle("saved", saved);
+                        btn.setAttribute("aria-pressed", saved ? "true" : "false");
+                        var label = saved ? "Remove from wishlist" : "Save to wishlist";
+                        btn.setAttribute("aria-label", label);
+                        btn.setAttribute("title", label);
+
+                        /* restart the pop animation so the click feels
+                                       tactile — works for both glow-on and glow-off */
+                        btn.classList.remove("pop");
+                        void btn.offsetWidth;
+                        btn.classList.add("pop");
+                    }
+
+                    /* glow instantly, don't wait for the network */
+                    applyState(nowSaved);
+
+                    var body = new FormData();
+                    body.append("listing_id", String(listingId));
+
+                    fetch("/wishlist/toggle", {
+                        method: "POST",
+                        body: body,
+                        credentials: "same-origin",
+                        headers: { "X-Requested-With": "XMLHttpRequest" },
+                    })
+                        .then(function (res) {
+                            if (res.status === 401) {
+                                /* not logged in — revert the optimistic
+                                               glow, then send to login */
+                                applyState(wasSaved);
+                                window.location.href = "/login";
+                                throw new Error("login");
+                            }
+                            return res.json();
+                        })
+                        .then(function (data) {
+                            if (!data || !data.ok) {
+                                /* server refused — revert */
+                                applyState(wasSaved);
+                                return;
+                            }
+
+                            /* accept BOTH response shapes:
+                                              data.added  → boolean (newer controller)
+                                              data.saved  → boolean (legacy controller)
+                                           fall back to the optimistic value if the
+                                           server omitted both (shouldn't happen). */
+                            var serverSaved;
+                            if (data.added !== undefined) {
+                                serverSaved = !!data.added;
+                            } else if (data.saved !== undefined) {
+                                serverSaved = !!data.saved;
+                            } else {
+                                serverSaved = nowSaved;
+                            }
+
+                            /* sync to the server's truth (in case of a
+                                           race — e.g. the row already existed) */
+                            if (serverSaved !== nowSaved) {
+                                applyState(serverSaved);
+                            }
+                        })
+                        .catch(function () {
+                            /* network error / login redirect already
+                                           handled — keep the optimistic state so
+                                           the user sees their click took effect,
+                                           the next page load will reconcile */
+                        })
+                        .finally(function () {
+                            delete btn.dataset.busy;
+                        });
+                });
+            })();
+        </script>
+
+        <!-- Enquiry waiting card — Cancel withdraws the viewer's
+             PENDING application via POST /booking/cancel-booking,
+             the SAME endpoint (app_booking_cancel) the My Bookings
+             details page uses. A fresh enquiry has nothing paid, so
+             that endpoint's 98% refund math simply yields 0 and the
+             host still gets the standard "cancelled their booking"
+             notification. After the POST we reload so the card
+             renders its TRUE state: normal again if the enquiry was
+             withdrawn, gone entirely if the host accepted meanwhile. -->
+        <script>
+            (function () {
+                "use strict";
+
+                var CANCEL_URL = "/booking/cancel-booking";
+
+                document.addEventListener("click", function (e) {
+                    var btn = e.target.closest(".rh-enq-cancel");
+                    if (!btn) {
+                        return;
+                    }
+
+                    /* the whole card is a link — do not navigate */
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    if (btn.dataset.busy === "1") {
+                        return;
+                    }
+                    var bookingId = parseInt(btn.dataset.bookingId, 10);
+                    if (!bookingId) {
+                        return;
+                    }
+
+                    if (
+                        !window.confirm(
+                            "Cancel this enquiry? The host will be notified that you withdrew your request.",
+                        )
+                    ) {
+                        return;
+                    }
+
+                    btn.dataset.busy = "1";
+                    btn.disabled = true;
+
+                    var body = new FormData();
+                    body.append("booking_id", String(bookingId));
+
+                    fetch(CANCEL_URL, {
+                        method: "POST",
+                        body: body,
+                        credentials: "same-origin",
+                        headers: { "X-Requested-With": "XMLHttpRequest" },
+                    })
+                        .then(function (res) {
+                            if (res.status === 401) {
+                                window.location.href = "/login";
+                                throw new Error("login");
+                            }
+                            /* the endpoint answers with a redirect and
+                                           fetch follows it — any 2xx means the
+                                           request landed; the reload below paints
+                                           the card's truth. */
+                            if (!res.ok) {
+                                throw new Error("cancel failed");
+                            }
+                            window.location.reload();
+                        })
+                        .catch(function (err) {
+                            if (err && err.message === "login") {
+                                return;
+                            }
+                            btn.disabled = false;
+                            delete btn.dataset.busy;
+                            window.alert(
+                                "Something went wrong while cancelling your enquiry. Please try again.",
+                            );
+                        });
+                });
+            })();
+        </script>
+
+
+    </body>
+
+</html>

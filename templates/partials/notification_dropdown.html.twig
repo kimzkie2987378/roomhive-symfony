@@ -1,0 +1,598 @@
+{# =========================================================
+   ROOMHIVE — NOTIFICATION BELL DROPDOWN (fragment partial)
+   1:1 port of legacy includes/notification_dropdown.php.
+
+   Rendered ONCE per page as a fragment sub-request — the
+   self-containment equivalent of the legacy "include ONCE per
+   page, right AFTER the navbar include":
+
+     {{ render(controller('App\\Controller\\NotificationDropdownController::panel')) }}
+       → partials/navbar.html.twig renders this right after
+         </header>, so EVERY user + host page gets the dropdown.
+
+     {{ render(controller('App\\Controller\\NotificationDropdownController::adminPanel')) }}
+       → admin/base.html.twig renders this right after the topbar
+         </header>. Same panel, the admin's OWN queue semantics:
+         pending host applications + pending listings (the two
+         numbers the static bell badge always showed) — flagged
+         ADAPTATION: legacy rendered nothing for admins because
+         admin sessions never carry user_id.
+
+   Works for BOTH hosts and users (notifications are rows in
+   `notifications` keyed by user_id — whoever is logged in sees
+   their own). The controller does its own queries — no page
+   controller passes anything.
+
+   Params (from the fragment controller):
+     items       list of {id, link, unread, ago, label, ctx, icon,
+                 icls, img} — label = real message (emoji stripped)
+                 with the derived label as fallback; img = resolved
+                 listing cover photo (or '' for the icon chip).
+     unread      int — authoritative for the bell badge.
+     viewall_url role-aware destination: host → /host/notifications,
+                 renter → /notifications; '' hides the footer
+                 (admin variant).
+     markable    bool — false on the admin variant (queue items are
+                 not rows in notifications): no mark-read wiring,
+                 no "Mark all as read" button; admin items carry
+                 unread=false so the JS mark path never fires.
+
+   FEATURES (verbatim legacy):
+     - Red unread-count BADGE on the bell (real count, styled,
+       decrements live, disappears at 0, caps at "99+"). The JS
+       creates/moves it onto the .nav-bell — the navbar and the
+       admin topbar no longer render a static badge themselves,
+       exactly like legacy where navbar.php never did.
+     - Real message text from notifications.message.
+     - Activity-type LUCIDE icon chips; real cover photo
+       thumbnails with a Lucide icon fallback (onerror verbatim).
+     - Mark one read on click; "Mark all as read".
+   - Mark-read posts to the PORTED endpoint
+     POST /notifications/mark-read (NotificationsController) with
+     the SAME body legacy sent — "id=<id>" or "all=1".
+   - Lucide: the fragment loads the CDN itself (verbatim legacy:
+     "double-loading is harmless (cached)") — REQUIRED on admin
+     pages, whose shell renders inline-SVG macros and never loads
+     lucide.
+========================================================= #}
+
+<style>
+    /* ---- Notification dropdown (self-contained, rh-ndd-*) ---- */
+
+    .rh-ndd-panel {
+        display: none;
+        position: absolute;
+        top: calc(100% + 12px);
+        right: 0;
+        width: 340px;
+        max-width: calc(100vw - 30px);
+        background: #ffffff;
+        border: 1px solid rgba(28, 42, 56, 0.08);
+        border-radius: 14px;
+        box-shadow: 0 18px 40px rgba(28, 42, 56, 0.18);
+        overflow: hidden;
+        z-index: 1200;
+        font-family: "Poppins", sans-serif;
+    }
+
+    .rh-ndd-panel.open {
+        display: block;
+        animation: rhNddIn 0.2s ease;
+    }
+
+    @keyframes rhNddIn {
+        from {
+            opacity: 0;
+            transform: translateY(-8px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .rh-ndd-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 16px;
+        border-bottom: 1px solid rgba(28, 42, 56, 0.08);
+    }
+
+    .rh-ndd-head strong {
+        color: #1c2a38;
+        font-size: 14px;
+        font-weight: 800;
+    }
+
+    .rh-ndd-markall {
+        background: none;
+        border: none;
+        padding: 0;
+        color: #b07708;
+        font-family: inherit;
+        font-size: 11.5px;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .rh-ndd-markall:hover {
+        text-decoration: underline;
+    }
+
+    .rh-ndd-list {
+        max-height: 360px;
+        overflow-y: auto;
+    }
+
+    .rh-ndd-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        width: 100%;
+        padding: 12px 16px;
+        background: none;
+        border: none;
+        border-bottom: 1px solid rgba(28, 42, 56, 0.06);
+        text-align: left;
+        font-family: inherit;
+        cursor: pointer;
+        transition: background 0.15s ease;
+    }
+
+    .rh-ndd-item:last-child {
+        border-bottom: none;
+    }
+
+    .rh-ndd-item:hover {
+        background: #fff8ec;
+    }
+
+    .rh-ndd-item.unread {
+        background: #fff8ec;
+    }
+
+    .rh-ndd-item.unread:hover {
+        background: #fdf1dc;
+    }
+
+    /* Unread dot on the far right edge */
+    .rh-ndd-unread-dot {
+        width: 8px;
+        height: 8px;
+        flex-shrink: 0;
+        margin-top: 6px;
+        background: #eda423;
+        border-radius: 50%;
+        align-self: center;
+    }
+
+    .rh-ndd-item:not(.unread) .rh-ndd-unread-dot {
+        background: transparent;
+        border: 1px solid rgba(28, 42, 56, 0.12);
+    }
+
+    /* ---- Activity icon chip (Lucide SVG or real photo) ---- */
+    .rh-ndd-ic {
+        width: 38px;
+        height: 38px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 11px;
+    }
+
+    .rh-ndd-ic svg {
+        width: 18px;
+        height: 18px;
+        stroke-width: 2;
+    }
+
+    .rh-ndd-ic-blue {
+        background: #E7F0FF;
+        color: #0B57D0;
+    }
+
+    .rh-ndd-ic-green {
+        background: #E8F8F1;
+        color: #178A50;
+    }
+
+    .rh-ndd-ic-red {
+        background: #FDECEC;
+        color: #B3261E;
+    }
+
+    .rh-ndd-ic-yellow {
+        background: #FDF1DC;
+        color: #C77A00;
+    }
+
+    .rh-ndd-ic-honey {
+        background: #FFF6E9;
+        color: #B07708;
+    }
+
+    .rh-ndd-ic-purple {
+        background: #F1EBFF;
+        color: #6D4FC2;
+    }
+
+    .rh-ndd-ic-gray {
+        background: #F0F1F6;
+        color: #5B6172;
+    }
+
+    .rh-ndd-ic-photo {
+        padding: 0;
+        overflow: hidden;
+        background: #F0EEE6;
+    }
+
+    .rh-ndd-ic-photo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .rh-ndd-ic-fallback {
+        display: none;
+        width: 100%;
+        height: 100%;
+        align-items: center;
+        justify-content: center;
+        background: #FDF1DC;
+        color: #B07708;
+    }
+
+    .rh-ndd-item-body {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rh-ndd-item-label {
+        margin: 0;
+        color: #1c2a38;
+        font-size: 12.5px;
+        font-weight: 600;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+    }
+
+    .rh-ndd-item.unread .rh-ndd-item-label {
+        font-weight: 700;
+    }
+
+    .rh-ndd-item-ctx {
+        display: block;
+        margin-top: 1px;
+        color: #8d99a5;
+        font-size: 11px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .rh-ndd-item-time {
+        display: block;
+        margin-top: 2px;
+        color: #8d99a5;
+        font-size: 11px;
+    }
+
+    .rh-ndd-empty {
+        padding: 36px 16px;
+        text-align: center;
+        color: #8d99a5;
+        font-size: 13px;
+    }
+
+    .rh-ndd-foot {
+        display: block;
+        padding: 12px 16px;
+        border-top: 1px solid rgba(28, 42, 56, 0.08);
+        text-align: center;
+        color: #b07708;
+        font-size: 12px;
+        font-weight: 700;
+        text-decoration: none;
+        transition: background 0.15s ease;
+    }
+
+    .rh-ndd-foot:hover {
+        background: #fff8ec;
+    }
+
+    /* Bell must anchor the panel + show a pointer cursor.
+       The .nav-bell class lives on the shared navbar's bell AND
+       (added by this port) on the admin topbar's bell button, so
+       the same fragment CSS + JS attach to both. */
+    .nav-bell {
+        position: relative !important;
+        cursor: pointer;
+    }
+
+    .nav-bell svg {
+        transition: transform 0.15s ease;
+    }
+
+    .nav-bell:hover svg {
+        transform: scale(1.1);
+    }
+
+    /* =====================================================
+       UNREAD COUNT BADGE on the bell
+    ====================================================== */
+    .nav-bell-badge {
+        position: absolute;
+        top: -4px;
+        right: -6px;
+
+        min-width: 17px;
+        height: 17px;
+        padding: 0 4px;
+
+        background: #E14B4B;
+
+        color: #ffffff;
+        font-size: 10px;
+        font-weight: 800;
+        line-height: 17px;
+        text-align: center;
+
+        border: 2px solid #ffffff;
+        border-radius: 999px;
+
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+
+        z-index: 10;
+    }
+</style>
+
+{# Panel markup — JS moves it inside the bell and wires it #}
+<div class="rh-ndd-panel" id="rhNddPanel" data-unread="{{ unread }}" data-viewall="{{ viewall_url }}" data-markable="{{ markable ? '1' : '0' }}">
+
+    <div class="rh-ndd-head">
+
+        <strong>Notifications</strong>
+
+        {% if markable and unread > 0 %}
+            <button type="button" class="rh-ndd-markall" id="rhNddMarkAll">
+                Mark all as read
+            </button>
+        {% endif %}
+
+    </div>
+
+    <div class="rh-ndd-list">
+
+        {% if items is empty %}
+
+            <p class="rh-ndd-empty">No notifications yet</p>
+
+        {% else %}
+
+            {% for n in items %}
+
+                <button
+                    type="button"
+                    class="rh-ndd-item{{ n.unread ? ' unread' : '' }}"
+                    data-id="{{ n.id }}"
+                    data-link="{{ n.link }}">
+
+                    {% if n.img %}
+                        {# Real photo (listing cover) with Lucide fallback #}
+                        <span class="rh-ndd-ic rh-ndd-ic-photo">
+                            <img
+                                src="{{ n.img }}"
+                                alt=""
+                                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                            <span class="rh-ndd-ic-fallback">
+                                <i data-lucide="{{ n.icon }}"></i>
+                            </span>
+                        </span>
+                    {% else %}
+                        {# Activity-type Lucide icon chip #}
+                        <span class="rh-ndd-ic {{ n.icls }}">
+                            <i data-lucide="{{ n.icon }}"></i>
+                        </span>
+                    {% endif %}
+
+                    <span class="rh-ndd-item-body">
+
+                        <span class="rh-ndd-item-label">
+                            {{ n.label }}
+                        </span>
+
+                        {% if n.ctx %}
+                            <span class="rh-ndd-item-ctx">
+                                {{ n.ctx }}
+                            </span>
+                        {% endif %}
+
+                        <span class="rh-ndd-item-time">
+                            {{ n.ago }}
+                        </span>
+
+                    </span>
+
+                    <span class="rh-ndd-unread-dot"></span>
+
+                </button>
+
+            {% endfor %}
+
+        {% endif %}
+
+    </div>
+
+    {% if viewall_url %}
+        <a class="rh-ndd-foot" href="{{ viewall_url }}">
+            View all notifications
+        </a>
+    {% endif %}
+
+</div>
+
+{# Lucide CDN — verbatim legacy ("double-loading is harmless
+   (cached)"). Required on admin pages: their shell renders
+   inline-SVG macros and never loads lucide. #}
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script>
+    (function() {
+        "use strict";
+
+        /* Defensive double-run guard (the legacy include was
+           once-per-page by construction; the fragment is too —
+           navbar partial + admin base each render it once). */
+        if (window.__rhNdd) {
+            return;
+        }
+        window.__rhNdd = true;
+
+        var panel = document.getElementById("rhNddPanel");
+        if (!panel) {
+            return;
+        }
+
+        /* Render all Lucide icons on the page (this panel included).
+           DOMContentLoaded-safe: the panel may be moved into the bell
+           by the script below BEFORE icons render — waiting for
+           DOMContentLoaded means the icons render into their FINAL
+           position, so nothing is lost when the node is re-parented. */
+        function renderIcons() {
+            if (window.lucide) {
+                lucide.createIcons();
+            }
+        }
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", renderIcons);
+        } else {
+            renderIcons();
+        }
+
+        /* Role-aware "view all" destination, read from the panel. */
+        var VIEW_ALL_URL = panel.getAttribute("data-viewall") ||
+            "/notifications";
+
+        /* Admin variant: queue items are not rows in notifications —
+           nothing to mark read, so the mark path below is skipped. */
+        var MARKABLE = panel.getAttribute("data-markable") === "1";
+
+        /* ---- Find the bell and attach the panel to it ---- */
+        var bell = document.querySelector(".nav-bell");
+
+        if (bell) {
+            if (window.getComputedStyle(bell).position === "static") {
+                bell.style.position = "relative";
+            }
+
+            bell.appendChild(panel);
+
+            bell.addEventListener("click", function(event) {
+                event.preventDefault();
+                event.stopPropagation();
+                var isOpen = panel.classList.toggle("open");
+                bell.setAttribute("aria-expanded", isOpen ? "true" : "false");
+            });
+        }
+
+        /* Stop clicks inside the panel from closing it */
+        panel.addEventListener("click", function(event) {
+            event.stopPropagation();
+        });
+
+        /* Close on outside click */
+        document.addEventListener("click", function() {
+            panel.classList.remove("open");
+        });
+
+        /* Close on Esc */
+        document.addEventListener("keydown", function(event) {
+            if (event.key === "Escape") {
+                panel.classList.remove("open");
+            }
+        });
+
+        /* =====================================================
+           BADGE — red number on the bell showing unread count.
+        ====================================================== */
+        var unread = parseInt(panel.getAttribute("data-unread"), 10) || 0;
+
+        function updateBadge() {
+            if (!bell) {
+                return;
+            }
+            var badge = bell.querySelector(".nav-bell-badge");
+
+            if (unread > 0) {
+                if (!badge) {
+                    badge = document.createElement("span");
+                    badge.className = "nav-bell-badge";
+                    bell.appendChild(badge);
+                }
+                badge.textContent = unread > 99 ? "99+" : String(unread);
+            } else if (badge) {
+                badge.remove();
+            }
+        }
+
+        updateBadge();
+
+        /* ---- Mark helpers (POST /notifications/mark-read — the
+           ported NotificationsController endpoint; SAME body the
+           legacy dropdown sent: "id=<id>" or "all=1") ---- */
+        function markRead(id, markAll) {
+            var body = markAll ? "all=1" : "id=" + encodeURIComponent(id);
+
+            return fetch("/notifications/mark-read", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+                body: body,
+                credentials: "same-origin"
+            }).catch(function() {});
+        }
+
+        /* ---- Clicking a notification: mark read, decrement badge, navigate ---- */
+        panel.querySelectorAll(".rh-ndd-item").forEach(function(item) {
+
+            item.addEventListener("click", function() {
+
+                var id = item.getAttribute("data-id");
+                var link = item.getAttribute("data-link") || VIEW_ALL_URL;
+
+                if (MARKABLE && item.classList.contains("unread")) {
+                    item.classList.remove("unread");
+                    unread = Math.max(0, unread - 1);
+                    updateBadge();
+                    markRead(id, false);
+                }
+
+                window.location.href = link;
+            });
+        });
+
+        /* ---- Mark all as read ---- */
+        var markAllBtn = document.getElementById("rhNddMarkAll");
+
+        if (markAllBtn) {
+            markAllBtn.addEventListener("click", function() {
+
+                panel.querySelectorAll(".rh-ndd-item.unread").forEach(function(item) {
+                    item.classList.remove("unread");
+                });
+
+                unread = 0;
+                updateBadge();
+                markAllBtn.remove();
+
+                markRead(0, true);
+            });
+        }
+    })();
+</script>

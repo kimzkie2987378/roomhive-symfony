@@ -8,32 +8,14 @@
    nav_avatar, notification_count, is_host, logo_href,
    home_href, guest_cta_href, guest_cta_label, wallet_href
 
-   === WALLET ADDED ===
-   Wallet link in the account dropdown (/wallet), positioned
-   between Messages and Logout — Logout stays last as the
-   destructive action. Same destination for hosts and
-   non-hosts for now; make walletHref role-aware the same
-   way as messagesHref if a host wallet page is added later.
-
-   === FIXED (this version) ===
-   - Avatar area: all boxes/rings removed (no background, no
-     box-shadow) and the fallback Lucide person icon enlarged
-     to 42px so it matches the size of a real photo avatar.
-   - Profile avatar no longer sits on the dark navy circle:
-     background + padding removed from .account-circle img,
-     object-fit switched to cover (photo fills the circle).
-   - logoHref no longer calls the non-existent
-     logoHrefOverride() Twig function (was crashing every
-     page that renders the navbar). Falls back to navHomeHref
-     like the legacy navbar.php.
+   - Hamburger menu under 900px, opens to show ALL links (no scroll).
+   - SOLID white background everywhere (desktop + mobile): header,
+     mobile panel and account dropdown are never transparent.
 ========================================================= #}
 
-{# Login state: page value wins, session as fallback (mirrors
-   the legacy `$isLoggedIn ?? $_SESSION['logged_in']`). #}
 {% set isLoggedIn = is_logged_in is defined ? is_logged_in : app.session.get('logged_in', false) %}
 {% set isHost = (is_host is defined and is_host) or app.session.get('is_host', false) == true %}
 
-{# Default guest navigation — pages can pass their own array. #}
 {% set navigation = navigation is defined ? navigation : {
     'HOME':          '/',
     'LISTINGS':      '/listings',
@@ -42,43 +24,39 @@
     'CONTACTS':      '/contacts',
 } %}
 
-{# HIVE CLUB REMOVED — defensive filter (same as legacy) #}
 {% set navigation = navigation|filter((href, name) => name|upper != 'HIVE CLUB' and 'hiveclub' not in (href|lower)) %}
 
 {% set currentPage = current_page is defined ? current_page : '' %}
 {% set aboutHref = '/about-us' %}
 
-{# ABOUT US AUTO-INJECT — detected here, rendered in the loop
-   right after BECOME A HOST (or appended if it's absent). #}
 {% set hasAbout = navigation|filter((href, name) => name|upper == 'ABOUT US' or 'aboutus' in (href|lower))|length > 0 %}
 {% set hasBecomeHost = 'BECOME A HOST' in navigation|keys %}
 
-{# HOME link — logged-in users go to (legacy) userhome #}
 {% set navHomeHref = home_href is defined and home_href ? home_href : (isLoggedIn ? '/' : '/') %}
 {% set logoHref = logo_href is defined and logo_href ? logo_href : navHomeHref %}
 
 {% set guestCtaHref = guest_cta_href is defined ? guest_cta_href : '/login' %}
 {% set guestCtaLabel = guest_cta_label is defined ? guest_cta_label : 'LIST YOUR SPACE' %}
 
-{% set navAvatar = nav_avatar is defined ? nav_avatar : '' %}
-{% set notifCount = notification_count is defined ? notification_count : 0 %}
-{% set hasRealAvatar = navAvatar|trim != '' and 'default-avatar' not in (navAvatar|lower) %}
-
-{# Role-aware links #}
 {% set messagesHref = isHost ? '/messages' : '/messages' %}
 {% set settingsHref = isHost ? '/settings' : '/settings' %}
 {% set profileLabel = isHost ? 'Host Dashboard' : 'User Profile' %}
-{% set bellHref = isHost ? '/notifications' : '/notifications' %}
-{% set profileHref = isHost ? '/profile' : '/profile' %}
-
-{# Wallet — same destination for both roles for now.
-   Make it role-aware (e.g. /host/wallet) if a host wallet
-   page is added later. #}
+{% set bellHref = isHost ? '/host/notifications' : '/notifications' %}
+{% set profileHref = isHost ? '/host/profile' : '/profile' %}
 {% set walletHref = wallet_href is defined and wallet_href ? wallet_href : '/wallet' %}
-
 {% set logoutHref = '/logout' %}
 
 <style>
+    /* =====================================================
+                   SOLID BACKGROUND — all screen sizes
+                   Change #ffffff here if you want another color.
+                ====================================================== */
+    header.navbar {
+        background: #ffffff !important;
+        box-shadow: 0 2px 12px rgba(28, 42, 56, 0.08);
+        z-index: 1000;
+    }
+
     header.navbar .account-dd {
         position: relative;
     }
@@ -125,7 +103,7 @@
         right: 0;
         min-width: 190px;
         padding: 6px;
-        background: #ffffff;
+        background: #ffffff !important;
         border: 1px solid rgba(28, 42, 56, 0.08);
         border-radius: 12px;
         box-shadow: 0 14px 30px rgba(28, 42, 56, 0.14);
@@ -197,10 +175,7 @@
         display: none;
     }
 
-    /* =====================================================
-                                       LIST YOUR SPACE — white, animation removed
-                                       (everything else comes from style.css untouched)
-                                    ====================================================== */
+    /* LIST YOUR SPACE — white, animation removed */
     header.navbar .nav-links a.list-space {
         color: #ffffff;
         animation: none !important;
@@ -240,49 +215,218 @@
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
         z-index: 10;
     }
+
+    /* =====================================================
+                   MOBILE — hamburger + collapsible panel
+                ====================================================== */
+    header.navbar .nav-toggle {
+        display: none;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        padding: 0;
+        margin-left: auto;
+        background: none;
+        border: none;
+        border-radius: 10px;
+        color: #1c2a38;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+    }
+    header.navbar .nav-toggle:hover {
+        background: #fdf1dc;
+    }
+    header.navbar .nav-toggle svg {
+        width: 26px;
+        height: 26px;
+        display: block;
+    }
+    header.navbar .nav-toggle .icon-close {
+        display: none;
+    }
+    header.navbar.nav-open .nav-toggle .icon-open {
+        display: none;
+    }
+    header.navbar.nav-open .nav-toggle .icon-close {
+        display: block;
+    }
+    header.navbar .nav-bell-label {
+        display: none;
+    }
+
+    @media (max-width: 900px) {
+        header.navbar {
+            flex-wrap: wrap;
+            align-items: center;
+            padding-left: 16px;
+            padding-right: 16px;
+        }
+        header.navbar .logo img {
+            max-height: 44px;
+            width: auto;
+        }
+        header.navbar .nav-toggle {
+            display: inline-flex;
+        }
+
+        /* Panel opens to its full height — no scrolling */
+        header.navbar .nav-links {
+            display: none;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 2px;
+            width: 100%;
+            flex-basis: 100%;
+            order: 3;
+            margin: 10px 0 0;
+            padding: 8px 0 12px;
+            background: #ffffff !important;
+            border-top: 1px solid rgba(28, 42, 56, 0.08);
+            max-height: none;
+            overflow: visible;
+        }
+        header.navbar.nav-open .nav-links {
+            display: flex;
+            animation: sharedDDIn 0.2s ease;
+        }
+
+        header.navbar .nav-links > a {
+            display: block;
+            padding: 13px 12px;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+        header.navbar .nav-links > a:hover,
+        header.navbar .nav-links > a.active {
+            background: #fdf1dc;
+        }
+        header.navbar .nav-links > a::after {
+            display: none;
+        }
+
+        header.navbar .nav-links a.list-space {
+            text-align: center;
+            margin-top: 8px;
+        }
+
+        header.navbar .nav-links a.nav-bell {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        header.navbar .nav-bell-label {
+            display: inline;
+            font-size: 14px;
+            font-weight: 600;
+            color: #1c1c1c;
+        }
+        header.navbar .nav-bell-badge {
+            top: 8px;
+            left: 28px;
+            right: auto;
+        }
+
+        header.navbar .account-dd {
+            width: 100%;
+            margin-top: 6px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(28, 42, 56, 0.08);
+        }
+        header.navbar .account-dd .my-account {
+            width: 100%;
+            padding: 8px 12px;
+            border-radius: 10px;
+            justify-content: flex-start;
+        }
+        header.navbar .account-dd .account-avatar-icon {
+            width: 34px;
+            height: 34px;
+        }
+        header.navbar .account-dd .dropdown-caret {
+            margin-left: auto;
+        }
+        header.navbar .account-dd-menu {
+            position: static;
+            min-width: 0;
+            width: 100%;
+            margin-top: 6px;
+            box-shadow: none;
+            border: none;
+            border-radius: 10px;
+            background: #faf7f0 !important;
+        }
+        header.navbar .account-dd-menu a {
+            padding: 13px 12px;
+            font-size: 14px;
+            white-space: normal;
+        }
+    }
+
+    @media (max-width: 480px) {
+        header.navbar {
+            padding-left: 12px;
+            padding-right: 12px;
+        }
+        header.navbar .logo img {
+            max-height: 38px;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        header.navbar.nav-open .nav-links,
+        header.navbar .account-dd.open .account-dd-menu {
+            animation: none;
+        }
+    }
 </style>
 
-<header class="navbar">
+<header class="navbar" id="rhNavbar">
 
     <a href="{{ logoHref }}" class="logo">
         <img src="{{ asset('images/RoomHiveLogos.png') }}" alt="RoomHive Logo">
     </a>
 
-    <nav class="nav-links">
+    {# Hamburger — only visible at 900px and under #}
+    <button type="button" class="nav-toggle" id="rhNavToggle" aria-label="Toggle menu" aria-expanded="false" aria-controls="rhNavLinks">
+        <svg class="icon-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+        <svg class="icon-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="5" y1="5" x2="19" y2="19"></line>
+            <line x1="19" y1="5" x2="5" y2="19"></line>
+        </svg>
+    </button>
+
+    <nav class="nav-links" id="rhNavLinks">
 
         {% for name, link in navigation %}
             {% set effectiveLink = (name|upper == 'HOME') ? navHomeHref : link %}
             <a href="{{ effectiveLink }}" class="{{ effectiveLink == currentPage ? 'active' : '' }}">
                 {{ name }}
             </a>
-            {# ABOUT US auto-inject — right after BECOME A HOST #}
             {% if not hasAbout and name|upper == 'BECOME A HOST' %}
                 <a href="{{ aboutHref }}" class="{{ aboutHref == currentPage ? 'active' : '' }}">ABOUT US</a>
             {% endif %}
         {% endfor %}
 
-        {# Fallback if the page's nav has no BECOME A HOST entry #}
         {% if not hasAbout and not hasBecomeHost %}
             <a href="{{ aboutHref }}" class="{{ aboutHref == currentPage ? 'active' : '' }}">ABOUT US</a>
         {% endif %}
 
         {% if isLoggedIn %}
 
-            <a href="{{ bellHref }}" class="nav-bell" aria-label="Notifications">
+            <a href="{{ bellHref }}" class="nav-bell" aria-label="Notifications" aria-expanded="false">
                 <img src="{{ asset('images/bell.png') }}" alt="">
-                {% if notifCount > 0 %}
-                    <span class="nav-bell-badge">{{ notifCount }}</span>
-                {% endif %}
+                <span class="nav-bell-label">Notifications</span>
             </a>
 
             <div class="account-dd">
                 <button type="button" class="my-account account-dd-toggle" aria-haspopup="true" aria-expanded="false">
                     <span class="account-circle">
-                        {% if hasRealAvatar %}
-                            <img src="{{ navAvatar }}" alt="My Account" id="navAccountAvatarImg">
-                        {% else %}
-                            <i data-lucide="circle-user-round" class="account-avatar-icon" aria-hidden="true"></i>
-                        {% endif %}
+                        <i data-lucide="circle-user-round" class="account-avatar-icon" aria-hidden="true"></i>
                     </span>
                     <span>MY PROFILE</span>
                     <span class="dropdown-caret">&#9662;</span>
@@ -307,8 +451,11 @@
 
 </header>
 
-{# LUCIDE LOADER — guarded, same as legacy #}
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+{# Notification bell dropdown fragment (user + host) #}
+{{ render(controller('App\\Controller\\NotificationDropdownController::panel')) }}
+
+{# LUCIDE LOADER — guarded #}
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
 <script>
     (function () {
         "use strict";
@@ -318,7 +465,7 @@
         window.__rhNavbarLucide = true;
         function renderNavIcons() {
             if (window.lucide && typeof window.lucide.createIcons === "function") {
-                window.lucide.createIcons();
+                lucide.createIcons();
             }
         }
         if (document.readyState === "loading") {
@@ -329,7 +476,7 @@
     })();
 </script>
 
-{# Shared dropdown script — guarded, same as legacy #}
+{# Shared account dropdown script — guarded #}
 <script>
     (function () {
         "use strict";
@@ -368,6 +515,62 @@
                             btn.setAttribute("aria-expanded", "false");
                         }
                     });
+            }
+        });
+    })();
+</script>
+
+{# Mobile menu toggle — guarded #}
+<script>
+    (function () {
+        "use strict";
+        if (window.__rhNavMobile) {
+            return;
+        }
+        window.__rhNavMobile = true;
+
+        var header = document.getElementById("rhNavbar");
+        var toggle = document.getElementById("rhNavToggle");
+        var panel = document.getElementById("rhNavLinks");
+        if (!header || !toggle || !panel) {
+            return;
+        }
+
+        function setOpen(open) {
+            header.classList.toggle("nav-open", open);
+            toggle.setAttribute("aria-expanded", open ? "true" : "false");
+        }
+
+        toggle.addEventListener("click", function (e) {
+            setOpen(!header.classList.contains("nav-open"));
+            e.stopPropagation();
+        });
+
+        /* Close after tapping a normal link (not the account toggle) */
+        panel.addEventListener("click", function (e) {
+            var link = e.target.closest ? e.target.closest("a") : null;
+            if (link) {
+                setOpen(false);
+            }
+        });
+
+        /* Tap outside the header closes the panel */
+        document.addEventListener("click", function (e) {
+            if (!header.contains(e.target)) {
+                setOpen(false);
+            }
+        });
+
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "Escape") {
+                setOpen(false);
+            }
+        });
+
+        /* Back to desktop width → reset */
+        window.addEventListener("resize", function () {
+            if (window.innerWidth > 900) {
+                setOpen(false);
             }
         });
     })();

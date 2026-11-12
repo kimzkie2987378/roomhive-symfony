@@ -1,0 +1,229 @@
+<?php
+
+namespace App\Controller;
+
+use Doctrine\DBAL\Connection;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Routing\Attribute\Route;
+
+/**
+ * RoomHive — CANCEL BOOKING (guest side).
+ *
+ * 1:1 companion of legacy booking/booking-details.php's CANCEL BOOKING
+ * button — the legacy cancel endpoint itself was never pasted, so this
+ * port is reconstructed from the hard evidence in the RoomHive DB dump:
+ *
+ *   bookings row #41 — 1500.00 paid → refunded_amount 1470.00
+ *   (= exactly 98%: the guest gets the reserve back minus the 2%
+ *   platform fee), status 'cancelled', refunded_at stamped, and —
+ *   important — payment_status LEFT AT 'paid' (the payments history
+ *   page derives its "refunded" display from refunded_amount > 0, so
+ *   the column was never flipped by legacy; matched 1:1 here).
+ *
+ *   POST /booking/cancel-booking   name app_booking_cancel
+ *
+ *   (The cancel form lives on templates/booking/details.html.twig —
+ *   booking/booking-details.php — with a JS confirm() guard; this
+ *   action answers with a redirect, never JSON.)
+ *
+ * Flow: guest opens /booking/{id} of a PENDING application (or a
+ * CONFIRMED stay — this version, per request) → CANCEL MY BOOKING →
+ * here → transaction (FOR UPDATE row lock, same pattern as
+ * AcceptBookingController) → status →
+ * 'cancelled' → refund whatever was paid into the wallet → commit →
+ * notify the host → redirect back to the booking details page, which
+ * now renders the "Cancelled" pill + the green "Refunded to Wallet"
+ * row.
+ *
+ * GUARDS (all inside one transaction):
+ *   - logged in (else → app_login);
+ *   - only the booking's owner may cancel it (anyone else is bounced
+ *     to /bookings without leaking whether the booking exists);
+ *   - only while the booking is still PENDING or CONFIRMED (this
+ *     version, per request: the guest may also back out of a
+ *     confirmed stay — the header button on the details page). The
+ *     refund rule is the same 98% wallet credit either way.
+ *
+ * Wallet: legacy credits ONLY the users.wallet_balance row (no
+ * wallet_transactions ledger entry) — same convention as
+ * AcceptBookingController's host payout, matched 1:1.
+ *
+ * HOST NOTIFICATION runs AFTER the COMMIT — a failure there can never
+ * affect the cancellation above (same rule as
+ * ProcessPaymentController::notifyHost / AcceptBookingController).
+ *
+ * THE REVIEW BOX (this version — added): the success PRG now
+ * redirects with ?review=1 so booking_details.html.twig opens the
+ * review overlay the moment the cancellation lands — 5 clickable
+ * stars + comment, X to skip. The box POSTs /reviews/submit
+ * (ReviewSubmitController — copy that file together with the
+ * Booking pair); skipping is remembered so the completed stays pop
+ * on their own terms.
+ *
+ * Port record — booking/booking-details.php, CANCEL BOOKING button
+ * (this file).
+ */
+final class BookingCancelController extends AbstractController
+{
+    /** The guest gets the reserve back minus this legacy platform fee. */
+    private const GUEST_REFUND_RATE = 0.98;
+
+    public function __construct(private readonly Connection $db) {}
+
+    /* =====================================================================
+     |  POST /booking/cancel-booking
+     | ================================================================== */
+    #[Route('/booking/cancel-booking', name: 'app_booking_cancel', methods: ['POST'], priority: 20)]
+    public function cancel(Request $request): Response
+    {
+        $session = $request->getSession();
+
+        /* ---- Auth gate (form flow → redirect, not JSON) ---- */
+        $userId = (int) $session->get('user_id');
+        if (!$session->get('logged_in') || $userId <= 0) {
+            return $this->redirectToRoute('app_login');
+        }
+
+        /* ---- booking_id from the POST body (is_numeric + int cast
+           exactly like legacy / AcceptBookingController) ---- */
+        $rawId     = (string) $request->request->get('booking_id', '');
+        $bookingId = is_numeric($rawId) ? (int) $rawId : 0;
+
+        if ($bookingId <= 0) {
+            return $this->redirectToRoute('app_bookings');
+        }
+
+        $guestName = null;
+        $hostId    = 0;
+        $listingTitle = '';
+
+        /* -----------------------------------------------------
+           TRANSACTION — FOR UPDATE row lock + refund + commit
+        ----------------------------------------------------- */
+        $this->db->beginTransaction();
+
+        try {
+            $booking = $this->db->executeQuery(
+                "SELECT b.id,
+                        b.user_id,
+                        b.status,
+                        b.amount_paid,
+                        l.title  AS listing_title,
+                        l.user_id AS host_id
+                   FROM bookings b
+                   JOIN listings l ON l.id = b.listing_id
+                  WHERE b.id = :booking_id
+                    FOR UPDATE",
+                ['booking_id' => $bookingId]
+            )->fetchAssociative();
+
+            /* Missing booking — or someone else's — → the list,
+               without leaking which it was. */
+            if ($booking === false || (int) $booking['user_id'] !== $userId) {
+                $this->db->rollBack();
+                return $this->redirectToRoute('app_bookings');
+            }
+
+            /* Only a PENDING application (withdraw) or a CONFIRMED stay
+               (back out) can be cancelled. A double-click or a race
+               with the host deciding the booking lands here — the
+               details page shows the truth. */
+            if (!in_array((string) $booking['status'], ['pending', 'confirmed'], true)) {
+                $this->db->rollBack();
+                return $this->redirectToRoute('app_booking_details_legacy', ['id' => $bookingId]);
+            }
+
+            /* Refund = what was actually paid, minus the 2% platform
+               fee observed in the dump (booking #41: 1500 → 1470).
+               Nothing paid → nothing refunded. */
+            $amountPaid = (float) $booking['amount_paid'];
+            $refund     = $amountPaid > 0.005
+                ? round($amountPaid * self::GUEST_REFUND_RATE, 2)
+                : 0.0;
+
+            $affected = $this->db->executeStatement(
+                "UPDATE bookings
+                    SET status = 'cancelled',
+                        refunded_amount = :refund,
+                        refunded_at = :refunded_at
+                  WHERE id = :booking_id AND status IN ('pending', 'confirmed')",
+                [
+                    'refund'      => $refund,
+                    'refunded_at' => $refund > 0 ? date('Y-m-d H:i:s') : null,
+                    'booking_id'  => $bookingId,
+                ]
+            );
+
+            if ($affected === 0) {
+                $this->db->rollBack();
+                return $this->redirectToRoute('app_booking_details_legacy', ['id' => $bookingId]);
+            }
+
+            /* Credit the guest's wallet with the refund — wallet row
+               only, no ledger entry (legacy convention, matched 1:1). */
+            if ($refund > 0) {
+                $this->db->executeStatement(
+                    'UPDATE users SET wallet_balance = wallet_balance + :amount WHERE id = :user_id',
+                    [
+                        'amount'  => $refund,
+                        'user_id' => $userId,
+                    ]
+                );
+            }
+
+            $guestName    = $this->fetchUserName($userId);
+            $hostId       = (int) $booking['host_id'];
+            $listingTitle = (string) $booking['listing_title'];
+
+            $this->db->commit();
+
+        } catch (\Throwable $e) {
+            if ($this->db->isTransactionActive()) {
+                $this->db->rollBack();
+            }
+            error_log('cancel-booking: ' . $e->getMessage());
+            return $this->redirectToRoute('app_booking_details_legacy', ['id' => $bookingId]);
+        }
+
+        /* -----------------------------------------------------
+           NOTIFY THE HOST (after the COMMIT; failure here can
+           never affect the cancellation above).
+        ----------------------------------------------------- */
+        try {
+            if ($hostId > 0) {
+                $message = $guestName . ' cancelled their booking for "' . $listingTitle . '".';
+                $this->db->insert('notifications', [
+                    'user_id'    => $hostId,
+                    'message'    => mb_substr($message, 0, 240),
+                    'link'       => '/host/bookings',
+                    'is_read'    => 0,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            error_log('cancel-booking host notification failed: ' . $e->getMessage());
+        }
+
+        /* PRG — back to the details page, now showing
+           "Cancelled" + the refunded-to-wallet row. ?review=1
+           pops the review box (5 stars + comment, X to skip)
+           the moment the cancellation lands. */
+        return $this->redirectToRoute('app_booking_details_legacy', ['id' => $bookingId, 'review' => 1]);
+    }
+
+    /**
+     * Guest display name for the host notification — the DB is the
+     * source of truth (same fallback rule as AcceptBookingController).
+     */
+    private function fetchUserName(int $userId): string
+    {
+        try {
+            $name = $this->db->fetchOne('SELECT name FROM users WHERE id = :id', ['id' => $userId]);
+            return ($name === false || (string) $name === '') ? 'The guest' : (string) $name;
+        } catch (\Throwable) {
+            return 'The guest';
+        }
+    }
+}

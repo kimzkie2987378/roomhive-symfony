@@ -1,0 +1,542 @@
+{# =========================================================
+   ROOMHIVE — PAYMENT CONFIRMATION (Official Receipt)
+   templates/payment/confirmation.html.twig
+   1:1 port of legacy booking/payment-confirmation.php.
+
+   Controller: PaymentConfirmationController
+     GET /payment/confirmation/{booking}  (route app_payment_confirmation)
+
+   CSS: public/assets/payment-confirmation.css (the legacy page carried
+   a big inline <style> block — like listing-detail.css it now lives
+   in its own file, loaded AFTER style.css and myaccount.css so the
+   cascade order is unchanged):
+
+       <link rel="stylesheet" href="{{ asset('assets/payment-confirmation.css') }}?v=1">
+
+   === 1:1 NOTES ===
+   - All computation lives in the controller (figures, stamp text,
+     success strip, item name/desc, date range, thank-you line,
+     host-see line, stay line, visibility flags, primary action
+     URL/label, signature file lookup). The template is pure layout.
+   - Guest view: shows success strip + countdown + receipt + next
+     steps + actions. Primary button = "Go to My Bookings" → app_payments.
+   - Host-only view (host opens the guest's receipt): no countdown,
+     no next-steps, no "View Booking Details" link, success strip
+     reads "Guest Payment Receipt", primary button = "Back to
+     Pending Tenants" → app_host_pending_tenants.
+   - Host signature: if public/uploads/signatures/booking-{id}.png
+     exists, shows "Signed & Accepted by Host" + the .png + signed
+     date from the matching .json sidecar.
+   - On-receipt signing pad renders for the host only when the
+     receipt is unsigned AND booking status is pending/confirmed.
+     The pad's JS POSTs to two TODO endpoints — see controller
+     docblock. Until those legacy files are ported the Save button
+     will receive a 404; same convention as ProcessPaymentController.
+   - Print styles hide nav/countdown/actions/next-steps/signpad.
+========================================================= #}
+
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Official Receipt {{ receipt_no }} — RoomHive</title>
+
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/myaccount.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/payment-confirmation.css') }}?v=1">
+    </head>
+    <body>
+
+        <header class="rc-nav">
+            <div class="rc-nav-inner">
+                <a class="rc-brand" href="{{ path('app_listings') }}">
+                    <img class="rc-brand-logo" src="{{ asset('images/RoomHiveLogos.png') }}" alt="RoomHive">
+                </a>
+                <button type="button" class="rc-btn-outline" style="width:auto;padding:8px 16px;" onclick="window.print()">
+                    &#128424; Print
+                </button>
+            </div>
+        </header>
+
+        <main class="rc-page">
+
+            {# ---------- SUCCESS STRIP ---------- #}
+            <div class="rc-success">
+                <span class="rc-success-check">
+                    <svg viewBox="0 0 24 24">
+                        <path d="m5.5 12.5 4.5 4.5 8.5-9.5"/>
+                    </svg>
+                </span>
+                <div>
+                    <h1>{{ success_title|raw }}</h1>
+                    <p>{{ success_text|raw }}</p>
+                </div>
+            </div>
+
+            {% if show_countdown %}
+                {# ---------- AUTO-REDIRECT COUNTDOWN BAR (guest only) ---------- #}
+                <div class="rc-autoredirect" id="rcAutoRedirect">
+                    <span>
+                        Taking you to <b>My Bookings</b> in
+                        <span class="rc-ar-count"><b id="rcCountdown">10</b>s</span>
+                    </span>
+                    <span class="rc-ar-actions">
+                        <button type="button" class="rc-ar-btn rc-ar-go" id="rcArNow">
+                            Go now &rarr;
+                        </button>
+                        <button type="button" class="rc-ar-btn" id="rcArCancel">
+                            Stay on this page
+                        </button>
+                    </span>
+                </div>
+            {% endif %}
+
+            {# ---------- OFFICIAL RECEIPT (identical for guest and host) ---------- #}
+            <div class="rc-receipt" id="rc-receipt">
+
+                {# ---------- STORE HEADER — real logo image ---------- #}
+                <div class="rc-head">
+                    <img class="rc-store-logo" src="{{ asset('images/RoomHiveLogos.png') }}" alt="RoomHive">
+                    <p class="rc-store-tag">Find your next space</p>
+                    <p class="rc-store-contact">
+                        0917 156 3974<br>
+                        iamroomhivehost@gmail.com
+                    </p>
+                    <span class="rc-title">Official Receipt</span>
+                </div>
+
+                {# ---------- META ---------- #}
+                <div class="rc-meta">
+                    <div><span>Receipt No.</span><span>{{ receipt_no }}</span></div>
+                    <div><span>Booking Ref.</span><span>#{{ "%06d"|format(booking.id) }}</span></div>
+                    <div><span>Date Paid</span><span>{{ paid_date }}</span></div>
+                    <div><span>Time Paid</span><span>{{ paid_time }}</span></div>
+                    <div><span>Payment Method</span><span>{{ pm_label }}</span></div>
+                    <div><span>Payment Type</span><span>{{ payment_type|raw }}</span></div>
+                    <div><span>Host Signature</span><span>{{ host_signed ? ('Signed &middot; ' ~ sig_date)|raw : 'Pending' }}</span></div>
+                </div>
+
+                {# ---------- BILLED TO ---------- #}
+                <div class="rc-billed">
+                    <p class="rc-billed-label">Billed To</p>
+                    <div class="rc-billed-row">
+                        <span>Payer</span>
+                        <strong>{{ payer_name }}</strong>
+                    </div>
+                    <div class="rc-billed-row">
+                        <span>Host</span>
+                        <strong>{{ booking.host_name }}</strong>
+                    </div>
+                </div>
+
+                {# ---------- ITEMS ---------- #}
+                <p class="rc-items-label">Description</p>
+
+                <div class="rc-item">
+                    <span class="rc-item-qty">1&times;</span>
+                    <div class="rc-item-body">
+                        <p class="rc-item-name">{{ booking.title }}</p>
+                        <p class="rc-item-desc">
+                            {{ booking.location }}{{ date_range|raw }}
+                            &middot; {{ booking.guests }} guest(s)
+                        </p>
+                    </div>
+                    <span class="rc-item-amt">&#8369;{{ total|number_format(2, '.', ',') }}</span>
+                </div>
+
+                <div class="rc-item">
+                    <span class="rc-item-qty">1&times;</span>
+                    <div class="rc-item-body">
+                        <p class="rc-item-name">{{ item_name }}</p>
+                        <p class="rc-item-desc">{{ item_desc }}</p>
+                    </div>
+                    <span class="rc-item-amt">&#8369;{{ just_paid|number_format(2, '.', ',') }}</span>
+                </div>
+
+                {# ---------- TOTALS ---------- #}
+                <div class="rc-totals">
+                    <div class="rc-line">
+                        <span class="rc-line-label">Booking Total</span>
+                        <span class="rc-line-dots"></span>
+                        <span class="rc-line-val">&#8369;{{ total|number_format(2, '.', ',') }}</span>
+                    </div>
+
+                    {% if show_previously_paid %}
+                        <div class="rc-line">
+                            <span class="rc-line-label">Previously Paid</span>
+                            <span class="rc-line-dots"></span>
+                            <span class="rc-line-val">&#8369;{{ previously_paid|number_format(2, '.', ',') }}</span>
+                        </div>
+                    {% endif %}
+
+                    <div class="rc-line">
+                        <span class="rc-line-label">{{ now_label|raw }}</span>
+                        <span class="rc-line-dots"></span>
+                        <span class="rc-line-val">&#8369;{{ just_paid|number_format(2, '.', ',') }}</span>
+                    </div>
+
+                    <div class="rc-total-grand">
+                        <span class="rc-line-label">Total Paid</span>
+                        <span class="rc-line-dots"></span>
+                        <span class="rc-line-val">&#8369;{{ amount_paid|number_format(2, '.', ',') }}</span>
+                    </div>
+
+                    {% if show_balance_box %}
+                        <div class="rc-total-due">
+                            <div>
+                                <span>Balance Left</span>
+                                <small>Advance payment &mdash; show this receipt to your host</small>
+                            </div>
+                            <strong>&#8369; {{ remaining|number_format(2, '.', ',') }}</strong>
+                        </div>
+                    {% endif %}
+                </div>
+
+                {# ---------- PAID STAMP — "Advance Paid" (amber) or "Fully Paid" (green) ---------- #}
+                <div class="rc-stamp-wrap">
+                    <span class="rc-stamp {{ stamp_class }}">
+                        {{ stamp_text }}
+                    </span>
+                    <p class="rc-stamp-caption">{{ payment_status_line|raw }}</p>
+                </div>
+
+                {# ---------- HOST SIGNATURE — saved signature, or the on-receipt
+                  signing pad when the HOST is viewing ---------- #}
+                <div class="rc-sig">
+                    {% if host_signed %}
+                        <p class="rc-sig-label">Signed &amp; Accepted by Host</p>
+                        <img class="rc-sig-img" src="{{ sig_url }}" alt="Host signature">
+                        <p class="rc-sig-name">{{ booking.host_name }}</p>
+                        <p class="rc-sig-date">Signed on {{ sig_date }}</p>
+                    {% else %}
+                        <p class="rc-sig-label">Host Signature</p>
+                        <div class="rc-sig-empty">Awaiting host signature</div>
+
+                        {% if can_host_sign %}
+                            {# ON-RECEIPT SIGNING PAD (host only, hidden on print) #}
+                            <div class="rc-signpad" id="rcSignPad">
+                                <p class="rc-signpad-title">You're viewing this receipt as the host.</p>
+                                <p class="rc-signpad-sub">
+                                    Draw your signature below and press
+                                    <b>{{ is_pending_booking ? 'Sign &amp; Accept Application' : 'Sign Receipt' }}{{ is_pending_booking ? '.' : '' }}</b>
+                                    {% if is_pending_booking %}
+                                        Signing also accepts this application.
+                                    {% endif %}
+                                </p>
+
+                                <div class="rc-sign-canvas-wrap">
+                                    <canvas id="rcSignCanvas"></canvas>
+                                    <span class="rc-sign-hint" id="rcSignHint">&#9996; Draw your signature here</span>
+                                </div>
+
+                                <div class="rc-sign-tools">
+                                    <button type="button" class="rc-ar-btn" id="rcSignClear">Clear</button>
+                                </div>
+
+                                <button type="button" class="rc-btn-primary" id="rcSignSave" disabled>
+                                    {{ is_pending_booking ? 'Sign &amp; Accept Application' : 'Sign Receipt' }}
+                                </button>
+                            </div>
+                        {% endif %}
+                    {% endif %}
+                </div>
+
+                {# ---------- FOOTER ---------- #}
+                <div class="rc-footer">
+                    <div class="rc-barcode" aria-hidden="true"></div>
+                    <div class="rc-barcode-no">{{ receipt_no }}</div>
+                    <p class="rc-thanks">
+                        Thank you for choosing <b>RoomHive</b>.<br>
+                        {{ thanks_line|raw }}
+                    </p>
+                    <p class="rc-note">
+                        This is a system-generated receipt. No signature required.<br>
+                        Keep this for your records.
+                    </p>
+                </div>
+
+            </div>
+
+            {% if show_next_steps %}
+                {# ---------- WHAT HAPPENS NEXT (guest only) ---------- #}
+                <div class="rc-next">
+                    <h2 class="rc-next-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+                        </svg>
+                        What happens next
+                    </h2>
+                    <div class="rc-next-item">
+                        <span class="rc-next-num">1</span>
+                        <div>
+                            <strong>Host reviews your booking</strong>
+                            <p>{{ booking.host_name }} will accept or decline, usually within a few hours. {{ host_see|raw }}</p>
+                        </div>
+                    </div>
+
+                    {% if show_settle_step %}
+                        <div class="rc-next-item">
+                            <span class="rc-next-num">2</span>
+                            <div>
+                                <strong>Settle the remaining balance</strong>
+                                <p>Pay the &#8369;{{ remaining|number_format(2, '.', ',') }} left anytime via My Bookings &rarr; Booking Details.</p>
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <div class="rc-next-item">
+                        <span class="rc-next-num">{{ enjoy_num }}</span>
+                        <div>
+                            <strong>{{ is_long_term ? 'Move in on your date' : 'Enjoy your stay' }}</strong>
+                            <p>{{ stay_line|raw }}</p>
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+
+            {# ---------- ACTIONS ---------- #}
+            <div class="rc-actions">
+                <button type="button" class="rc-btn-primary" onclick="window.print()">
+                    &#128424; Print / Save Receipt
+                </button>
+                <a href="{{ primary_action.url }}" class="rc-btn-outline">
+                    {{ primary_action.label }}
+                </a>
+                {% if show_details_link %}
+                    <a href="/booking/details/{{ booking.id }}" class="rc-btn-outline">
+                        View Booking Details
+                    </a>
+                {% endif %}
+            </div>
+
+        </main>
+
+        {# ---------- AUTO-REDIRECT COUNTDOWN (guest only — safe no-op if bar is absent) ---------- #}
+        <script>
+            (function () {
+                var REDIRECT_URL = "{{ path('app_payments') }}";
+                var SECONDS = 10;
+
+                var bar = document.getElementById("rcAutoRedirect");
+                var counterEl = document.getElementById("rcCountdown");
+                var cancelBtn = document.getElementById("rcArCancel");
+                var nowBtn = document.getElementById("rcArNow");
+
+                if (!bar || !counterEl) return;
+
+                var remaining = SECONDS;
+                var stopped = false;
+
+                var timer = setInterval(function () {
+                    if (stopped) return;
+
+                    remaining--;
+
+                    if (remaining <= 0) {
+                        clearInterval(timer);
+                        window.location.href = REDIRECT_URL;
+                        return;
+                    }
+
+                    counterEl.textContent = remaining;
+                }, 1000);
+
+                if (cancelBtn) {
+                    cancelBtn.addEventListener("click", function () {
+                        stopped = true;
+                        clearInterval(timer);
+                        counterEl.textContent = "\u2014";
+                        bar.classList.add("rc-ar-cancelled");
+                    });
+                }
+
+                if (nowBtn) {
+                    nowBtn.addEventListener("click", function () {
+                        stopped = true;
+                        clearInterval(timer);
+                        window.location.href = REDIRECT_URL;
+                    });
+                }
+
+                var printButtons = document.querySelectorAll(
+                    'button[onclick*="window.print"]',
+                );
+                for (var i = 0; i < printButtons.length; i++) {
+                    printButtons[i].addEventListener("click", function () {
+                        stopped = true;
+                        clearInterval(timer);
+                        counterEl.textContent = "\u2014";
+                        bar.classList.add("rc-ar-cancelled");
+                    });
+                }
+            })();
+        </script>
+
+        {# ---------- HOST ON-RECEIPT SIGNING PAD (runs only if the pad is rendered) ---------- #}
+        <script>
+(function () {
+    var canvas = document.getElementById('rcSignCanvas');
+    if (!canvas) return;
+
+    var ctx        = canvas.getContext('2d');
+    var saveBtn    = document.getElementById('rcSignSave');
+    var clearBtn   = document.getElementById('rcSignClear');
+    var hint       = document.getElementById('rcSignHint');
+
+    var hasInk  = false;
+    var drawing = false;
+    var lastX   = 0;
+    var lastY   = 0;
+
+    var BOOKING_ID = {{ booking_id }};
+    var IS_PENDING = {{ is_pending_booking ? 'true' : 'false' }};
+
+    /* STEP 1 endpoint is still a TODO URL (legacy sign-receipt.php not
+       ported yet — Save returns 404 until it is). STEP 2 IS PORTED:
+       AcceptBookingController, POST /booking/accept-booking. */
+    var SIGN_URL    = '/booking/sign-receipt';
+    var ACCEPT_URL  = '/booking/accept-booking';
+
+    function initCanvas() {
+        var dpr  = window.devicePixelRatio || 1;
+        var rect = canvas.getBoundingClientRect();
+        var w    = Math.max(200, Math.round(rect.width));
+        var h    = 180;
+
+        canvas.width  = w * dpr;
+        canvas.height = h * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        /* white background so the saved PNG is not transparent */
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, w, h);
+
+        /* signature baseline */
+        ctx.strokeStyle = '#C9CDD6';
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([4, 6]);
+        ctx.beginPath();
+        ctx.moveTo(16, h - 40);
+        ctx.lineTo(w - 16, h - 40);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        /* ink */
+        ctx.strokeStyle = '#14142B';
+        ctx.lineWidth = 2.4;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        hasInk = false;
+        drawing = false;
+        saveBtn.disabled = true;
+        hint.classList.remove('hidden');
+    }
+
+    function canvasPos(event) {
+        var rect = canvas.getBoundingClientRect();
+        return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    }
+
+    canvas.addEventListener('pointerdown', function (event) {
+        event.preventDefault();
+        drawing = true;
+        try { canvas.setPointerCapture(event.pointerId); } catch (e) {}
+        var p = canvasPos(event);
+        lastX = p.x; lastY = p.y;
+
+        if (!hasInk) {
+            hasInk = true;
+            saveBtn.disabled = false;
+            hint.classList.add('hidden');
+        }
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 1.2, 0, Math.PI * 2);
+        ctx.fillStyle = '#14142B';
+        ctx.fill();
+    });
+
+    canvas.addEventListener('pointermove', function (event) {
+        if (!drawing) return;
+        var p = canvasPos(event);
+        ctx.beginPath();
+        ctx.moveTo(lastX, lastY);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+        lastX = p.x;
+        lastY = p.y;
+    });
+
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (evt) {
+        canvas.addEventListener(evt, function () { drawing = false; });
+    });
+
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function () { initCanvas(); });
+    }
+
+    if (saveBtn) {
+        saveBtn.addEventListener('click', function () {
+            if (!hasInk) return;
+
+            var dataUrl = canvas.toDataURL('image/png');
+
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving signature\u2026';
+
+            /* STEP 1 — save the signature */
+            fetch(SIGN_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'booking_id=' + encodeURIComponent(BOOKING_ID)
+                    + '&signature=' + encodeURIComponent(dataUrl)
+            })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (!data.success) {
+                        alert(data.message || 'Could not save your signature.');
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = IS_PENDING ? 'Sign & Accept Application' : 'Sign Receipt';
+                        return;
+                    }
+
+                    /* STEP 2 — if the booking is still pending, accept it too */
+                    if (!IS_PENDING) {
+                        window.location.reload();
+                        return;
+                    }
+
+                    saveBtn.textContent = 'Accepting\u2026';
+                    fetch(ACCEPT_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: 'booking_id=' + encodeURIComponent(BOOKING_ID)
+                    })
+                        .then(function (res) { return res.json(); })
+                        .then(function (acc) {
+                            if (!acc.success) {
+                                alert(acc.message || 'Signature saved, but the application could not be accepted.');
+                            }
+                            window.location.reload();
+                        })
+                        .catch(function () {
+                            alert('Signature saved, but the application could not be accepted.');
+                            window.location.reload();
+                        });
+                })
+                .catch(function () {
+                    alert('Something went wrong while saving your signature. Please try again.');
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = IS_PENDING ? 'Sign & Accept Application' : 'Sign Receipt';
+                });
+        });
+    }
+})();
+</script>
+
+    </body>
+</html>

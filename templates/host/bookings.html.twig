@@ -1,0 +1,654 @@
+{# roomhive/host/bookings.html.twig
+   Host › My Bookings (VIEW-ONLY) — 1:1 port of legacy
+   host/hostbookings.php.
+
+   Renders every booking on the host's own listings: cover photo +
+   listing title/location, guest name, dates strip + guests count,
+   "Booked {date}" line, status badge, payment pill (Fully Paid /
+   Advance Paid · ₱N left / No Payment Yet), signature status
+   (Signed / Not signed yet / Auto-completes after checkout /
+   Long Term · complete manually), host payout, and the actions
+   row (View Receipt when paid, Mark Completed on confirmed rows,
+   View Details, kebab). Tabs filter by status; live search hits
+   guest name, listing title, location. Stat pills: Total Bookings,
+   Confirmed Stays, Pending Requests.
+
+   VIEW-ONLY — accept/decline moved to Pending Tenants (sign-to-
+   accept flow). Confirmed stays can be marked completed here via
+   the floating confirm card; confirmed stays past their checkout
+   date also auto-complete on page load (controller sweep).
+
+   ICON SUBSTITUTIONS — the macros file uses the older lucide.dev
+   icon names that the rest of the host shell already standardized
+   on. The legacy hostbookings.php uses some newer names that map
+   1:1 to the macro keys below:
+     legacy `map-pin`        → macro 'pin'
+     legacy `user`            → macro 'person'
+     legacy `circle-check`    → macro 'check-circle'
+     legacy `ellipsis-vertical`→ macro 'more-vertical'
+   Three icons the legacy page uses are not in the macros yet —
+   rendered with the closest available visual equivalents so the
+   page looks right without re-touching the macros file:
+     legacy `badge-check`    → macro 'check-circle'  (Confirmed Stays)
+     legacy `hourglass`      → macro 'clock'         (Pending Requests)
+     legacy `filter`         → (omitted — Filter button is decorative
+                                in legacy too; no JS handler)
+
+   Pairs with: HostBookingsController
+     GET  /host/bookings             name app_host_bookings
+     POST /host/bookings/{id}/complete name app_host_booking_complete
+#}
+{% extends 'host/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'bookings' %}
+
+{% block page_title %}My Bookings — RoomHive{% endblock %}
+
+{% block styles %}
+<style>
+    /* ---- Page header ---- */
+    .hp-page-header {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 16px; flex-wrap: wrap;
+    }
+    .hp-page-title { margin: 0; font-size: 24px; font-weight: 800; color: var(--rh-ink); }
+    .hp-page-subtitle { margin: 4px 0 0; font-size: 13px; color: var(--rh-muted); max-width: 680px; }
+
+    /* ---- Stat pillbox (top-right of the page header) ---- */
+    .hp-stat-pillbox {
+        display: flex; align-items: stretch; gap: 10px; flex-wrap: wrap;
+    }
+    .hp-stat-pill-item {
+        display: flex; align-items: center; gap: 10px;
+        background: #fff; border: 1px solid var(--rh-line);
+        border-radius: 12px; padding: 10px 14px;
+        min-width: 130px;
+    }
+    .hp-stat-pill-icon {
+        display: flex; align-items: center; justify-content: center;
+        width: 34px; height: 34px; border-radius: 8px;
+        background: #F0F1F6; flex-shrink: 0;
+    }
+    .hp-stat-pill-icon svg { width: 20px; height: 20px; color: #5d6875; }
+    .hp-stat-pill-icon.hp-green svg  { color: #1FA971; }
+    .hp-stat-pill-icon.hp-yellow svg { color: #C77A00; }
+    .hp-stat-pill-label {
+        margin: 0; font-size: 10.5px; font-weight: 700;
+        color: var(--rh-muted); text-transform: uppercase; letter-spacing: .04em;
+    }
+    .hp-stat-pill-value {
+        margin: 0; font-size: 18px; font-weight: 800; color: var(--rh-ink); line-height: 1.2;
+    }
+
+    /* ---- Flash messages (legacy hp-flash-*) ---- */
+    .hp-flash {
+        margin: 0 0 14px; padding: 12px 14px; border-radius: 10px;
+        font-size: 13px; font-weight: 600;
+    }
+    .hp-flash-success { background: #E7F7EC; color: #1E7A3D; border: 1px solid #BFE8CF; }
+    .hp-flash-error   { background: #FCEAEA; color: #C4302F; border: 1px solid #F3B9B9; }
+
+    /* ---- Controls row: tabs + search + filter ---- */
+    .hp-controls {
+        display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+        margin: 18px 0 16px;
+    }
+    .hp-tabs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+    .hp-tab {
+        display: inline-block; padding: 7px 12px;
+        font-size: 12.5px; font-weight: 600; color: var(--rh-muted);
+        text-decoration: none; border-radius: 8px;
+        background: transparent; border: 1px solid transparent;
+        transition: background .15s ease, color .15s ease, border-color .15s ease;
+    }
+    .hp-tab:hover { background: #F6F7FB; color: var(--rh-ink); }
+    .hp-tab.active {
+        background: var(--rh-accent-light); color: #b07708;
+        border-color: rgba(237, 164, 35, .35);
+    }
+
+    .hp-search-wrap {
+        display: flex; align-items: center; gap: 6px; margin-left: auto;
+        background: #fff; border: 1px solid var(--rh-line);
+        border-radius: 8px; padding: 6px 10px;
+        min-width: 220px; flex: 1 1 220px; max-width: 320px;
+    }
+    .hp-search-wrap svg { width: 15px; height: 15px; color: #8B93A6; flex-shrink: 0; }
+    .hp-search-wrap input {
+        border: none; outline: none; background: transparent;
+        font-family: inherit; font-size: 12.5px; color: var(--rh-ink);
+        width: 100%; padding: 2px 0;
+    }
+    .hp-search-wrap input::placeholder { color: #8B93A6; }
+
+    .hp-filter-btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 7px 12px; border-radius: 8px;
+        background: #fff; border: 1px solid var(--rh-line);
+        color: var(--rh-muted); font-family: inherit;
+        font-size: 12.5px; font-weight: 600; cursor: pointer;
+        transition: background .15s ease, color .15s ease;
+    }
+    .hp-filter-btn:hover { background: #F6F7FB; color: var(--rh-ink); }
+
+    /* ---- Empty state ---- */
+    .hp-empty-state {
+        text-align: center; padding: 56px 20px;
+        background: #fff; border: 1px dashed var(--rh-line);
+        border-radius: var(--rh-radius);
+        font-size: 13.5px; color: var(--rh-muted);
+    }
+    .hp-empty-state p { margin: 0; }
+    .hp-empty-state-title {
+        font-size: 15px; font-weight: 700; color: var(--rh-ink); margin-bottom: 6px;
+    }
+
+    /* ---- Booking list ---- */
+    .hp-booking-list { display: flex; flex-direction: column; gap: 14px; }
+
+    .hp-booking-card {
+        display: flex; align-items: stretch; gap: 16px; flex-wrap: wrap;
+        background: #fff; border: 1px solid var(--rh-line);
+        border-radius: var(--rh-radius); padding: 16px;
+        box-shadow: 0 6px 20px rgba(28, 42, 56, 0.04);
+    }
+
+    .hp-booking-img {
+        width: 200px; height: 132px; object-fit: cover;
+        border-radius: 12px; flex-shrink: 0;
+        background: #F0EEE6;
+    }
+
+    .hp-booking-info {
+        flex: 1 1 240px; min-width: 0;
+    }
+    .hp-booking-info h4 {
+        margin: 0 0 8px; font-size: 16px; font-weight: 700; color: var(--rh-ink);
+    }
+    .hp-booking-meta {
+        display: flex; align-items: center; gap: 5px;
+        margin: 4px 0; font-size: 12.5px; color: var(--rh-muted);
+    }
+    .hp-booking-meta svg { width: 13px; height: 13px; color: #8B93A6; flex-shrink: 0; }
+
+    /* ---- Right column: status + payout + actions ---- */
+    .hp-booking-right {
+        display: flex; flex-direction: column; align-items: flex-end;
+        gap: 10px; min-width: 200px; flex-shrink: 0;
+    }
+    .hp-booking-status-col {
+        display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+    }
+
+    .hp-badge {
+        display: inline-block; padding: 4px 10px; border-radius: 999px;
+        font-size: 11px; font-weight: 700; white-space: nowrap;
+    }
+    .hp-badge-yellow { background: var(--rh-accent-light); color: #b07708; }
+    .hp-badge-green  { background: #E7F7EC; color: #1E7A3D; }
+    .hp-badge-blue   { background: #E8F1FD; color: #1C5BB8; }
+    .hp-badge-red    { background: #FCEAEA; color: #C4302F; }
+
+    /* ---- Payment pill (full / advance / none) ---- */
+    .hb-pay-pill {
+        display: inline-block; padding: 3px 10px; border-radius: 999px;
+        font-size: 10.5px; font-weight: 800; white-space: nowrap;
+    }
+    .hb-pay-full    { background: #E8F8F1; color: #1FA971; border: 1px solid #B9E3C5; }
+    .hb-pay-advance { background: #FDF1DC; color: #B07708; border: 1px dashed rgba(237, 164, 35, .5); }
+    .hb-pay-none    { background: #F0F0F0; color: #777777; border: 1px solid #E0E0E0; }
+
+    /* ---- Signature status ---- */
+    .hb-signed-note {
+        display: inline-flex; align-items: center; gap: 4px;
+        font-size: 10.5px; font-weight: 700; color: #1FA971;
+    }
+    .hb-signed-note svg { width: 11px; height: 11px; }
+
+    .hb-unsigned-note {
+        display: inline-block; font-size: 10.5px; font-weight: 600; color: #AAB1BE;
+    }
+
+    .hp-booking-rent-label {
+        margin: 8px 0 0; font-size: 10.5px; font-weight: 600;
+        color: var(--rh-muted); text-transform: uppercase; letter-spacing: .04em;
+    }
+    .hp-booking-rent-value {
+        margin: 0; font-size: 17px; font-weight: 800; color: var(--rh-ink);
+    }
+
+    /* ---- Actions row ---- */
+    .hp-booking-actions {
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    .hb-receipt-btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 8px 14px; border-radius: 10px;
+        background: #FDF1DC; border: 1px solid rgba(237, 164, 35, .5);
+        color: #B07708; font-size: 12px; font-weight: 700;
+        text-decoration: none; white-space: nowrap;
+        transition: background .15s ease, transform .15s ease, box-shadow .15s ease;
+    }
+    .hb-receipt-btn:hover {
+        background: #ffffff; transform: translateY(-1px);
+        box-shadow: 0 8px 18px rgba(237, 164, 35, .25);
+    }
+    .hb-receipt-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
+
+    .hb-complete-btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 8px 14px; border-radius: 10px; border: none;
+        background: #E7F7EC; color: #1FA971;
+        font-family: inherit; font-size: 12px; font-weight: 700;
+        white-space: nowrap; cursor: pointer;
+        transition: background .15s ease, transform .15s ease, box-shadow .15s ease;
+    }
+    .hb-complete-btn:hover {
+        background: #1FA971; color: #ffffff;
+        transform: translateY(-1px);
+        box-shadow: 0 8px 18px rgba(31, 169, 113, .3);
+    }
+    .hb-complete-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
+
+    .hp-btn-outline {
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 8px 14px; border-radius: 10px;
+        background: #fff; border: 1px solid var(--rh-line);
+        color: var(--rh-ink); font-size: 12px; font-weight: 700;
+        text-decoration: none; white-space: nowrap;
+        transition: background .15s ease, border-color .15s ease;
+    }
+    .hp-btn-outline:hover { background: #F6F7FB; border-color: #c8d2dc; }
+    .hp-btn-outline svg { width: 13px; height: 13px; }
+
+    /* ---- Kebab button (decorative — no JS) ---- */
+    .hp-listing-menu {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 34px; height: 34px; border-radius: 8px;
+        border: 1px solid var(--rh-line); background: #F6F7FB;
+        color: var(--rh-muted); cursor: pointer; font-family: inherit;
+        transition: background .15s ease, color .15s ease;
+    }
+    .hp-listing-menu:hover { background: #EEF1F6; color: var(--rh-ink); }
+    .hp-listing-menu svg { width: 16px; height: 16px; }
+
+    /* =====================================================
+       MARK COMPLETED — FLOATING CONFIRM CARD (hbc-)
+    ====================================================== */
+    .hbc-backdrop {
+        position: fixed; inset: 0; z-index: 1300;
+        display: flex; align-items: center; justify-content: center;
+        padding: 20px;
+        background: rgba(28, 42, 56, .45);
+        backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+        opacity: 0; visibility: hidden; pointer-events: none;
+        transition: opacity .28s ease, visibility .28s ease;
+    }
+    .hbc-backdrop.open { opacity: 1; visibility: visible; pointer-events: auto; }
+
+    .hbc-card {
+        position: relative; width: 100%; max-width: 380px;
+        background: #fff; border-radius: 22px; padding: 30px 26px 24px;
+        box-shadow: 0 30px 70px rgba(28, 42, 56, .35);
+        font-family: "Poppins", sans-serif;
+        opacity: 0; transform: translateY(26px) scale(.96);
+        transition: opacity .3s cubic-bezier(.22, 1, .36, 1),
+                    transform .3s cubic-bezier(.22, 1, .36, 1);
+    }
+    .hbc-backdrop.open .hbc-card { opacity: 1; transform: translateY(0) scale(1); }
+    .hbc-card::before {
+        content: ""; position: absolute; top: 0; left: 0; right: 0; height: 5px;
+        background: linear-gradient(90deg, #2fa84f, #5bc98a);
+        border-radius: 22px 22px 0 0;
+    }
+
+    .hbc-icon {
+        width: 54px; height: 54px; margin: 0 auto 14px;
+        display: flex; align-items: center; justify-content: center;
+        background: #E7F7EC; border: 1px solid #BFE8CF; border-radius: 50%;
+    }
+    .hbc-icon svg { width: 26px; height: 26px; color: #2fa84f; }
+
+    .hbc-title {
+        margin: 0 0 8px; text-align: center;
+        color: #1c2a38; font-size: 17px; font-weight: 800;
+    }
+    .hbc-sub {
+        margin: 0 0 20px; text-align: center;
+        color: #5d6875; font-size: 12.5px; line-height: 1.6;
+    }
+
+    .hbc-error {
+        display: none; padding: 10px 12px; margin-bottom: 14px;
+        background: #fdecec; border: 1px solid #f3b9b9; border-radius: 10px;
+        color: #a4302f; font-size: 12.5px; text-align: center;
+    }
+    .hbc-error.show { display: block; }
+
+    .hbc-btn {
+        width: 100%; height: 46px; border: none; border-radius: 12px;
+        font-family: inherit; font-size: 13px; font-weight: 700;
+        cursor: pointer; margin-bottom: 10px;
+        transition: transform .18s ease, box-shadow .18s ease;
+    }
+    .hbc-btn:disabled { opacity: .65; cursor: not-allowed; transform: none !important; }
+
+    .hbc-confirm {
+        background: linear-gradient(135deg, #3fbd6e, #2fa84f);
+        color: #fff;
+        box-shadow: 0 8px 18px rgba(47, 168, 79, .35);
+    }
+    .hbc-confirm:hover:not(:disabled) {
+        transform: translateY(-1px); box-shadow: 0 12px 24px rgba(47, 168, 79, .45);
+    }
+    .hbc-cancel {
+        background: #fff; border: 1.5px solid #dfe4ea; color: #1c2a38;
+        margin-bottom: 0;
+    }
+    .hbc-cancel:hover:not(:disabled) { border-color: #2fa84f; color: #2fa84f; }
+
+    /* ---- Icon baseline ---- */
+    svg.icon { display: inline-block; vertical-align: -0.18em; flex-shrink: 0; }
+
+    /* ---- Dark mode ---- */
+    body[data-theme="dark"] .hp-page-title { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-stat-pill-item { background: #141b24; border-color: #1a222b; }
+    body[data-theme="dark"] .hp-stat-pill-label { color: #8d99a5; }
+    body[data-theme="dark"] .hp-stat-pill-value { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-stat-pill-icon { background: #1a222b; }
+    body[data-theme="dark"] .hp-search-wrap { background: #141b24; border-color: #1a222b; }
+    body[data-theme="dark"] .hp-search-wrap input { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-search-wrap input::placeholder { color: #5d6875; }
+    body[data-theme="dark"] .hp-filter-btn { background: #141b24; border-color: #1a222b; color: #8d99a5; }
+    body[data-theme="dark"] .hp-filter-btn:hover { background: #1a222b; color: #e8ecf1; }
+    body[data-theme="dark"] .hp-tab { color: #8d99a5; }
+    body[data-theme="dark"] .hp-tab:hover { background: #1a222b; color: #e8ecf1; }
+    body[data-theme="dark"] .hp-tab.active { background: rgba(237, 164, 35, .15); color: #f6b93b; border-color: rgba(237, 164, 35, .35); }
+    body[data-theme="dark"] .hp-empty-state { background: #141b24; border-color: #1a222b; color: #8d99a5; }
+    body[data-theme="dark"] .hp-empty-state-title { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-booking-card { background: #141b24; border-color: #1a222b; }
+    body[data-theme="dark"] .hp-booking-info h4 { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-booking-meta { color: #8d99a5; }
+    body[data-theme="dark"] .hp-booking-meta svg { color: #5d6875; }
+    body[data-theme="dark"] .hp-booking-rent-label { color: #8d99a5; }
+    body[data-theme="dark"] .hp-booking-rent-value { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-btn-outline { background: #141b24; border-color: #1a222b; color: #e8ecf1; }
+    body[data-theme="dark"] .hp-btn-outline:hover { background: #1a222b; border-color: #2a3540; }
+    body[data-theme="dark"] .hp-listing-menu { background: #1a222b; border-color: #2a3540; color: #8d99a5; }
+    body[data-theme="dark"] .hbc-card { background: #141b24; }
+    body[data-theme="dark"] .hbc-title { color: #e8ecf1; }
+    body[data-theme="dark"] .hbc-sub { color: #8d99a5; }
+    body[data-theme="dark"] .hbc-cancel { background: #1a222b; border-color: #2a3540; color: #e8ecf1; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="hp-page-header">
+    <div>
+        <h1 class="hp-page-title">My Bookings</h1>
+        <p class="hp-page-subtitle">View and manage all your booking requests and confirmed stays. Accept pending applications from the Pending Tenants page.</p>
+    </div>
+
+    <div class="hp-stat-pillbox">
+        <div class="hp-stat-pill-item">
+            <div class="hp-stat-pill-icon">
+                {{ ui.icon('calendar-days') }}
+            </div>
+            <div>
+                <p class="hp-stat-pill-label">Total Bookings</p>
+                <p class="hp-stat-pill-value">{{ total }}</p>
+            </div>
+        </div>
+        <div class="hp-stat-pill-item">
+            <div class="hp-stat-pill-icon hp-green">
+                {{ ui.icon('check-circle') }}
+            </div>
+            <div>
+                <p class="hp-stat-pill-label">Confirmed Stays</p>
+                <p class="hp-stat-pill-value">{{ confirmed }}</p>
+            </div>
+        </div>
+        <div class="hp-stat-pill-item">
+            <div class="hp-stat-pill-icon hp-yellow">
+                {{ ui.icon('clock') }}
+            </div>
+            <div>
+                <p class="hp-stat-pill-label">Pending Requests</p>
+                <p class="hp-stat-pill-value">{{ pending }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if flash_text %}
+    <div class="hp-flash hp-flash-{{ flash_text.type == 'success' ? 'success' : 'error' }}">
+        {{ flash_text.text }}
+    </div>
+{% endif %}
+
+{% if session_flash %}
+    <div class="hp-flash {{ session_flash.type == 'success' ? 'hp-flash-success' : 'hp-flash-error' }}">
+        {{ session_flash.message }}
+    </div>
+{% endif %}
+
+<div class="hp-controls">
+    <div class="hp-tabs">
+        <a class="hp-tab {{ filter == 'all' ? 'active' : '' }}" href="{{ path('app_host_bookings', {filter: 'all'} | merge(q ? {q: q} : {})) }}">All ({{ total }})</a>
+        <a class="hp-tab {{ filter == 'pending' ? 'active' : '' }}" href="{{ path('app_host_bookings', {filter: 'pending'} | merge(q ? {q: q} : {})) }}">Pending ({{ pending }})</a>
+        <a class="hp-tab {{ filter == 'confirmed' ? 'active' : '' }}" href="{{ path('app_host_bookings', {filter: 'confirmed'} | merge(q ? {q: q} : {})) }}">Confirmed ({{ confirmed }})</a>
+        <a class="hp-tab {{ filter == 'completed' ? 'active' : '' }}" href="{{ path('app_host_bookings', {filter: 'completed'} | merge(q ? {q: q} : {})) }}">Completed ({{ completed }})</a>
+        <a class="hp-tab {{ filter == 'cancelled' ? 'active' : '' }}" href="{{ path('app_host_bookings', {filter: 'cancelled'} | merge(q ? {q: q} : {})) }}">Cancelled ({{ cancelled }})</a>
+        <a class="hp-tab {{ filter == 'rejected' ? 'active' : '' }}" href="{{ path('app_host_bookings', {filter: 'rejected'} | merge(q ? {q: q} : {})) }}">Declined ({{ rejected }})</a>
+    </div>
+
+    {# Live search (submit keeps current tab) #}
+    <form class="hp-search-wrap" method="GET" action="{{ path('app_host_bookings') }}">
+        <input type="hidden" name="filter" value="{{ filter }}">
+        {{ ui.icon('search') }}
+        <input type="text" name="q" value="{{ q }}" placeholder="Search by guest, property or location...">
+    </form>
+
+    <button type="button" class="hp-filter-btn">
+        Filter
+    </button>
+</div>
+
+<div class="hp-booking-list">
+    {% if bookings is empty %}
+
+        <div class="hp-empty-state">
+            <p class="hp-empty-state-title">No bookings yet</p>
+            <p>Once guests start booking your listings, their requests and stays will show up here.</p>
+        </div>
+
+    {% else %}
+
+        {% for b in bookings %}
+            <div class="hp-booking-card">
+                <img class="hp-booking-img" src="{{ b.image_src }}" alt="{{ b.listing_title }}"
+                     onerror="this.onerror=null;this.src='/images/ListingPlaceholder.png';">
+
+                <div class="hp-booking-info">
+                    <h4>{{ b.listing_title }}</h4>
+                    <div class="hp-booking-meta">
+                        {{ ui.icon('pin') }}
+                        {{ b.listing_location }}
+                    </div>
+                    <div class="hp-booking-meta">
+                        {{ ui.icon('person') }}
+                        {{ b.guest_name }}
+                    </div>
+                    {% if b.checkin_display %}
+                        <div class="hp-booking-meta">
+                            {{ ui.icon('calendar-days') }}
+                            {{ b.checkin_display }}
+                            {% if b.checkout_display %}&ndash; {{ b.checkout_display }}{% endif %}
+                            {% if b.guests > 0 %}&middot; {{ b.guests }} guest{{ b.guests == 1 ? '' : 's' }}{% endif %}
+                        </div>
+                    {% endif %}
+                    <div class="hp-booking-meta">
+                        {{ ui.icon('calendar') }}
+                        Booked {{ b.created_display }}
+                    </div>
+                </div>
+
+                <div class="hp-booking-right">
+                    <div class="hp-booking-status-col">
+                        <span class="hp-badge {{ b.status_class }}">{{ b.status_label }}</span>
+
+                        {# Payment state pill (receipt logic) #}
+                        <span class="hb-pay-pill {{ b.pay_class }}">{{ b.pay_label }}</span>
+
+                        {# Signature status #}
+                        {% if b.signed %}
+                            <span class="hb-signed-note">{{ ui.icon('pen-line') }} Signed</span>
+                        {% else %}
+                            <span class="hb-unsigned-note">Not signed yet</span>
+                        {% endif %}
+
+                        {% if b.status == 'confirmed' %}
+                            {# Hive Club: stays auto-complete after checkout;
+                               long-term stays (no checkout date) complete
+                               only through the Mark Completed button. #}
+                            <span class="hb-unsigned-note">{{ b.confirmed_hint }}</span>
+                        {% endif %}
+
+                        <p class="hp-booking-rent-label">Your Payout</p>
+                        <p class="hp-booking-rent-value">
+                            {% if b.amount is not null %}&#8369; {{ b.amount|number_format(2, '.', ',') }}{% else %}&mdash;{% endif %}
+                        </p>
+                    </div>
+
+                    {# VIEW-ONLY: no accept/decline here — pending applications
+                       are accepted (with signature) from the Pending Tenants
+                       page. #}
+                    <div class="hp-booking-actions">
+                        {% if b.receipt_url %}
+                            <a class="hb-receipt-btn" href="{{ b.receipt_url }}" target="_blank" rel="noopener">
+                                {{ ui.icon('file-text') }} View Receipt
+                            </a>
+                        {% endif %}
+
+                        {% if b.status == 'confirmed' %}
+                            {# Hive Club Phase 3: mark the stay completed; the
+                               guest earns their points immediately. #}
+                            <button type="button"
+                                class="hb-complete-btn js-complete-booking"
+                                data-booking-id="{{ b.id }}">
+                                {{ ui.icon('check-circle') }} Mark Completed
+                            </button>
+                        {% endif %}
+
+                        <a href="{{ b.details_url }}" class="hp-btn-outline">View Details</a>
+                        <button type="button" class="hp-listing-menu" aria-label="More options">
+                            {{ ui.icon('more-vertical') }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+
+    {% endif %}
+</div>
+
+{# =========================================================
+   MARK COMPLETED — FLOATING CONFIRM CARD
+========================================================= #}
+<div class="hbc-backdrop" id="hbcBackdrop" aria-hidden="true">
+    <div class="hbc-card" role="dialog" aria-modal="true">
+        <div class="hbc-icon">{{ ui.icon('check-circle') }}</div>
+        <h3 class="hbc-title">Mark this stay as completed?</h3>
+        <p class="hbc-sub">
+            The guest will earn their Hive Club points for this stay,
+            and the booking moves to the Completed tab. This cannot be undone.
+        </p>
+        <div class="hbc-error" id="hbcError"></div>
+        <button type="button" class="hbc-btn hbc-confirm" id="hbcConfirm">Yes, Mark Completed</button>
+        <button type="button" class="hbc-btn hbc-cancel" id="hbcCancel">Not Yet</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    /* =========================================================
+       MARK COMPLETED — 1:1 with the legacy hostbookings.php script;
+       only the fetch URL moved to the Symfony URL map:
+         POST /host/bookings/{id}/complete   (legacy booking/complete-booking.php)
+       Body booking_id kept for parity with accept/reject; the route
+       param is the source of truth. Response JSON {success} | {message}.
+    ========================================================= */
+    (function() {
+        "use strict";
+        var backdrop = document.getElementById('hbcBackdrop');
+        if (!backdrop) return;
+
+        var confirmBtn = document.getElementById('hbcConfirm');
+        var errorEl = document.getElementById('hbcError');
+        var currentId = null;
+        var busy = false;
+
+        document.querySelectorAll('.js-complete-booking').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                currentId = btn.getAttribute('data-booking-id');
+                errorEl.classList.remove('show');
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = 'Yes, Mark Completed';
+                backdrop.classList.add('open');
+            });
+        });
+
+        function close() {
+            if (busy) return;
+            backdrop.classList.remove('open');
+        }
+        document.getElementById('hbcCancel').addEventListener('click', close);
+        backdrop.addEventListener('click', function(e) {
+            if (e.target === backdrop) close();
+        });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && backdrop.classList.contains('open')) close();
+        });
+
+        confirmBtn.addEventListener('click', function() {
+            if (busy || !currentId) return;
+            busy = true;
+            confirmBtn.disabled = true;
+            confirmBtn.textContent = 'Completing\u2026';
+            errorEl.classList.remove('show');
+
+            fetch('/host/bookings/' + encodeURIComponent(currentId) + '/complete', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: 'booking_id=' + encodeURIComponent(currentId),
+                credentials: 'same-origin'
+            })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                if (data && data.success) {
+                    window.location.reload();
+                    return;
+                }
+                busy = false;
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = 'Yes, Mark Completed';
+                errorEl.textContent = (data && data.message) || 'Could not complete this booking.';
+                errorEl.classList.add('show');
+            })
+            .catch(function() {
+                busy = false;
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = 'Yes, Mark Completed';
+                errorEl.textContent = "Couldn't reach the server. Please try again.";
+                errorEl.classList.add('show');
+            });
+        });
+    })();
+</script>
+{% endblock %}

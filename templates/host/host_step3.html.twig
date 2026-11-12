@@ -1,0 +1,1688 @@
+{# =========================================================
+   RoomHive — Become a Host · Step 3 (Upload Photos)
+   templates/host/host_step3.html.twig
+
+   Third host-flow page (cont-49). Same family as Step 2
+   (host_step2.html.twig) — NOT an account-area page:
+
+     - Shell: legacy rh-step3 page style — own --hive-* tokens
+       (paper bg #faf6ee), honeycomb ::before texture, glow
+       blobs, 4-step tracker with track + progress bar.
+       Everything is scoped under .rh-step3; the body carries
+       the class. CSS carried over 1:1 from the pasted PHP.
+     - Navbar: shared partials/navbar.html.twig with
+       current_page 'becomeahost' (legacy $currentPage pointed
+       at becomeahost.php, so BECOME A HOST highlights on all
+       host steps). Dual-contract ?? guards on is_host /
+       nav_avatar / notification_count (cont-29 wishlist
+       precedent). The legacy file also included
+       notification_dropdown.php separately; the navbar
+       partial owns the dropdown now.
+     - Footer: shared partials/footer.html.twig after </main>
+       (legacy includes/footer.php).
+     - Lucide: the legacy page drew the stepper icons from
+       PNG files; the port uses the SAME shared Lucide
+       stepper as Step 2 (host_steps set, current_step = 3,
+       'image-plus' icon). Guarded loader
+       (window.__rhNavbarLucide — never double-runs with the
+       navbar's); window.hs3RefreshIcons is kept as a thin
+       alias in case any page code wants it (Step 2 keeps the
+       same hs2RefreshIcons contract).
+     - Form: SELF-POSTS via action="" (HTML spec: submit to
+       the current URL) — the cont-32 fix pattern from Step 1.
+       NO path() call anywhere on this page (route-name-
+       agnostic), so "route does not exist" can never happen.
+       The controller route must accept BOTH GET and POST on
+       the same URL (methods: ['GET','POST']). The form is
+       multipart/form-data (file upload) and carries
+       novalidate — the page's own JS submit gate decides
+       when the browser may actually POST.
+     - CSRF: the hidden csrf_token (csrf_host_step3) is the
+       Symfony CSRF addition (legacy PHP had none); the rest
+       of the markup is 1:1. Controller validates via
+       hash_equals against the session-stored token, same
+       pattern as Step 1 / Step 2 / Messages / Help.
+     - BACK BUTTON: legacy pointed at
+       /webprogg/host/host-step2.php → the port points at
+       /host/step-2 — the user's live Step 2 URL, confirmed in
+       cont-52 when their POST 404'd on the old /host/host-step2
+       guess. If your Step 2 route URL differs, adjust this one
+       href.
+
+   Template-local static config (same pattern as Step 2 —
+   keeps the controller focused on file handling):
+     host_steps              4 rows (Lucide names), current
+                             step = 3 ('image-plus')
+     step_progress_percent   computed: (step-1)/(total-1)*100,
+                             clamped 0..100 — feeds the stepper
+                             bar width (66.67% at step 3 of 4)
+     max_additional_photos   render var |default(20) — copy
+                             only ("You can add up to N
+                             photos"); the hard limits live in
+                             the controller
+     initial_photo_slots     render var |default(10) — how
+                             many empty .photo-slot cells the
+                             grid renders on GET
+
+   Controller contract (HostStep3Controller — user's job; the
+   pasted PHP's top section, for reference):
+     GET:  auth (login redirect), step 1+2 check
+           ($_SESSION['host_application']['title'] and
+           ['listing_id'] must exist, else redirect to
+           become-a-host), avatar fetch, render.
+     POST: CSRF check + validate:
+             - cover_photo      REQUIRED, <= 5MB, JPG/PNG
+             - additional_photos[]  <= max_additional_photos
+               files, each <= 5MB, JPG/PNG
+           Then (Symfony equivalent of the legacy move_uploaded_
+           file block):
+             - ensure public/uploads/listing_photos/cover/ and
+               .../additional/ exist (mkdir recursive)
+             - move files under generated names
+               cover_{time}_{uniqid}.{ext} / photo_{time}_{uniq
+               id}.{ext}  ($_FILES['x']['tmp_name'] becomes
+               $request->files->get('cover_photo'); ->move(
+               $projectDir.'/public/uploads/...', $name))
+             - INSERT INTO listing_photos (listing_id,
+               photo_path, photo_type, sort_order) — cover row
+               first (photo_type 'cover', sort_order 0), then
+               each additional (photo_type 'additional',
+               sort_order 1..n); DB paths stay relative
+               ("uploads/listing_photos/cover/..." etc.)
+             - $_SESSION['host_application']['cover_photo'] =
+               db path; ['additional_photos'] = array of db
+               paths
+           Then redirect to Step 4. On failure re-render with
+           the vars below.
+     Render vars:
+       user                    { id, name, email, avatar_path,
+                                 is_host }
+       errors                  string[] (pass [] when clean)
+       max_additional_photos   int    (template defaults 20)
+       initial_photo_slots     int    (template defaults 10)
+       notif_count             int (navbar badge; 0 placeholder)
+       csrf_host_step3         string
+
+   Images: the example card renders
+   {{ asset('images/Living_Room.png') }} — the file must
+   exist at public/images/Living_Room.png (drop the legacy
+   /webprogg/images/Living_Room.png there unchanged).
+
+   JS (page script, bottom): cover-photo FileReader preview +
+   remove, per-slot preview/remove for the grid, and the
+   submit gate (a cover photo is mandatory — alert + smooth
+   scroll to the cover box). All hooks target the exact ids/
+   classes in the markup above; alerts kept 1:1 with legacy.
+========================================================= #}
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+
+        <meta charset="UTF-8">
+
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0"
+        >
+
+        <title>
+            RoomHive - Upload Photos
+        </title>
+
+        <!-- POPPINS FONT -->
+        <link
+            href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
+            rel="stylesheet"
+        >
+
+        <!-- MAIN CSS -->
+        <link
+            rel="stylesheet"
+            href="{{ asset('assets/style.css') }}"
+        >
+
+        <!-- Enables JS-gated entrance animations -->
+        <script>
+            document.documentElement.classList.add("js");
+        </script>
+
+        <style>
+            :root {
+                --hive-ink: #1c2a38;
+                --hive-ink-soft: #5d6875;
+                --hive-paper: #faf6ee;
+                --hive-surface: #ffffff;
+                --hive-line: #e8e1cf;
+                --hive-honey: #eda423;
+                --hive-honey-dark: #d99218;
+                --hive-honey-light: #f6c04e;
+                --hive-moss: #2f9e5b;
+                --hive-danger: #a1332e;
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .hive-blob,
+                .hive-pulse-dot::after,
+                .hive-shimmer,
+                .rh-step3 .next-button::after,
+                .rh-step3 .cover-photo-box .upload-icon,
+                .rh-step3 .photo-slot-icon {
+                    animation: none !important;
+                    opacity: 1 !important;
+                    transform: none !important;
+                }
+
+                .js .rh-step3 .host-header,
+                .js .rh-step3 .host-form-card,
+                .js .rh-step3 .form-errors {
+                    animation: none !important;
+                    opacity: 1 !important;
+                    transform: none !important;
+                }
+            }
+
+            body.rh-step3 {
+                background: var(--hive-paper);
+                font-family: "Poppins", sans-serif;
+                color: var(--hive-ink);
+                overflow-y: auto;
+                height: auto;
+                min-height: 100vh;
+            }
+
+            .rh-step3 main.host-page {
+                position: relative;
+
+                max-width: 1000px;
+                margin: 0 auto;
+                padding: 56px 24px 96px;
+            }
+
+            .rh-step3 main.host-page::before {
+                content: "";
+
+                position: absolute;
+                inset: 0;
+
+                background-image: url("data:image/svg+xml,%3Csvg width='28' height='49' viewBox='0 0 28 49' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23eda423' fill-opacity='0.07' fill-rule='nonzero'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/svg%3E");
+                background-size: 28px 49px;
+
+                -webkit-mask-image: linear-gradient(
+                    180deg,
+                    rgba(0, 0, 0, 0.9),
+                    transparent 50%
+                );
+                mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), transparent 50%);
+
+                pointer-events: none;
+
+                z-index: 0;
+            }
+
+            .rh-step3 main.host-page > * {
+                position: relative;
+
+                z-index: 1;
+            }
+
+            .hive-blob {
+                position: absolute;
+
+                border-radius: 50%;
+                filter: blur(70px);
+
+                pointer-events: none;
+
+                z-index: 0;
+            }
+
+            .hive-blob-1 {
+                width: 360px;
+                height: 360px;
+
+                top: -150px;
+                right: -130px;
+
+                background: radial-gradient(
+                    circle at 30% 30%,
+                    rgba(246, 196, 78, 0.8),
+                    rgba(237, 164, 35, 0.22) 60%,
+                    transparent 75%
+                );
+
+                animation: hiveDrift 14s ease-in-out infinite alternate;
+            }
+
+            .hive-blob-2 {
+                width: 260px;
+                height: 260px;
+
+                top: 420px;
+                left: -150px;
+
+                background: radial-gradient(
+                    circle at 60% 40%,
+                    rgba(246, 196, 78, 0.6),
+                    rgba(237, 164, 35, 0.18) 60%,
+                    transparent 75%
+                );
+
+                animation: hiveDrift 18s ease-in-out infinite alternate-reverse;
+            }
+
+            @keyframes hiveDrift {
+                from {
+                    transform: translate(0, 0) scale(1);
+                }
+                to {
+                    transform: translate(30px, -24px) scale(1.08);
+                }
+            }
+
+            @keyframes hiveRise {
+                from {
+                    opacity: 0;
+                    transform: translateY(16px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+
+            .js .rh-step3 .host-header,
+            .js .rh-step3 .host-form-card {
+                animation: hiveRise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+            }
+
+            .js .rh-step3 .host-form-card {
+                animation-delay: 0.1s;
+            }
+
+            .rh-step3 .hero-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+
+                padding: 8px 16px;
+
+                background: #ffffff;
+
+                border: 1px solid rgba(237, 164, 35, 0.35);
+                border-radius: 999px;
+
+                box-shadow: 0 4px 14px rgba(237, 164, 35, 0.12);
+
+                color: #b07708;
+
+                font-size: 11.5px;
+                font-weight: 700;
+                letter-spacing: 0.8px;
+                text-transform: uppercase;
+            }
+
+            .hive-pulse-dot {
+                position: relative;
+
+                width: 8px;
+                height: 8px;
+
+                background: var(--hive-honey);
+                border-radius: 50%;
+            }
+
+            .hive-pulse-dot::after {
+                content: "";
+
+                position: absolute;
+                inset: 0;
+
+                background: var(--hive-honey);
+                border-radius: 50%;
+
+                animation: hivePing 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+            }
+
+            @keyframes hivePing {
+                0% {
+                    transform: scale(1);
+                    opacity: 0.7;
+                }
+                80%,
+                100% {
+                    transform: scale(2.6);
+                    opacity: 0;
+                }
+            }
+
+            .hive-shimmer {
+                background: linear-gradient(92deg, #eda423 0%, #f6c04e 45%, #eda423 90%);
+                background-size: 200% auto;
+
+                -webkit-background-clip: text;
+                background-clip: text;
+                -webkit-text-fill-color: transparent;
+                color: transparent;
+
+                animation: hiveShimmer 3.5s linear infinite;
+            }
+
+            @keyframes hiveShimmer {
+                to {
+                    background-position: 200% center;
+                }
+            }
+
+            .rh-step3 .host-header {
+                max-width: 860px;
+                margin: 0 auto 48px;
+                text-align: center;
+            }
+
+            .rh-step3 .host-eyebrow {
+                display: block;
+
+                margin-top: 18px;
+
+                font-size: 13px;
+                font-weight: 600;
+                letter-spacing: 0.01em;
+                color: var(--hive-honey-dark);
+                text-transform: uppercase;
+            }
+
+            .rh-step3 .host-header h1 {
+                font-size: clamp(28px, 4vw, 36px);
+                line-height: 1.2;
+                font-weight: 800;
+                letter-spacing: -0.6px;
+                margin: 10px 0 0;
+                color: var(--hive-ink);
+            }
+
+            .rh-step3 .host-steps {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 0;
+                margin-top: 40px;
+                position: relative;
+            }
+
+            .rh-step3 .host-steps-track {
+                position: absolute;
+                top: 26px;
+                left: 12.5%;
+                right: 12.5%;
+                height: 2px;
+                background: var(--hive-line);
+                z-index: 1;
+            }
+
+            .rh-step3 .host-steps-progress {
+                position: absolute;
+                top: 26px;
+                left: 12.5%;
+                height: 2px;
+                background: linear-gradient(90deg, #f6b93b, var(--hive-honey));
+                z-index: 1;
+                transition: width 0.3s ease;
+            }
+
+            .rh-step3 .host-step {
+                position: relative;
+                z-index: 2;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+                padding: 0 10px;
+            }
+
+            .rh-step3 .step-circle {
+                position: relative;
+                width: 52px;
+                height: 52px;
+                border-radius: 50%;
+                background: var(--hive-surface);
+                border: 2px solid var(--hive-line);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+                transition:
+                    border-color 0.2s ease,
+                    background 0.2s ease;
+            }
+
+            /* Lucide stepper icon (port: legacy PNG icons replaced
+                                               by the shared Lucide set — same as Step 2) */
+            .rh-step3 .step-circle svg {
+                width: 22px;
+                height: 22px;
+                stroke-width: 2;
+                opacity: 0.55;
+                transition: opacity 0.2s ease;
+            }
+
+            .rh-step3 .host-step.active .step-circle {
+                border-color: var(--hive-honey);
+                background: #fdf4e3;
+                box-shadow: 0 0 0 4px rgba(237, 164, 35, 0.18);
+            }
+
+            .rh-step3 .host-step.active .step-circle svg {
+                opacity: 1;
+                color: var(--hive-honey-dark);
+            }
+
+            .rh-step3 .host-step.completed .step-circle {
+                border-color: var(--hive-moss);
+                background: var(--hive-moss);
+            }
+
+            .rh-step3 .host-step.completed .step-circle svg {
+                opacity: 1;
+                color: #ffffff;
+            }
+
+            .rh-step3 .step-number {
+                position: absolute;
+                top: -4px;
+                right: -4px;
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                background: var(--hive-ink);
+                color: #fff;
+                font-size: 11px;
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 3;
+                border: 2px solid var(--hive-paper);
+                box-sizing: border-box;
+            }
+
+            .rh-step3 .host-step.active .step-number {
+                background: var(--hive-honey-dark);
+            }
+
+            .rh-step3 .host-step.completed .step-number {
+                background: var(--hive-moss);
+            }
+
+            .rh-step3 .host-step h3 {
+                margin: 14px 0 2px;
+                font-size: 14px;
+                font-weight: 600;
+                color: var(--hive-ink);
+            }
+
+            .rh-step3 .host-step p {
+                margin: 0 auto;
+                max-width: 150px;
+                font-size: 12.5px;
+                color: var(--hive-ink-soft);
+                line-height: 1.4;
+            }
+
+            .rh-step3 .host-step:not(.active) h3 {
+                color: var(--hive-ink-soft);
+            }
+
+            .rh-step3 .form-errors {
+                max-width: 860px;
+                margin: 0 auto 24px;
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                background: #fdf1f0;
+                border: 1px solid #f3c9c7;
+                border-radius: 14px;
+                padding: 16px 18px;
+                animation: hiveRise 0.35s ease both;
+            }
+
+            .rh-step3 .form-errors::before {
+                content: "We need a couple of fixes before continuing";
+                font-weight: 600;
+                color: #e0524d;
+                margin-bottom: 2px;
+            }
+
+            .rh-step3 .form-errors p {
+                margin: 0;
+                padding-left: 20px;
+                position: relative;
+                font-size: 14px;
+                color: #7a2f2c;
+            }
+
+            .rh-step3 .form-errors p::before {
+                content: "!";
+                position: absolute;
+                left: 0;
+                top: 1px;
+                width: 14px;
+                height: 14px;
+                border-radius: 50%;
+                background: #e0524d;
+                color: #fff;
+                font-size: 10px;
+                line-height: 14px;
+                text-align: center;
+                font-weight: 700;
+            }
+
+            .rh-step3 .host-form-card {
+                background: var(--hive-surface);
+                border: 1px solid var(--hive-line);
+                border-radius: 18px;
+                box-shadow: 0 18px 40px -22px rgba(28, 42, 56, 0.35);
+                padding: 40px;
+            }
+
+            .rh-step3 .form-heading h2 {
+                position: relative;
+
+                display: inline-block;
+
+                font-size: 19px;
+                font-weight: 700;
+                margin: 0 0 4px;
+                color: var(--hive-ink);
+            }
+
+            .rh-step3 .form-heading h2::after {
+                content: "";
+
+                position: absolute;
+
+                width: 38px;
+                height: 3px;
+
+                left: 0;
+                bottom: -8px;
+
+                background: linear-gradient(90deg, #f6b93b, var(--hive-honey));
+
+                border-radius: 2px;
+            }
+
+            .rh-step3 .form-heading p {
+                margin: 18px 0 24px;
+                font-size: 14px;
+                color: var(--hive-ink-soft);
+            }
+
+            .rh-step3 .photo-section-label {
+                margin-bottom: 14px;
+            }
+
+            .rh-step3 .photo-section-label label {
+                display: block;
+
+                margin-bottom: 4px;
+
+                color: var(--hive-ink);
+
+                font-size: 14px;
+                font-weight: 700;
+            }
+
+            .rh-step3 .photo-section-label p {
+                margin: 0;
+
+                color: var(--hive-ink-soft);
+
+                font-size: 12.5px;
+            }
+
+            .rh-step3 .required-mark {
+                color: #e0524d;
+            }
+
+            .cover-photo-box {
+                position: relative;
+                overflow: hidden;
+            }
+
+            .cover-photo-preview {
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+            }
+
+            .photo-slot {
+                position: relative;
+                overflow: hidden;
+            }
+
+            .photo-slot-preview {
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+            }
+
+            .photo-slot-remove {
+                position: absolute;
+                top: 6px;
+                right: 6px;
+                width: 24px;
+                height: 24px;
+                border-radius: 50%;
+                border: none;
+                background: rgba(0, 0, 0, 0.6);
+                color: #fff;
+                font-size: 16px;
+                line-height: 1;
+                cursor: pointer;
+                z-index: 2;
+
+                transition:
+                    background 0.15s ease,
+                    transform 0.15s ease;
+            }
+
+            .photo-slot-remove:hover {
+                background: #e0524d;
+                transform: scale(1.1);
+            }
+
+            .cover-photo-remove {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                width: 28px;
+                height: 28px;
+                border-radius: 50%;
+                border: none;
+                background: rgba(0, 0, 0, 0.6);
+                color: #fff;
+                font-size: 18px;
+                line-height: 1;
+                cursor: pointer;
+                z-index: 2;
+
+                transition:
+                    background 0.15s ease,
+                    transform 0.15s ease;
+            }
+
+            .cover-photo-remove:hover {
+                background: #e0524d;
+                transform: scale(1.1);
+            }
+
+            .rh-step3 .cover-photo-row {
+                width: 100%;
+
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+
+                gap: 20px;
+
+                margin-bottom: 34px;
+            }
+
+            @media (max-width: 700px) {
+                .rh-step3 .cover-photo-row {
+                    grid-template-columns: 1fr;
+                }
+            }
+
+            .rh-step3 .cover-photo-box {
+                width: 100%;
+                min-height: 190px;
+
+                display: flex;
+                align-items: center;
+                justify-content: center;
+
+                border: 2px dashed #e2d4b6;
+                border-radius: 18px;
+
+                background: linear-gradient(160deg, #fffdf6 0%, #fdf3e0 100%);
+
+                cursor: pointer;
+
+                transition:
+                    border-color 0.2s ease,
+                    box-shadow 0.25s ease,
+                    transform 0.2s ease,
+                    background 0.2s ease;
+            }
+
+            .rh-step3 .cover-photo-box:hover {
+                border-color: var(--hive-honey);
+
+                background: linear-gradient(160deg, #ffffff 0%, #fff8ec 100%);
+
+                box-shadow: 0 12px 26px rgba(237, 164, 35, 0.16);
+
+                transform: translateY(-2px);
+            }
+
+            .rh-step3 .cover-photo-box.has-image {
+                background: #111418;
+                border-style: solid;
+                border-color: var(--hive-line);
+                transform: none;
+            }
+
+            .rh-step3 .cover-photo-box .upload-icon {
+                color: var(--hive-honey);
+
+                font-size: 34px;
+
+                transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+            }
+
+            .rh-step3 .cover-photo-box:hover .upload-icon {
+                transform: translateY(-4px) scale(1.12);
+            }
+
+            .rh-step3 .cover-photo-box .upload-text strong {
+                color: var(--hive-ink);
+
+                font-size: 14px;
+            }
+
+            .rh-step3 .cover-photo-box .upload-text span {
+                color: var(--hive-ink-soft);
+
+                font-size: 12px;
+            }
+
+            .rh-step3 .cover-photo-example {
+                position: relative;
+
+                width: 100%;
+                min-height: 190px;
+
+                border-radius: 16px;
+
+                overflow: hidden;
+
+                box-shadow: 0 10px 24px rgba(28, 42, 56, 0.1);
+            }
+
+            .rh-step3 .cover-photo-example img {
+                width: 100%;
+                height: 100%;
+
+                object-fit: cover;
+
+                display: block;
+            }
+
+            .rh-step3 .cover-photo-example .example-badge {
+                position: absolute;
+
+                top: 12px;
+                right: 12px;
+
+                padding: 5px 12px;
+
+                background: linear-gradient(135deg, #f6b93b, var(--hive-honey));
+
+                border-radius: 6px;
+
+                color: var(--hive-ink);
+
+                font-size: 11px;
+                font-weight: 700;
+
+                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+            }
+
+            .rh-step3 .photo-grid {
+                width: 100%;
+
+                display: grid;
+                grid-template-columns: repeat(5, 1fr);
+
+                gap: 16px;
+
+                margin-bottom: 30px;
+            }
+
+            @media (max-width: 900px) {
+                .rh-step3 .photo-grid {
+                    grid-template-columns: repeat(4, 1fr);
+                }
+            }
+
+            @media (max-width: 700px) {
+                .rh-step3 .photo-grid {
+                    grid-template-columns: repeat(3, 1fr);
+                }
+            }
+
+            @media (max-width: 480px) {
+                .rh-step3 .photo-grid {
+                    grid-template-columns: repeat(2, 1fr);
+                }
+            }
+
+            .rh-step3 .photo-slot {
+                width: 100%;
+                aspect-ratio: 1 / 1;
+
+                border-radius: 14px;
+            }
+
+            .rh-step3 .photo-slot-trigger {
+                width: 100%;
+                height: 100%;
+
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+
+                gap: 6px;
+
+                padding: 10px;
+
+                border: 2px dashed #e2d4b6;
+                border-radius: 14px;
+
+                background: linear-gradient(160deg, #fffdf6 0%, #fdf3e0 100%);
+
+                cursor: pointer;
+
+                transition:
+                    border-color 0.2s ease,
+                    box-shadow 0.25s ease,
+                    transform 0.2s ease;
+            }
+
+            .rh-step3 .photo-slot:hover .photo-slot-trigger {
+                border-color: var(--hive-honey);
+
+                box-shadow: 0 10px 20px rgba(237, 164, 35, 0.14);
+
+                transform: translateY(-3px);
+            }
+
+            .rh-step3 .photo-slot-icon {
+                display: inline-block;
+
+                color: var(--hive-honey);
+
+                font-size: 22px;
+                line-height: 1;
+
+                transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+            }
+
+            .rh-step3 .photo-slot:hover .photo-slot-icon {
+                transform: translateY(-3px) scale(1.1);
+            }
+
+            .rh-step3 .photo-slot-text {
+                display: flex;
+                flex-direction: column;
+
+                align-items: center;
+
+                text-align: center;
+            }
+
+            .rh-step3 .photo-slot-text strong {
+                color: var(--hive-ink);
+
+                font-size: 10.5px;
+                font-weight: 600;
+            }
+
+            .rh-step3 .photo-slot-text small {
+                color: var(--hive-ink-soft);
+
+                font-size: 9px;
+            }
+
+            .rh-step3 .form-actions {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-top: 36px;
+                padding-top: 24px;
+                border-top: 1px solid var(--hive-line);
+            }
+
+            .rh-step3 .back-button {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+
+                min-width: 120px;
+                height: 46px;
+
+                padding: 0 24px;
+
+                border: 1.5px solid #dfe4ea;
+                border-radius: 10px;
+
+                background: #ffffff;
+
+                color: var(--hive-ink);
+
+                font-family: "Poppins", sans-serif;
+                font-size: 13px;
+                font-weight: 700;
+
+                text-decoration: none;
+
+                transition:
+                    border-color 0.2s ease,
+                    color 0.2s ease,
+                    transform 0.2s ease,
+                    box-shadow 0.2s ease;
+            }
+
+            .rh-step3 .back-button:hover {
+                border-color: var(--hive-honey);
+
+                color: #b07708;
+
+                transform: translateX(-2px);
+
+                box-shadow: 0 8px 18px rgba(28, 42, 56, 0.08);
+            }
+
+            .rh-step3 .next-button {
+                position: relative;
+                overflow: hidden;
+
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+
+                min-width: 150px;
+                height: 46px;
+
+                padding: 0 30px;
+
+                background: linear-gradient(
+                    135deg,
+                    var(--hive-honey-light),
+                    var(--hive-honey)
+                );
+
+                border: none;
+                border-radius: 10px;
+
+                color: var(--hive-ink);
+
+                font-family: "Poppins", sans-serif;
+                font-size: 14px;
+                font-weight: 700;
+
+                cursor: pointer;
+
+                box-shadow: 0 8px 20px rgba(237, 164, 35, 0.35);
+
+                transition:
+                    transform 0.2s ease,
+                    box-shadow 0.2s ease;
+            }
+
+            .rh-step3 .next-button:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 12px 26px rgba(237, 164, 35, 0.45);
+            }
+
+            .rh-step3 .next-button:active {
+                transform: translateY(0) scale(0.98);
+            }
+
+            .rh-step3 .next-button::after {
+                content: "";
+
+                position: absolute;
+                top: 0;
+                left: -80%;
+
+                width: 50%;
+                height: 100%;
+
+                background: linear-gradient(
+                    100deg,
+                    transparent,
+                    rgba(255, 255, 255, 0.55),
+                    transparent
+                );
+
+                transform: skewX(-20deg);
+
+                animation: hiveSweep 3.6s ease-in-out infinite;
+
+                pointer-events: none;
+            }
+
+            @keyframes hiveSweep {
+                0% {
+                    left: -80%;
+                }
+                45%,
+                100% {
+                    left: 130%;
+                }
+            }
+
+            .rh-step3 .btn-arrow {
+                font-size: 16px;
+                line-height: 1;
+            }
+
+            .rh-step3 .next-button:focus-visible,
+            .rh-step3 .back-button:focus-visible {
+                outline: 3px solid rgba(237, 164, 35, 0.5);
+                outline-offset: 2px;
+            }
+        </style>
+
+    </head>
+
+    <body class="rh-step3">
+
+        {# =========================================================
+       NAVBAR — shared partial. current_page 'becomeahost' (the
+       legacy $currentPage pointed at becomeahost.php, so
+       BECOME A HOST highlights on every host step). The legacy
+       file also included notification_dropdown.php separately;
+       the navbar partial owns the dropdown now.
+    ========================================================= #}
+        {{ include('partials/navbar.html.twig', {
+        is_logged_in: true,
+        is_host: is_host ?? false,
+        nav_avatar: nav_avatar ?? user.avatar_path ?? null,
+        notification_count: notification_count ?? notif_count ?? 0,
+        current_page: 'becomeahost'
+    }) }}
+
+        <!-- =========================================================
+         MAIN HOST PAGE
+    ========================================================== -->
+        <main class="host-page">
+
+            <span class="hive-blob hive-blob-1" aria-hidden="true"></span>
+            <span class="hive-blob hive-blob-2" aria-hidden="true"></span>
+
+            <!-- =====================================================
+             HOST HEADER
+        ====================================================== -->
+            <section class="host-header">
+
+                <span class="hero-badge">
+
+                    <span class="hive-pulse-dot"></span>
+
+                    Upload Photos &middot; Step 3 of 4
+
+                </span>
+
+                <h1 style="margin-top:20px;">
+
+                    Show off
+
+                    <span class="hive-shimmer">your space</span>
+
+                </h1>
+
+                {# =================================================
+               TEMPLATE-LOCAL STATIC CONFIG — the stepper reads
+               these (same pattern as Step 2's host_steps; legacy
+               PNG icons replaced by the shared Lucide set).
+            ================================================== #}
+                {% set host_steps = [
+                { number: 1, icon: 'user-plus',      alt: 'Create Account',  title: 'Create Account',  description: 'Sign up as a host in minutes' },
+                { number: 2, icon: 'house',          alt: 'Add Your Space',  title: 'Add Your Space',  description: 'Tell us about your property' },
+                { number: 3, icon: 'image-plus',     alt: 'Upload Photos',   title: 'Upload Photos',   description: 'Show your space to attract renters' },
+                { number: 4, icon: 'calendar-check', alt: 'Get Bookings',    title: 'Get Bookings',    description: 'Approve bookings and start earning' }
+            ] %}
+                {% set current_step = 3 %}
+
+                {% set total_steps = host_steps|length %}
+                {% set step_progress_percent = total_steps > 1
+                ? ((current_step - 1) / (total_steps - 1)) * 100
+                : 0 %}
+                {% set step_progress_percent = step_progress_percent < 0 ? 0 : (step_progress_percent > 100 ? 100 : step_progress_percent) %}
+
+                <div class="host-steps">
+
+                    <div class="host-steps-track"></div>
+
+                    <div
+                        class="host-steps-progress"
+                        style="width: {{ step_progress_percent }}%;"
+                    ></div>
+
+                    {% for step in host_steps %}
+
+                        <div class="host-step{{ step.number == current_step ? ' active' : '' }}{{ step.number < current_step ? ' completed' : '' }}">
+
+                            <div class="step-circle">
+
+                                <i
+                                    data-lucide="{{ step.icon }}"
+                                    role="img"
+                                    aria-label="{{ step.alt }}"
+                                ></i>
+
+                                <span class="step-number">
+
+                                    {{ step.number }}
+
+                                </span>
+
+                            </div>
+
+                            <h3>
+
+                                {{ step.title }}
+
+                            </h3>
+
+                            <p>
+
+                                {{ step.description }}
+
+                            </p>
+
+                        </div>
+
+                    {% endfor %}
+
+                </div>
+
+            </section>
+
+            <!-- =====================================================
+             ERROR MESSAGES
+        ====================================================== -->
+            {% if errors is not empty %}
+
+                <div class="form-errors" role="alert" aria-live="assertive">
+
+                    {% for error in errors %}
+
+                        <p>
+                            {{ error }}
+                        </p>
+
+                    {% endfor %}
+
+                </div>
+
+            {% endif %}
+
+            <!-- =====================================================
+             FORM CARD
+        ====================================================== -->
+            <section class="host-form-card">
+
+                {# SELF-POST (action="") — HTML spec: submit to the
+               current URL, the 1:1 equivalent of the legacy form
+               pointing back at host-step3.php. Route-name-
+               agnostic (cont-32 fix); the controller route must
+               accept GET + POST on the same URL. Multipart is
+               REQUIRED (file upload). #}
+                <form
+                    action=""
+                    method="POST"
+                    enctype="multipart/form-data"
+                    id="uploadPhotosForm"
+                    novalidate
+                >
+
+                    {# Symfony CSRF — added in the port (legacy PHP
+                   had none). Controller validates via
+                   hash_equals against the session-stored token,
+                   same pattern as Step 1 / Step 2 / Messages. #}
+                    <input type="hidden" name="csrf_token" value="{{ csrf_host_step3 ?? '' }}">
+
+                    <div class="form-heading">
+
+                        <h2>
+
+                            Upload Photos of Your Space
+
+                        </h2>
+
+                        <p>
+
+                            High-quality photos help your listing stand out and get more bookings.
+
+                        </p>
+
+                    </div>
+
+                    <!-- =============================================
+                     COVER PHOTO
+                ============================================== -->
+                    <div class="photo-section-label">
+
+                        <label>
+
+                            Cover Photo <span class="required-mark">*</span>
+
+                        </label>
+
+                        <p>
+
+                            This will be the main photo displayed in your listing.
+
+                        </p>
+
+                    </div>
+
+                    <div class="cover-photo-row">
+
+                        <label
+                            for="cover_photo"
+                            class="cover-photo-box"
+                            id="coverPhotoBox"
+                        >
+
+                            <div class="cover-photo-placeholder" id="coverPhotoPlaceholder">
+
+                                <div class="upload-icon">
+
+                                    &#9729;
+
+                                </div>
+
+                                <div class="upload-text">
+
+                                    <strong>
+
+                                        Upload cover photo
+
+                                    </strong>
+
+                                    <span>
+
+                                        (JPG, PNG &ndash; Max 5MB)
+
+                                    </span>
+
+                                </div>
+
+                            </div>
+
+                            <img
+                                src=""
+                                alt="Cover photo preview"
+                                class="cover-photo-preview"
+                                id="coverPhotoPreview"
+                                hidden
+                            >
+
+                            <button
+                                type="button"
+                                class="cover-photo-remove"
+                                id="coverPhotoRemove"
+                                hidden
+                            >
+                                &times;
+                            </button>
+
+                        </label>
+
+                        <input
+                            type="file"
+                            id="cover_photo"
+                            name="cover_photo"
+                            accept=".jpg,.jpeg,.png"
+                            hidden
+                            required
+                        >
+
+                        <div class="cover-photo-example">
+
+                            <span class="example-badge">
+
+                                Example
+
+                            </span>
+
+                            {# Legacy /webprogg/images/Living_Room.png —
+                           must exist at public/images/ #}
+                            <img
+                                src="{{ asset('images/Living_Room.png') }}"
+                                alt="Example of a good cover photo"
+                            >
+
+                        </div>
+
+                    </div>
+
+                    <!-- =============================================
+                     ADDITIONAL PHOTOS
+                ============================================== -->
+                    {% set max_additional_photos = max_additional_photos|default(20) %}
+                    {% set initial_photo_slots = initial_photo_slots|default(10) %}
+
+                    <div class="photo-section-label">
+
+                        <label>
+
+                            Additional Photos
+
+                        </label>
+
+                        <p>
+
+                            Add more photos to give renters a better idea of your space. You can add up to {{ max_additional_photos }} photos.
+
+                        </p>
+
+                    </div>
+
+                    <div
+                        class="photo-grid"
+                        id="photoGrid"
+                    >
+
+                        {% for i in 1..initial_photo_slots %}
+
+                            <div class="photo-slot">
+
+                                <button
+                                    type="button"
+                                    class="photo-slot-trigger"
+                                >
+
+                                    <span class="photo-slot-icon">
+
+                                        &#9729;
+
+                                    </span>
+
+                                    <span class="photo-slot-text">
+
+                                        <strong>Upload photo</strong>
+
+                                        <small>JPG, PNG &ndash; Max 5MB</small>
+
+                                    </span>
+
+                                </button>
+
+                                <img
+                                    class="photo-slot-preview"
+                                    alt="Photo preview"
+                                    hidden
+                                >
+
+                                <button
+                                    type="button"
+                                    class="photo-slot-remove"
+                                    hidden
+                                >
+                                    &times;
+                                </button>
+
+                                <input
+                                    type="file"
+                                    name="additional_photos[]"
+                                    accept=".jpg,.jpeg,.png"
+                                    class="photo-slot-input"
+                                    hidden
+                                >
+
+                            </div>
+
+                        {% endfor %}
+
+                    </div>
+
+                    <div class="form-actions">
+
+                        {# Legacy pointed at /webprogg/host/host-step2.php
+                       — hardcoded pretty URL here (no path()); this
+                       is the user's live Step 2 URL (cont-52). #}
+                        <a
+                            href="/host/step-2"
+                            class="back-button"
+                        >
+
+                            <span class="btn-arrow">&#8592;</span>
+
+                            BACK
+
+                        </a>
+
+                        <button
+                            type="submit"
+                            class="next-button"
+                        >
+
+                            <span class="btn-arrow">&#8594;</span>
+
+                            NEXT STEP
+
+                        </button>
+
+                    </div>
+
+                </form>
+
+            </section>
+
+        </main>
+
+        {# =========================================================
+       SHARED FOOTER (single source of truth — partials/footer.html.twig)
+    ========================================================= #}
+        {{ include('partials/footer.html.twig') }}
+
+        <!-- =========================================================
+         SCRIPTS
+    ========================================================== -->
+
+        <!-- Lucide icons — guarded loader (same key as navbar: never
+         double-runs). hs3RefreshIcons is kept as a thin alias so
+         any page reference keeps working. -->
+        <script>
+            (function () {
+                "use strict";
+
+                function renderRhIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
+                }
+
+                /* page alias — Step 2 keeps the same hs2RefreshIcons
+                                                   contract; keep the naming consistent here */
+                window.hs3RefreshIcons = renderRhIcons;
+
+                if (!window.__rhNavbarLucide) {
+                    window.__rhNavbarLucide = true;
+                    var s = document.createElement("script");
+                    s.src = "https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js";
+                    s.addEventListener("load", renderRhIcons);
+                    document.head.appendChild(s);
+                }
+
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", renderRhIcons);
+                } else {
+                    renderRhIcons();
+                }
+                window.addEventListener("load", renderRhIcons);
+            })();
+        </script>
+
+        <!-- =========================================================
+         STEP 3 SCRIPT — cover preview, photo slots, submit gate.
+         Hooks the exact IDs/classes in the markup above.
+    ========================================================== -->
+        <script>
+            (function () {
+                "use strict";
+
+                var form = document.getElementById("uploadPhotosForm");
+                if (!form) {
+                    return;
+                }
+
+                /* ---------- COVER PHOTO ---------- */
+
+                var coverBox = document.getElementById("coverPhotoBox");
+                var coverInput = document.getElementById("cover_photo");
+                var coverPreview = document.getElementById("coverPhotoPreview");
+                var coverRemove = document.getElementById("coverPhotoRemove");
+
+                function clearCover() {
+                    coverInput.value = "";
+                    coverPreview.removeAttribute("src");
+                    coverPreview.hidden = true;
+                    coverRemove.hidden = true;
+                    coverBox.classList.remove("has-image");
+                }
+
+                if (coverInput) {
+                    coverInput.addEventListener("change", function () {
+                        var file = coverInput.files && coverInput.files[0];
+
+                        if (!file) {
+                            clearCover();
+                            return;
+                        }
+
+                        if (["image/jpeg", "image/png"].indexOf(file.type) === -1) {
+                            clearCover();
+                            alert("Cover photo must be a JPG or PNG file.");
+                            return;
+                        }
+
+                        if (file.size > 5 * 1024 * 1024) {
+                            clearCover();
+                            alert("Cover photo must not exceed 5MB.");
+                            return;
+                        }
+
+                        var reader = new FileReader();
+                        reader.onload = function (e) {
+                            coverPreview.src = e.target.result;
+                            coverPreview.hidden = false;
+                            coverRemove.hidden = false;
+                            coverBox.classList.add("has-image");
+                        };
+                        reader.readAsDataURL(file);
+                    });
+                }
+
+                if (coverRemove) {
+                    coverRemove.addEventListener("click", function (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        clearCover();
+                    });
+                }
+
+                /* ---------- ADDITIONAL PHOTO SLOTS ---------- */
+
+                var slots = document.querySelectorAll(".photo-slot");
+
+                slots.forEach(function (slot) {
+                    var trigger = slot.querySelector(".photo-slot-trigger");
+                    var input = slot.querySelector(".photo-slot-input");
+                    var preview = slot.querySelector(".photo-slot-preview");
+                    var remove = slot.querySelector(".photo-slot-remove");
+
+                    if (!input) {
+                        return;
+                    }
+
+                    if (trigger) {
+                        trigger.addEventListener("click", function () {
+                            input.click();
+                        });
+                    }
+
+                    input.addEventListener("change", function () {
+                        var file = input.files && input.files[0];
+
+                        if (!file) {
+                            input.value = "";
+                            preview.removeAttribute("src");
+                            preview.hidden = true;
+                            remove.hidden = true;
+                            return;
+                        }
+
+                        if (["image/jpeg", "image/png"].indexOf(file.type) === -1) {
+                            input.value = "";
+                            preview.removeAttribute("src");
+                            preview.hidden = true;
+                            remove.hidden = true;
+                            alert("Additional photos must be JPG or PNG files.");
+                            return;
+                        }
+
+                        if (file.size > 5 * 1024 * 1024) {
+                            input.value = "";
+                            preview.removeAttribute("src");
+                            preview.hidden = true;
+                            remove.hidden = true;
+                            alert("Each photo must not exceed 5MB.");
+                            return;
+                        }
+
+                        var reader = new FileReader();
+                        reader.onload = function (e) {
+                            preview.src = e.target.result;
+                            preview.hidden = false;
+                            remove.hidden = false;
+                        };
+                        reader.readAsDataURL(file);
+                    });
+
+                    if (remove) {
+                        remove.addEventListener("click", function (e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+
+                            input.value = "";
+                            preview.removeAttribute("src");
+                            preview.hidden = true;
+                            remove.hidden = true;
+                        });
+                    }
+                });
+
+                /* ---------- SUBMIT GATE: cover photo is mandatory ---------- */
+
+                form.addEventListener("submit", function (e) {
+                    if (!coverInput.files || !coverInput.files.length) {
+                        e.preventDefault();
+                        alert("Please upload a cover photo before continuing.");
+                        if (coverBox) {
+                            coverBox.scrollIntoView({
+                                behavior: "smooth",
+                                block: "center",
+                            });
+                        }
+                        return;
+                    }
+                });
+            })();
+        </script>
+
+    </body>
+
+</html>

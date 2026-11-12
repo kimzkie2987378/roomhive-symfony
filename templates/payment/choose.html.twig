@@ -1,0 +1,958 @@
+{# =========================================================
+   RoomHive — Step 1 · Payment chooser
+   templates/payment/choose.html.twig
+
+   Renders for all three modes (set by PaymentController::choose):
+     mode = 'booking'  → pick dates/guests, pay the full total
+     mode = 'balance'  → pay the remaining balance of a booking
+     mode = 'fee'      → owner pays the one-time listing fee
+
+   Form posts to /payment/review with csrf_token (pay_choose).
+   Field names match PaymentController::bookingParams() exactly.
+========================================================= #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment — RoomHive</title>
+  <script>
+    try {
+      if (localStorage.getItem("rhTheme") === "dark") {
+        document.documentElement.setAttribute("data-theme-preview", "1");
+      }
+    } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="/assets/style.css">
+  <script>
+    document.documentElement.classList.add("js");
+  </script>
+  <style>
+    :root {
+      --pay-navy: #1c2a38;
+      --pay-amber: #b07708;
+      --pay-amber-dark: #96620a;
+      --pay-orange: #C77A00;
+      --pay-green: #1fa971;
+      --pay-green-bg: #e8f8f1;
+      --pay-blue: #2F7DE1;
+      --pay-red: #d64545;
+      --pay-red-bg: #fdecec;
+      --pay-muted: #6b7684;
+      --pay-bg: #f6f7f9;
+      --pay-card: #ffffff;
+      --pay-line: #e7eaee;
+      --pay-soft: #f6f7f9;
+    }
+
+    html[data-theme-preview="1"] {
+      --pay-navy: #e8ecf1;
+      --pay-muted: #9aa7b5;
+      --pay-bg: #141a22;
+      --pay-card: #1c2530;
+      --pay-line: #2a3542;
+      --pay-soft: #212c39;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--pay-bg);
+      color: var(--pay-navy);
+      min-height: 100vh;
+    }
+
+    /* ---------- top nav ---------- */
+    .pay-nav {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 28px;
+      background: var(--pay-card);
+      border-bottom: 1px solid var(--pay-line);
+    }
+
+    .pay-logo {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.3px;
+      color: var(--pay-navy);
+      text-decoration: none;
+    }
+
+    .pay-logo b { color: var(--pay-amber); }
+
+    .pay-nav-right {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .pay-bell {
+      position: relative;
+      display: inline-flex;
+      color: var(--pay-navy);
+      text-decoration: none;
+    }
+
+    .pay-bell svg { width: 21px; height: 21px; }
+
+    .pay-badge {
+      position: absolute;
+      top: -7px;
+      right: -9px;
+      min-width: 17px;
+      height: 17px;
+      padding: 0 4px;
+      border-radius: 9px;
+      background: var(--pay-red);
+      color: #ffffff;
+      font-size: 10px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .pay-avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid var(--pay-line);
+      display: block;
+    }
+
+    .pay-avatar-fallback {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: var(--pay-amber);
+      color: #ffffff;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    /* ---------- page head ---------- */
+    .ub-page-head {
+      max-width: 1020px;
+      margin: 0 auto;
+      padding: 34px 24px 6px;
+    }
+
+    .ub-eyebrow {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 1.6px;
+      text-transform: uppercase;
+      color: var(--pay-amber);
+      margin-bottom: 6px;
+    }
+
+    .ub-page-head h1 {
+      margin: 0 0 6px;
+      font-size: 30px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+    }
+
+    .ub-lead {
+      margin: 0;
+      color: var(--pay-muted);
+      font-size: 14.5px;
+    }
+
+    /* ---------- layout ---------- */
+    .pay-wrap {
+      max-width: 1020px;
+      margin: 0 auto;
+      padding: 22px 24px 60px;
+    }
+
+    .pay-grid {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    @media (max-width: 860px) {
+      .pay-grid { grid-template-columns: 1fr; }
+    }
+
+    .pay-card {
+      background: var(--pay-card);
+      border: 1px solid var(--pay-line);
+      border-radius: 16px;
+      padding: 20px;
+    }
+
+    /* ---------- summary card ---------- */
+    .pay-cover {
+      width: 100%;
+      height: 150px;
+      object-fit: cover;
+      border-radius: 12px;
+      background: var(--pay-soft);
+      display: block;
+    }
+
+    .pay-summary h3 {
+      margin: 12px 0 4px;
+      font-size: 17px;
+      font-weight: 800;
+    }
+
+    .pay-loc {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--pay-muted);
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+
+    .pay-loc svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+    .pay-rows { margin-top: 14px; border-top: 1px solid var(--pay-line); }
+
+    .pay-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--pay-line);
+      font-size: 13px;
+    }
+
+    .pay-row span { color: var(--pay-muted); }
+    .pay-row strong { font-weight: 700; text-align: right; }
+    .pay-row.due strong { color: var(--pay-orange); }
+
+    .pay-chip {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+      background: #FFF1DC;
+      color: #B07708;
+    }
+
+    /* ---------- form ---------- */
+    .pay-sec-title {
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      color: var(--pay-muted);
+      margin: 0 0 10px;
+    }
+
+    .pay-field {
+      margin-bottom: 14px;
+    }
+
+    .pay-field label {
+      display: block;
+      font-size: 12.5px;
+      font-weight: 700;
+      margin-bottom: 5px;
+    }
+
+    .pay-input,
+    .pay-select {
+      width: 100%;
+      padding: 11px 13px;
+      border: 1.5px solid var(--pay-line);
+      border-radius: 10px;
+      background: var(--pay-card);
+      color: var(--pay-navy);
+      font-family: inherit;
+      font-size: 14px;
+      outline: none;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+
+    .pay-input:focus {
+      border-color: var(--pay-amber);
+      box-shadow: 0 0 0 3px rgba(176, 119, 8, 0.12);
+    }
+
+    .pay-date-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .pay-check {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      padding: 11px 13px;
+      border: 1.5px dashed var(--pay-line);
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 13px;
+      margin: 4px 0 16px;
+    }
+
+    .pay-check input { margin-top: 2px; accent-color: var(--pay-amber); }
+
+    .pay-alert {
+      display: flex;
+      gap: 9px;
+      align-items: flex-start;
+      background: var(--pay-red-bg);
+      color: var(--pay-red);
+      border: 1px solid rgba(214, 69, 69, 0.25);
+      border-radius: 10px;
+      padding: 11px 13px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+
+    .pay-alert svg { width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px; }
+
+    .pay-field-error {
+      display: block;
+      color: var(--pay-red);
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 4px;
+    }
+
+    /* ---------- methods ---------- */
+    .pay-methods {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    @media (max-width: 480px) {
+      .pay-methods { grid-template-columns: 1fr; }
+    }
+
+    .pay-method-card {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 13px 14px;
+      border: 1.5px solid var(--pay-line);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+    }
+
+    .pay-method-card:hover { border-color: #d8c49a; }
+
+    .pay-method-card.selected {
+      border-color: var(--pay-amber);
+      background: rgba(176, 119, 8, 0.06);
+      box-shadow: 0 2px 10px rgba(176, 119, 8, 0.12);
+    }
+
+    .pay-method-card input { position: absolute; opacity: 0; pointer-events: none; }
+
+    .pay-method-card svg { width: 20px; height: 20px; color: var(--pay-amber); flex-shrink: 0; }
+
+    .pay-method-name {
+      font-size: 13.5px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+
+    .pay-method-sub {
+      display: block;
+      font-size: 11.5px;
+      color: var(--pay-muted);
+      font-weight: 600;
+      margin-top: 1px;
+    }
+
+    .pay-method-tick {
+      margin-left: auto;
+      width: 18px;
+      height: 18px;
+      color: var(--pay-amber);
+      opacity: 0;
+      transition: opacity .15s ease;
+    }
+
+    .pay-method-card.selected .pay-method-tick { opacity: 1; }
+
+    .pay-fields {
+      margin: 14px 0 4px;
+      padding: 14px;
+      border: 1px solid var(--pay-line);
+      border-radius: 12px;
+      background: var(--pay-soft);
+    }
+
+    .pay-fields[hidden] { display: none; }
+
+    .pay-field-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .pay-info-line {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      font-size: 13px;
+      color: var(--pay-muted);
+    }
+
+    .pay-info-line svg { width: 15px; height: 15px; flex-shrink: 0; margin-top: 1px; color: var(--pay-green); }
+
+    .pay-warn {
+      display: none;
+      margin-top: 8px;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--pay-orange);
+    }
+
+    .pay-warn.show { display: block; }
+
+    /* ---------- totals box ---------- */
+    .pay-totals {
+      margin: 18px 0;
+      padding: 14px 16px;
+      border: 1px solid var(--pay-line);
+      border-radius: 12px;
+      background: var(--pay-soft);
+    }
+
+    .pay-totals .pay-row { border-bottom: 1px dashed var(--pay-line); padding: 7px 0; }
+    .pay-totals .pay-row:last-child { border-bottom: none; }
+
+    .pay-due-big {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding-top: 10px;
+      margin-top: 4px;
+      border-top: 2px solid var(--pay-line);
+    }
+
+    .pay-due-big span {
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--pay-muted);
+    }
+
+    .pay-due-big strong {
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--pay-orange);
+      letter-spacing: -0.5px;
+    }
+
+    /* ---------- submit ---------- */
+    .pay-submit {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 14px 18px;
+      border: none;
+      border-radius: 12px;
+      background: var(--pay-amber);
+      color: #ffffff;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: 0.3px;
+      cursor: pointer;
+      transition: background .15s ease, transform .1s ease;
+    }
+
+    .pay-submit:hover { background: var(--pay-amber-dark); }
+    .pay-submit:active { transform: translateY(1px); }
+    .pay-submit svg { width: 16px; height: 16px; }
+
+    .pay-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 14px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--pay-muted);
+      text-decoration: none;
+    }
+
+    .pay-back:hover { color: var(--pay-navy); }
+    .pay-back svg { width: 14px; height: 14px; }
+
+    .pay-note {
+      display: flex;
+      gap: 7px;
+      align-items: center;
+      justify-content: center;
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--pay-muted);
+    }
+
+    .pay-note svg { width: 13px; height: 13px; color: var(--pay-green); }
+
+    .pay-footer {
+      text-align: center;
+      padding: 18px;
+      color: var(--pay-muted);
+      font-size: 12px;
+      border-top: 1px solid var(--pay-line);
+    }
+
+    svg.lucide {
+      display: inline-block;
+      vertical-align: -0.18em;
+      flex-shrink: 0;
+    }
+
+    /* reveal animation (same mechanism as the account pages) */
+    .pay-reveal {
+      opacity: 0;
+      transform: translateY(14px);
+      transition: opacity .6s ease, transform .6s ease;
+      transition-delay: calc(var(--i, 0) * 90ms);
+    }
+
+    .pay-reveal.in-view {
+      opacity: 1;
+      transform: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .pay-reveal { opacity: 1; transform: none; transition: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- TOP NAV -->
+  <header class="pay-nav">
+    <a class="pay-logo" href="/">Room<b>Hive</b></a>
+    <div class="pay-nav-right">
+      <a class="pay-bell" href="/notifications" aria-label="Notifications">
+        <i data-lucide="bell"></i>
+        {% if notif_count > 0 %}
+          <span class="pay-badge">{{ notif_count > 99 ? '99+' : notif_count }}</span>
+        {% endif %}
+      </a>
+      {% if user.avatar_path %}
+        <img class="pay-avatar" src="{{ user.avatar_path }}" alt="{{ user.name }}">
+      {% else %}
+        <span class="pay-avatar-fallback">{{ user.name|first|upper }}</span>
+      {% endif %}
+    </div>
+  </header>
+
+  <!-- PAGE HEADER -->
+  <header class="ub-page-head pay-reveal" style="--i: 0;">
+    <span class="ub-eyebrow">Payment</span>
+    {% if mode == 'balance' %}
+      <h1>Pay your remaining balance</h1>
+      <p class="ub-lead">Booking #{{ balance.booking_id }} &middot; settle the rest of “{{ balance.title }}”.</p>
+    {% elseif mode == 'fee' %}
+      <h1>Publish your listing</h1>
+      <p class="ub-lead">Pay the one-time listing fee to put “{{ listing.title }}” live on RoomHive.</p>
+    {% else %}
+      <h1>Choose how to pay</h1>
+      <p class="ub-lead">You’re booking “{{ listing.title }}” — pay in full to lock your dates.</p>
+    {% endif %}
+  </header>
+
+  <main class="pay-wrap">
+    <div class="pay-grid">
+
+      <!-- SUMMARY -->
+      <aside class="pay-card pay-summary pay-reveal" style="--i: 1;">
+        <img class="pay-cover" src="{{ cover }}" alt="{{ listing.title }}"
+             onerror="this.style.visibility='hidden';">
+        <h3>{{ listing.title }}</h3>
+        <div class="pay-loc">
+          <i data-lucide="map-pin"></i>
+          <span>{{ listing.location }}{% if listing.exact_address %} &middot; {{ listing.exact_address }}{% endif %}</span>
+        </div>
+
+        {% if mode == 'balance' %}
+          <div class="pay-rows">
+            <div class="pay-row"><span>Booking</span><strong>#{{ balance.booking_id }}</strong></div>
+            <div class="pay-row"><span>Check-in</span><strong>{{ balance.checkin ?: '—' }}</strong></div>
+            <div class="pay-row"><span>Check-out</span><strong>{{ balance.checkout ?: '—' }}</strong></div>
+            <div class="pay-row"><span>Guests</span><strong>{{ balance.guests }}</strong></div>
+            <div class="pay-row"><span>Total</span><strong>&#8369; {{ balance.total|number_format(2) }}</strong></div>
+            <div class="pay-row"><span>Paid so far</span><strong>&#8369; {{ balance.paid|number_format(2) }}</strong></div>
+            <div class="pay-row due"><span>Remaining</span><strong>&#8369; {{ balance.remaining|number_format(2) }}</strong></div>
+          </div>
+          <a class="pay-back" href="{{ path('app_payments') }}"><i data-lucide="arrow-left"></i> Back to payments</a>
+        {% elseif mode == 'fee' %}
+          <div class="pay-rows">
+            <div class="pay-row"><span>Status</span><strong><span class="pay-chip">Pending approval</span></strong></div>
+            <div class="pay-row"><span>Listing fee</span><strong>&#8369; {{ pricing.due_now|number_format(2) }}</strong></div>
+            <div class="pay-row"><span>Charged</span><strong>One-time</strong></div>
+          </div>
+          <a class="pay-back" href="{{ path('app_listing_detail', { id: listing.id }) }}"><i data-lucide="arrow-left"></i> Back to listing</a>
+        {% else %}
+          <div class="pay-rows">
+            <div class="pay-row"><span>Monthly rate</span><strong>&#8369; {{ listing.price|number_format(2) }}</strong></div>
+            <div class="pay-row"><span>Check-in</span><strong>{{ params.view.checkin ?: 'Choose below' }}</strong></div>
+            <div class="pay-row"><span>Check-out</span><strong>{{ params.view.checkout ?: 'Choose below' }}</strong></div>
+            <div class="pay-row"><span>Guests</span><strong>{{ params.view.guests }}</strong></div>
+          </div>
+          <a class="pay-back" href="{{ path('app_listing_detail', { id: listing.id }) }}"><i data-lucide="arrow-left"></i> Back to listing</a>
+        {% endif %}
+      </aside>
+
+      <!-- FORM -->
+      <section class="pay-card pay-reveal" style="--i: 2;">
+        {% if errors.general %}
+          <div class="pay-alert" role="alert">
+            <i data-lucide="alert-circle"></i>
+            <span>{{ errors.general }}</span>
+          </div>
+        {% endif %}
+
+        <form id="payForm"
+              method="post"
+              action="{{ path('app_payment_review') }}"
+              data-price="{{ listing.price }}"
+              data-wallet="{{ wallet }}"
+              novalidate>
+
+          <input type="hidden" name="csrf_token" value="{{ csrf_choose }}">
+          <input type="hidden" name="listing_id" value="{{ params.listing_id }}">
+          {% if mode == 'balance' %}
+            <input type="hidden" name="pay_balance" value="{{ balance.booking_id }}">
+          {% endif %}
+
+          {% if mode == 'booking' %}
+            <h4 class="pay-sec-title">Your stay</h4>
+            <div class="pay-date-grid">
+              <div class="pay-field">
+                <label for="f-checkin">Check-in</label>
+                <input class="pay-input" type="date" id="f-checkin" name="checkin"
+                       value="{{ params.view.checkin }}" min="{{ "now"|date("Y-m-d") }}">
+              </div>
+              <div class="pay-field">
+                <label for="f-checkout">Check-out</label>
+                <input class="pay-input" type="date" id="f-checkout" name="checkout"
+                       value="{{ params.view.checkout }}" min="{{ params.view.checkin ?: "now"|date("Y-m-d") }}">
+              </div>
+            </div>
+            <div class="pay-field" style="max-width: 180px;">
+              <label for="f-guests">Guests</label>
+              <input class="pay-input" type="number" id="f-guests" name="guests"
+                     value="{{ params.view.guests }}" min="1" max="20">
+            </div>
+          {% endif %}
+
+          <h4 class="pay-sec-title">Payment method</h4>
+          <div class="pay-methods">
+            {% for m in methods %}
+              <label class="pay-method-card" for="pm-{{ m }}">
+                <input type="radio" name="method" value="{{ m }}" id="pm-{{ m }}"
+                       {% if params.method == m %}checked{% endif %}>
+                <i data-lucide="{{ m == 'wallet' ? 'wallet' : (m == 'card' ? 'credit-card' : 'smartphone') }}"></i>
+                <span>
+                  <span class="pay-method-name">
+                    {%- if m == 'wallet' %}RoomHive Wallet{% elseif m == 'gcash' %}GCash{% elseif m == 'maya' %}Maya{% else %}Credit / Debit Card{% endif -%}
+                  </span>
+                  {% if m == 'wallet' %}
+                    <span class="pay-method-sub">Balance: &#8369; {{ wallet|number_format(2) }}</span>
+                  {% elseif m == 'gcash' %}
+                    <span class="pay-method-sub">Pay with your GCash number</span>
+                  {% elseif m == 'maya' %}
+                    <span class="pay-method-sub">Pay with your Maya number</span>
+                  {% else %}
+                    <span class="pay-method-sub">Visa / Mastercard</span>
+                  {% endif %}
+                </span>
+                <i data-lucide="check-circle-2" class="pay-method-tick"></i>
+              </label>
+            {% endfor %}
+          </div>
+
+          <!-- wallet panel -->
+          <div class="pay-fields" data-method="wallet" {% if params.method != 'wallet' %}hidden{% endif %}>
+            <div class="pay-info-line">
+              <i data-lucide="zap"></i>
+              <span>Your RoomHive Wallet will be charged instantly — no extra details needed.</span>
+            </div>
+            <span class="pay-warn" id="walletWarn">Your wallet balance is not enough for this amount. Top up first or pick another method.</span>
+          </div>
+
+          <!-- gcash panel -->
+          <div class="pay-fields" data-method="gcash" {% if params.method != 'gcash' %}hidden{% endif %}>
+            <div class="pay-field">
+              <label for="f-gcash">GCash mobile number</label>
+              <input class="pay-input" type="tel" id="f-gcash" name="gcash_phone"
+                     value="{{ params.gcash_phone }}" placeholder="09XXXXXXXXX"
+                     inputmode="numeric" maxlength="11" data-digits="11">
+              {% if errors.fields.gcash_phone is defined %}
+                <span class="pay-field-error">{{ errors.fields.gcash_phone }}</span>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- maya panel -->
+          <div class="pay-fields" data-method="maya" {% if params.method != 'maya' %}hidden{% endif %}>
+            <div class="pay-field">
+              <label for="f-maya">Maya mobile number</label>
+              <input class="pay-input" type="tel" id="f-maya" name="maya_phone"
+                     value="{{ params.maya_phone }}" placeholder="09XXXXXXXXX"
+                     inputmode="numeric" maxlength="11" data-digits="11">
+              {% if errors.fields.maya_phone is defined %}
+                <span class="pay-field-error">{{ errors.fields.maya_phone }}</span>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- card panel -->
+          <div class="pay-fields" data-method="card" {% if params.method != 'card' %}hidden{% endif %}>
+            <div class="pay-field">
+              <label for="f-cardnum">Card number</label>
+              <input class="pay-input" type="text" id="f-cardnum" name="card_number"
+                     value="{{ params.card_number }}" placeholder="0000 0000 0000 0000"
+                     inputmode="numeric" data-cardnum>
+              {% if errors.fields.card_number is defined %}
+                <span class="pay-field-error">{{ errors.fields.card_number }}</span>
+              {% endif %}
+            </div>
+            <div class="pay-field">
+              <label for="f-cardname">Name on card</label>
+              <input class="pay-input" type="text" id="f-cardname" name="card_name"
+                     value="{{ params.card_name }}" placeholder="JUAN DELA CRUZ">
+              {% if errors.fields.card_name is defined %}
+                <span class="pay-field-error">{{ errors.fields.card_name }}</span>
+              {% endif %}
+            </div>
+            <div class="pay-field-grid">
+              <div class="pay-field">
+                <label for="f-cardexp">Expiry (MM/YY)</label>
+                <input class="pay-input" type="text" id="f-cardexp" name="card_expiry"
+                       value="{{ params.card_expiry }}" placeholder="MM/YY"
+                       inputmode="numeric" maxlength="5" data-expiry>
+                {% if errors.fields.card_expiry is defined %}
+                  <span class="pay-field-error">{{ errors.fields.card_expiry }}</span>
+                {% endif %}
+              </div>
+              <div class="pay-field">
+                <label for="f-cardcvv">CVV</label>
+                <input class="pay-input" type="password" id="f-cardcvv" name="card_cvv"
+                       value="{{ params.card_cvv }}" placeholder="•••"
+                       inputmode="numeric" maxlength="4" data-digits="4">
+                {% if errors.fields.card_cvv is defined %}
+                  <span class="pay-field-error">{{ errors.fields.card_cvv }}</span>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          <!-- totals -->
+          <div class="pay-totals">
+            {% if mode == 'booking' %}
+              <div class="pay-row"><span>Duration</span><strong id="p-months">{{ pricing.months }} month{{ pricing.months == 1 ? '' : 's' }}</strong></div>
+              <div class="pay-row"><span>Total rent</span><strong id="p-total">&#8369; {{ pricing.total|number_format(2) }}</strong></div>
+              <div class="pay-row"><span>Due today (full total)</span><strong id="p-reserve">&#8369; {{ pricing.reserve|number_format(2) }}</strong></div>
+            {% elseif mode == 'balance' %}
+              <div class="pay-row"><span>Total</span><strong>&#8369; {{ balance.total|number_format(2) }}</strong></div>
+              <div class="pay-row"><span>Already paid</span><strong>&#8369; {{ balance.paid|number_format(2) }}</strong></div>
+            {% else %}
+              <div class="pay-row"><span>Listing fee</span><strong>&#8369; {{ pricing.total|number_format(2) }}</strong></div>
+            {% endif %}
+            <div class="pay-due-big">
+              <span>Amount due now</span>
+              <strong id="p-due">&#8369; {{ pricing.due_now|number_format(2) }}</strong>
+            </div>
+          </div>
+
+          <button class="pay-submit" type="submit">
+            Review payment <i data-lucide="arrow-right"></i>
+          </button>
+          <div class="pay-note">
+            <i data-lucide="shield-check"></i>
+            <span>Secure checkout — payments are settled with the host or support.</span>
+          </div>
+        </form>
+      </section>
+
+    </div>
+  </main>
+
+  <footer class="pay-footer">RoomHive &middot; find your nest</footer>
+
+  <!-- LUCIDE ICONS -->
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+  <script>
+    function payRefreshIcons() {
+      if (window.lucide && typeof lucide.createIcons === 'function') {
+        lucide.createIcons();
+      }
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', payRefreshIcons);
+    } else {
+      payRefreshIcons();
+    }
+  </script>
+
+  <!-- Reveal on scroll (same mechanism as the account pages) -->
+  <script>
+    (function () {
+      "use strict";
+      var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      var els = Array.prototype.slice.call(document.querySelectorAll(".pay-reveal"));
+      if (reduced || !("IntersectionObserver" in window)) {
+        els.forEach(function (el) { el.classList.add("in-view"); });
+        return;
+      }
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          var el = entry.target;
+          io.unobserve(el);
+          el.classList.add("in-view");
+          window.setTimeout(function () { el.style.setProperty("--i", "0"); }, 1200);
+        });
+      }, { threshold: 0.12, rootMargin: "0px 0px -40px 0px" });
+      els.forEach(function (el) { io.observe(el); });
+    })();
+  </script>
+
+  <!-- Chooser behaviour: method switching, live pricing, input masks -->
+  <script>
+    (function () {
+      "use strict";
+
+      var form = document.getElementById("payForm");
+      if (!form) return;
+
+      var price  = parseFloat(form.getAttribute("data-price")) || 0;
+      var wallet = parseFloat(form.getAttribute("data-wallet")) || 0;
+
+      /* ---------- method switching ---------- */
+      var radios = Array.prototype.slice.call(form.querySelectorAll('input[name="method"]'));
+      var panels = Array.prototype.slice.call(form.querySelectorAll(".pay-fields"));
+
+      function currentMethod() {
+        for (var i = 0; i < radios.length; i++) {
+          if (radios[i].checked) return radios[i].value;
+        }
+        return "";
+      }
+
+      function syncMethods() {
+        var m = currentMethod();
+        form.querySelectorAll(".pay-method-card").forEach(function (card) {
+          card.classList.toggle("selected", card.querySelector("input").checked);
+        });
+        panels.forEach(function (p) {
+          p.hidden = p.getAttribute("data-method") !== m;
+        });
+        syncWalletWarn();
+      }
+      radios.forEach(function (r) { r.addEventListener("change", syncMethods); });
+
+      /* ---------- live pricing (booking mode only) ---------- */
+      var checkin  = document.getElementById("f-checkin");
+      var checkout = document.getElementById("f-checkout");
+
+      function peso(n) {
+        return "\u20B1" + Number(n).toLocaleString(undefined, {
+          minimumFractionDigits: 2, maximumFractionDigits: 2
+        });
+      }
+      function setText(id, text) {
+        var el = document.getElementById(id);
+        if (el) el.textContent = text;
+      }
+      function currentDue() {
+        if (!checkin || !checkout) return null; /* balance / fee: fixed amount */
+        var months = 1;
+        if (checkin.value && checkout.value && checkout.value > checkin.value) {
+          var days = Math.ceil((new Date(checkout.value) - new Date(checkin.value)) / 86400000);
+          months = Math.max(1, Math.ceil(days / 30));
+        }
+        var total = Math.round(price * months * 100) / 100;
+        setText("p-months", months + (months === 1 ? " month" : " months"));
+        setText("p-total", peso(total));
+        setText("p-reserve", peso(total));
+        setText("p-due", peso(total));
+        return total;
+      }
+      function syncWalletWarn(due) {
+        var warn = document.getElementById("walletWarn");
+        if (!warn) return;
+        var m = currentMethod();
+        var amount = (due === undefined || due === null)
+          ? (parseFloat(document.getElementById("p-due").textContent.replace(/[^\d.]/g, "")) || 0)
+          : due;
+        warn.classList.toggle("show", m === "wallet" && wallet < amount);
+      }
+
+      if (checkin && checkout) {
+        checkin.addEventListener("change", function () {
+          if (checkin.value) {
+            var d = new Date(checkin.value);
+            d.setDate(d.getDate() + 1);
+            checkout.min = d.toISOString().slice(0, 10);
+          }
+          currentDue();
+        });
+        checkout.addEventListener("change", currentDue);
+      }
+
+      /* ---------- input masks ---------- */
+      form.querySelectorAll("[data-digits]").forEach(function (inp) {
+        inp.addEventListener("input", function () {
+          var max = parseInt(inp.getAttribute("data-digits"), 10) || 11;
+          inp.value = inp.value.replace(/\D+/g, "").slice(0, max);
+        });
+      });
+
+      var cardNum = form.querySelector("[data-cardnum]");
+      if (cardNum) {
+        cardNum.addEventListener("input", function () {
+          var digits = cardNum.value.replace(/\D+/g, "").slice(0, 16);
+          cardNum.value = digits.replace(/(\d{4})(?=\d)/g, "$1 ");
+        });
+      }
+
+      var expiry = form.querySelector("[data-expiry]");
+      if (expiry) {
+        expiry.addEventListener("input", function () {
+          var d = expiry.value.replace(/\D+/g, "").slice(0, 4);
+          expiry.value = d.length > 2 ? d.slice(0, 2) + "/" + d.slice(2) : d;
+        });
+      }
+
+      /* init */
+      syncMethods();
+      currentDue();
+    })();
+  </script>
+
+</body>
+</html>

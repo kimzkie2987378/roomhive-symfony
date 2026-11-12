@@ -1,0 +1,809 @@
+{# roomhive/admin/dashboard.html.twig
+   Admin dashboard — extends admin/base.html.twig.
+
+   Page-specific bits (CSS for charts, the content itself, and the
+   chart-animation script) live in blocks; everything else (sidebar,
+   topbar, base CSS, nav-alignment JS) comes from the base.
+#}
+{% extends 'admin/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'Dashboard' %}
+{% set page_heading = 'Dashboard' %}
+{% set page_subheading = "Overview of your platform's performance and key activities." %}
+
+{% block styles %}
+    <style>
+        .host-app-actions {
+            display: flex;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        .host-app-form {
+            margin: 0;
+        }
+        .host-app-btn {
+            border: none;
+            border-radius: 6px;
+            padding: 5px 10px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .host-app-approve {
+            background: #e7f7ec;
+            color: #2fa84f;
+        }
+        .host-app-approve:hover {
+            background: #2fa84f;
+            color: #fff;
+        }
+        .host-app-reject {
+            background: #fceaea;
+            color: #e14b4b;
+        }
+        .host-app-reject:hover {
+            background: #e14b4b;
+            color: #fff;
+        }
+
+        /* layout: nested chart cluster inside Row 2's left column */
+        .stack .inner-grid {
+            margin-top: 4px;
+        }
+        .stack .inner-grid .panel {
+            box-shadow: none;
+            border: 1px solid #eef1f6;
+            background: #fbfcfe;
+        }
+
+        /* ===== NATIVE CHARTS — animation gate ===== */
+        .js [data-anim-chart]:not(.on) .al-area {
+            opacity: 0;
+        }
+        .js [data-anim-chart]:not(.on) .al-line {
+            stroke-dashoffset: 1;
+        }
+        .js [data-anim-chart]:not(.on) .al-val {
+            opacity: 0;
+        }
+        .js [data-anim-chart]:not(.on) .vbar {
+            height: 0 !important;
+        }
+        .js [data-anim-chart]:not(.on) .hbar {
+            width: 0 !important;
+        }
+        .js [data-anim-chart]:not(.on) .donut-seg {
+            stroke-dasharray: 0 var(--C);
+        }
+        .js [data-anim-chart]:not(.on) .g-bar {
+            height: 0 !important;
+        }
+
+        /* ---- 1) SVG area/line (Bookings 7d, with per-point numbers) ---- */
+        .adm-linechart svg {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        .al-line {
+            fill: none;
+            stroke: #2f7de1;
+            stroke-width: 2.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke-dasharray: 1;
+            stroke-dashoffset: 0;
+            transition: stroke-dashoffset 1.4s ease 0.1s;
+        }
+        .al-area {
+            fill: rgba(47, 125, 225, 0.12);
+            opacity: 1;
+            transition: opacity 0.8s ease 0.7s;
+        }
+        .al-dot {
+            fill: #fff;
+            stroke: #2f7de1;
+            stroke-width: 2;
+            cursor: pointer;
+            transition: r 0.12s ease;
+        }
+        .al-dot:hover {
+            r: 4.5;
+        }
+        .al-grid {
+            stroke: #eef1f6;
+            stroke-width: 1;
+        }
+        .al-txt {
+            font-size: 10px;
+            fill: #8b93a6;
+            font-family: "Inter", sans-serif;
+        }
+        .al-val {
+            font-size: 10.5px;
+            font-weight: 800;
+            fill: #2f7de1;
+            font-family: "Inter", sans-serif;
+            opacity: 1;
+            transition: opacity 0.6s ease 1s;
+            pointer-events: none;
+        }
+        .al-xlabels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 6px;
+            font-size: 11px;
+            color: #8b93a6;
+        }
+
+        /* ---- 2/5) SVG donuts ---- */
+        .adm-donut {
+            position: relative;
+            width: 180px;
+            height: 180px;
+            margin: 12px auto;
+        }
+        .adm-donut svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        .donut-track {
+            fill: none;
+            stroke: #f0f1f6;
+            stroke-width: 14;
+        }
+        .donut-seg {
+            fill: none;
+            stroke-width: 14;
+            stroke-dasharray: var(--dash);
+            transition: stroke-dasharray 0.9s ease;
+        }
+        .donut-center {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }
+        .donut-total {
+            font-size: 22px;
+            font-weight: 800;
+            color: #14142b;
+            line-height: 1;
+        }
+        .donut-label {
+            font-size: 11px;
+            color: #8b93a6;
+            margin-top: 3px;
+        }
+
+        /* ---- 3) Vertical bars (Revenue 7d) ---- */
+        .adm-vbars {
+            display: flex;
+            align-items: flex-end;
+            gap: 10px;
+            height: 190px;
+            padding-top: 22px;
+        }
+        .vbar-col {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            height: 100%;
+        }
+        .vbar-track {
+            flex: 1;
+            width: 100%;
+            max-width: 46px;
+            display: flex;
+            align-items: flex-end;
+            background: #f6f7fb;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .vbar {
+            width: 100%;
+            height: var(--h, 2%);
+            background: linear-gradient(180deg, #43bd67, #2fa84f);
+            border-radius: 8px 8px 0 0;
+            transition: height 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .vbar-val {
+            font-size: 10.5px;
+            font-weight: 700;
+            color: #14142b;
+            white-space: nowrap;
+        }
+        .vbar-lbl {
+            font-size: 11px;
+            color: #8b93a6;
+            white-space: nowrap;
+        }
+
+        /* ---- 4) Grouped bars (Growth, 2 series) ---- */
+        .growth-legend {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 12px;
+        }
+        .growth-legend span.gli {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #5b6172;
+        }
+        .gli-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        .adm-growth {
+            display: flex;
+            align-items: flex-end;
+            gap: 12px;
+            height: 170px;
+        }
+        .growth-col {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            height: 100%;
+        }
+        .growth-pair {
+            flex: 1;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            gap: 4px;
+            width: 100%;
+        }
+        .g-track {
+            width: 16px;
+            height: 100%;
+            display: flex;
+            align-items: flex-end;
+            background: #f6f7fb;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .g-bar {
+            width: 100%;
+            height: var(--h, 2%);
+            border-radius: 6px 6px 0 0;
+            transition: height 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .g-user {
+            background: linear-gradient(180deg, #4a86e8, #2f7de1);
+        }
+        .g-listing {
+            background: linear-gradient(180deg, #43bd67, #2fa84f);
+        }
+        .growth-lbl {
+            font-size: 10.5px;
+            color: #8b93a6;
+            white-space: nowrap;
+        }
+        .growth-nums {
+            display: flex;
+            gap: 8px;
+            font-size: 9.5px;
+            color: #5b6172;
+        }
+
+        /* ---- 6/7) Horizontal bars (Ratings / Locations) ---- */
+        .adm-hbars {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 6px 0;
+        }
+        .hbar-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .hbar-label {
+            width: 34px;
+            flex-shrink: 0;
+            font-size: 12px;
+            font-weight: 700;
+            color: #5b6172;
+            text-align: right;
+        }
+        .hbar-row.loc .hbar-label {
+            width: 130px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: left;
+        }
+        .hbar-track {
+            flex: 1;
+            height: 16px;
+            background: #f6f7fb;
+            border-radius: 999px;
+            overflow: hidden;
+        }
+        .hbar {
+            height: 100%;
+            width: var(--w, 0%);
+            border-radius: 999px;
+            transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .hbar-gold {
+            background: linear-gradient(90deg, #f6c04e, #eda423);
+        }
+        .hbar-blue {
+            background: linear-gradient(90deg, #4a86e8, #2f7de1);
+        }
+        .hbar-val {
+            width: 40px;
+            flex-shrink: 0;
+            font-size: 12px;
+            font-weight: 700;
+            color: #14142b;
+            text-align: right;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .al-line,
+            .al-area,
+            .al-val,
+            .vbar,
+            .hbar,
+            .g-bar,
+            .donut-seg {
+                transition: none !important;
+            }
+            .js [data-anim-chart]:not(.on) .al-area {
+                opacity: 1;
+            }
+            .js [data-anim-chart]:not(.on) .al-line {
+                stroke-dashoffset: 0;
+            }
+            .js [data-anim-chart]:not(.on) .al-val {
+                opacity: 1;
+            }
+            .js [data-anim-chart]:not(.on) .vbar {
+                height: var(--h) !important;
+            }
+            .js [data-anim-chart]:not(.on) .hbar {
+                width: var(--w) !important;
+            }
+            .js [data-anim-chart]:not(.on) .g-bar {
+                height: var(--h) !important;
+            }
+            .js [data-anim-chart]:not(.on) .donut-seg {
+                stroke-dasharray: var(--dash);
+            }
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    {# ---- Stat cards ---- #}
+    <div class="stat-grid">
+        {% for stat in stats %}
+            <div class="stat-card">
+                <div class="stat-icon">{{ ui.icon(stat.icon) }}</div>
+                <div class="stat-body">
+                    <span class="stat-label">{{ stat.label }}</span>
+                    <div class="stat-value-row">
+                        <span class="stat-value">{{ stat.value }}</span>
+                        {% if stat.delta %}
+                            <span class="stat-delta {{ stat.up ? 'up' : 'down' }}">
+                                {{ ui.icon('arrow-up', 'delta-arrow') }}{{ stat.delta }}
+                            </span>
+                        {% endif %}
+                    </div>
+                    <span class="stat-caption">{{ stat.caption }}</span>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+
+    {# ---- Row 1 ---- #}
+    <div class="grid-3">
+        <div class="panel span-2">
+            <div class="panel-header">
+                <h2>Bookings Overview</h2>
+                <select class="period-select"><option>Last 7 Days</option></select>
+            </div>
+
+            <div class="adm-linechart" data-anim-chart>
+                <svg viewBox="0 0 600 160" role="img" aria-label="Bookings for the last 7 days">
+                    <line class="al-grid" x1="8" y1="18" x2="592" y2="18"></line>
+                    <line class="al-grid" x1="8" y1="84" x2="592" y2="84"></line>
+                    <line class="al-grid" x1="8" y1="150" x2="592" y2="150"></line>
+
+                    <text class="al-txt" x="2" y="13">{{ book_max }}</text>
+                    <text class="al-txt" x="2" y="88">{{ book_mid }}</text>
+                    <text class="al-txt" x="2" y="147">0</text>
+
+                    <path class="al-area" d="{{ book_area_path }}"></path>
+
+                    <polyline class="al-line" pathLength="1" points="{{ book_points_str }}"></polyline>
+
+                    {% for d in book_dots %}
+                        <text class="al-val" x="{{ d.x }}" y="{{ d.ly }}" text-anchor="middle">{{ d.v }}</text>
+                        <circle class="al-dot" cx="{{ d.x }}" cy="{{ d.y }}" r="3">
+                            <title>{{ d.v }} booking{{ d.v == 1 ? '' : 's' }} — {{ d.label }}</title>
+                        </circle>
+                    {% endfor %}
+                </svg>
+
+                <div class="al-xlabels">
+                    {% for lbl in chart_labels %}<span>{{ lbl }}</span>{% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h2>Bookings by Status</h2>
+                <select class="period-select"><option>All Time</option></select>
+            </div>
+            {% if total_bookings_for_donut == 0 %}
+                {{ ui.empty_state('No bookings yet — the chart will appear once bookings come in.') }}
+            {% else %}
+                <div class="adm-donut" data-anim-chart>
+                    <svg viewBox="0 0 100 100" role="img" aria-label="Bookings by status">
+                        <g transform="rotate(-90 50 50)">
+                            <circle class="donut-track" cx="50" cy="50" r="40"></circle>
+                            {% for seg in status_donut %}
+                                <circle
+                                    class="donut-seg"
+                                    cx="50"
+                                    cy="50"
+                                    r="40"
+                                    style="--dash: {{ seg.dash }}; --C: {{ seg.C }}; stroke: {{ seg.color }}; stroke-dashoffset: {{ seg.offset }};"
+                                >
+                                    <title>{{ seg.label }}: {{ seg.value }} ({{ seg.pctStr }})</title>
+                                </circle>
+                            {% endfor %}
+                        </g>
+                    </svg>
+                    <div class="donut-center">
+                        <span class="donut-total">{{ total_bookings_for_donut }}</span>
+                        <span class="donut-label">Total</span>
+                    </div>
+                </div>
+                <ul class="legend-list">
+                    {% for s in status_breakdown %}
+                        <li>
+                            <span class="dot" style="background:{{ s.color }}"></span>
+                            <span class="legend-label">{{ s.label }}</span>
+                            <span class="legend-value">{{ s.value }} ({{ s.pct }})</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </div>
+    </div>
+
+    {# ---- Row 2 — left column packs all chart panels ---- #}
+    <div class="grid-3">
+        <div class="panel span-2 stack">
+            <div>
+                <div class="panel-header">
+                    <h2>Revenue Overview</h2>
+                    <select class="period-select"><option>Last 7 Days</option></select>
+                </div>
+                <div class="revenue-total-row">
+                    <span class="revenue-total">₱{{ week_revenue_total|number_format }}</span>
+                    <span class="stat-caption">{{ week_revenue_total > 0 ? 'Paid in the last 7 days (all bookings)' : 'No bookings in the last 7 days' }}</span>
+                </div>
+
+                <div class="adm-vbars" data-anim-chart>
+                    {% for b in rev_bars %}
+                        <div class="vbar-col" title="{{ b.label }}: ₱{{ b.v|number_format(2) }}">
+                            <span class="vbar-val">{{ b.short }}</span>
+                            <div class="vbar-track">
+                                <div class="vbar" style="--h: {{ b.pct }}%;"></div>
+                            </div>
+                            <span class="vbar-lbl">{{ b.label }}</span>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="platform-summary">
+                <h2 class="summary-heading">Platform Summary</h2>
+                <div class="summary-grid">
+                    {% for p in platform_summary %}
+                        <div class="summary-item">
+                            <div class="summary-icon">{{ ui.icon(p.icon) }}</div>
+                            <div>
+                                <span class="summary-label">{{ p.label }}</span>
+                                <span class="summary-value">{{ p.value }}</span>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            {# ===== INNER CHART CLUSTER ===== #}
+            <div class="inner-grid grid-3">
+
+                <div class="panel span-2">
+                    <div class="panel-header">
+                        <h2>User &amp; Listing Growth</h2>
+                        <select class="period-select"><option>Last 6 Months</option></select>
+                    </div>
+
+                    <div class="growth-legend">
+                        <span class="gli"><span class="gli-dot" style="background:#2F7DE1;"></span> New Users</span>
+                        <span class="gli"><span class="gli-dot" style="background:#2FA84F;"></span> New Listings</span>
+                    </div>
+
+                    <div class="adm-growth" data-anim-chart>
+                        {% for gr in growth_bars %}
+                            <div class="growth-col" title="{{ gr.label }}: {{ gr.users }} users, {{ gr.listings }} listings">
+                                <div class="growth-pair">
+                                    <div class="g-track"><div class="g-bar g-user" style="--h: {{ gr.users_pct }}%;"></div></div>
+                                    <div class="g-track"><div class="g-bar g-listing" style="--h: {{ gr.listings_pct }}%;"></div></div>
+                                </div>
+                                <div class="growth-nums">
+                                    <span>{{ gr.users }}</span>
+                                    <span>{{ gr.listings }}</span>
+                                </div>
+                                <span class="growth-lbl">{{ gr.label }}</span>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>Listings by Status</h2>
+                        <select class="period-select"><option>All Time</option></select>
+                    </div>
+                    {% if total_listings_for_donut == 0 %}
+                        {{ ui.empty_state('No listings yet.') }}
+                    {% else %}
+                        <div class="adm-donut" data-anim-chart>
+                            <svg viewBox="0 0 100 100" role="img" aria-label="Listings by status">
+                                <g transform="rotate(-90 50 50)">
+                                    <circle class="donut-track" cx="50" cy="50" r="40"></circle>
+                                    {% for seg in listing_donut %}
+                                        <circle
+                                            class="donut-seg"
+                                            cx="50"
+                                            cy="50"
+                                            r="40"
+                                            style="--dash: {{ seg.dash }}; --C: {{ seg.C }}; stroke: {{ seg.color }}; stroke-dashoffset: {{ seg.offset }};"
+                                        >
+                                            <title>{{ seg.label }}: {{ seg.value }} ({{ seg.pctStr }})</title>
+                                        </circle>
+                                    {% endfor %}
+                                </g>
+                            </svg>
+                            <div class="donut-center">
+                                <span class="donut-total">{{ total_listings_for_donut }}</span>
+                                <span class="donut-label">Total</span>
+                            </div>
+                        </div>
+                        <ul class="legend-list">
+                            {% for s in listing_breakdown %}
+                                <li>
+                                    <span class="dot" style="background:{{ s.color }}"></span>
+                                    <span class="legend-label">{{ s.label }}</span>
+                                    <span class="legend-value">{{ s.value }}</span>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>Rating Distribution</h2>
+                        <select class="period-select"><option>All Time</option></select>
+                    </div>
+                    {% if total_reviews == 0 %}
+                        {{ ui.empty_state('No reviews yet.') }}
+                    {% else %}
+                        <div class="adm-hbars" data-anim-chart>
+                            {% for rb in rating_bars %}
+                                <div class="hbar-row" title="{{ rb.label }}: {{ rb.v }} review{{ rb.v == 1 ? '' : 's' }}">
+                                    <span class="hbar-label">{{ rb.label }}</span>
+                                    <div class="hbar-track">
+                                        <div class="hbar hbar-gold" style="--w: {{ rb.pct }}%;"></div>
+                                    </div>
+                                    <span class="hbar-val">{{ rb.v }}</span>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="panel span-2">
+                    <div class="panel-header">
+                        <h2>Top Locations by Bookings</h2>
+                        <select class="period-select"><option>All Time</option></select>
+                    </div>
+                    {% if loc_bars is empty %}
+                        {{ ui.empty_state('No bookings yet.') }}
+                    {% else %}
+                        <div class="adm-hbars" data-anim-chart>
+                            {% for lb in loc_bars %}
+                                <div class="hbar-row loc" title="{{ lb.label }}: {{ lb.v }} booking{{ lb.v == 1 ? '' : 's' }}">
+                                    <span class="hbar-label">{{ lb.label }}</span>
+                                    <div class="hbar-track">
+                                        <div class="hbar hbar-blue" style="--w: {{ lb.pct }}%;"></div>
+                                    </div>
+                                    <span class="hbar-val">{{ lb.v }}</span>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+
+            </div>
+            {# ===== END INNER CHART CLUSTER ===== #}
+
+        </div>
+
+        <div class="col-stack">
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>Recent Host Applications</h2>
+                    <a href="/admin/host-applications" class="view-all">View All</a>
+                </div>
+                {% if host_applications is empty %}
+                    {{ ui.empty_state('No host applications yet.') }}
+                {% else %}
+                    <ul class="people-list">
+                        {% for h in host_applications %}
+                            <li>
+                                {{ ui.list_image(h.img, h.name) }}
+                                <div class="people-info">
+                                    <span class="people-name">{{ h.name }}</span>
+                                    <span class="people-sub">{{ h.city }}</span>
+                                </div>
+                                {% if h.raw_status == 'pending' %}
+                                    <div class="host-app-actions">
+                                        <form method="post" action="/admin" class="host-app-form">
+                                            <input type="hidden" name="csrf_token" value="{{ admin_csrf }}">
+                                            <input type="hidden" name="application_id" value="{{ h.id }}">
+                                            <input type="hidden" name="host_app_action" value="approve">
+                                            <button
+                                                type="submit"
+                                                class="host-app-btn host-app-approve"
+                                                onclick="return confirm({{ ('Approve ' ~ h.name ~ "'s host application?")|json_encode|e('html_attr') }});"
+                                            >Approve</button>
+                                        </form>
+                                        <form method="post" action="/admin" class="host-app-form">
+                                            <input type="hidden" name="csrf_token" value="{{ admin_csrf }}">
+                                            <input type="hidden" name="application_id" value="{{ h.id }}">
+                                            <input type="hidden" name="host_app_action" value="reject">
+                                            <button
+                                                type="submit"
+                                                class="host-app-btn host-app-reject"
+                                                onclick="return confirm({{ ('Reject ' ~ h.name ~ "'s host application?")|json_encode|e('html_attr') }});"
+                                            >Reject</button>
+                                        </form>
+                                    </div>
+                                {% else %}
+                                    <span class="badge {{ badge_class_map[h.status] ?? '' }}">{{ h.status }}</span>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>Top Performing Listings</h2>
+                    <a href="/admin/listings" class="view-all">View All</a>
+                </div>
+                {% if top_listings is empty %}
+                    {{ ui.empty_state('No listings published yet.') }}
+                {% else %}
+                    <ul class="listing-list">
+                        {% for i, l in top_listings %}
+                            <li>
+                                <span class="rank">{{ i + 1 }}</span>
+                                {{ ui.list_image(l.img, l.name) }}
+                                <div class="people-info">
+                                    <span class="people-name">{{ l.name }}</span>
+                                    <span class="people-sub">{{ l.city }}</span>
+                                </div>
+                                <div class="listing-figures">
+                                    <span class="listing-revenue">{{ l.revenue }}</span>
+                                    <span class="listing-bookings">{{ l.bookings }}</span>
+                                </div>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>Recent Bookings</h2>
+                    <a href="/admin/bookings" class="view-all">View All</a>
+                </div>
+                {% if recent_bookings is empty %}
+                    {{ ui.empty_state('No bookings yet.') }}
+                {% else %}
+                    <ul class="booking-list">
+                        {% for b in recent_bookings %}
+                            <li>
+                                {{ ui.list_image(b.img, b.name) }}
+                                <div class="people-info">
+                                    <span class="people-name">{{ b.name }}</span>
+                                    <span class="people-sub">{{ b.city }}</span>
+                                </div>
+                                <div class="booking-figures">
+                                    <span class="booking-date">{{ b.date }}</span>
+                                    <span class="booking-amount">{{ b.amount }}</span>
+                                    <span class="badge {{ badge_class_map[b.status] ?? '' }}">{{ b.status }}</span>
+                                </div>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        /* =====================================================
+                                           NATIVE CHART ANIMATIONS — one observer for all charts.
+                                           No libraries. Charts are fully rendered in the markup;
+                                           .on just triggers their CSS transitions (staggered).
+                                        ====================================================== */
+        (function () {
+            "use strict";
+
+            var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            var charts = document.querySelectorAll("[data-anim-chart]");
+            if (!charts.length) {
+                return;
+            }
+
+            if (reduced || !("IntersectionObserver" in window)) {
+                charts.forEach(function (c) {
+                    c.classList.add("on");
+                });
+                return;
+            }
+
+            var cIO = new IntersectionObserver(
+                function (entries) {
+                    entries.forEach(function (entry) {
+                        if (!entry.isIntersecting) {
+                            return;
+                        }
+                        cIO.unobserve(entry.target);
+                        entry.target
+                            .querySelectorAll(".vbar, .hbar, .g-bar, .donut-seg")
+                            .forEach(function (seg, i) {
+                                seg.style.transitionDelay = i * 40 + "ms";
+                            });
+                        entry.target.classList.add("on");
+                    });
+                },
+                { threshold: 0.3 },
+            );
+
+            charts.forEach(function (c) {
+                cIO.observe(c);
+            });
+        })();
+    </script>
+{% endblock %}

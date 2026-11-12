@@ -1,34 +1,300 @@
 {# =========================================================
-   ROOMHIVE — ACCOUNT SIDEBAR
-   Include as: {% include 'partials/sidebar.html.twig' with { active_sidebar: 'overview' } %}
+   ROOMHIVE (Symfony) — templates/partials/sidebar.html.twig
+   Account sidebar — 1:1 port of legacy includes/sidebar.php
+   (up-sidebar design; collapse persists via localStorage:
+   roomhive_sidebar_collapsed, handled by each page's script)
 
-   Relies on .up-side-* classes in myaccount.css. Adjust the
-   hrefs as you port more account pages.
-========================================================= #}
-{% set side_links = {
-    'overview':     { 'label': 'Overview',       'icon': 'layout-dashboard', 'href': path('app_profile') },
-    'bookings':     { 'label': 'My Bookings',    'icon': 'calendar-days',    'href': '/bookings' },
-    'wishlist':     { 'label': 'Wishlist',       'icon': 'heart',            'href': '/wishlist' },
-    'messages':     { 'label': 'Messages',       'icon': 'message-circle',   'href': '/messages' },
-    'notifications':{ 'label': 'Notifications',  'icon': 'bell',             'href': '/notifications' },
-    'wallet':       { 'label': 'Wallet',         'icon': 'wallet',           'href': '/wallet' },
-    'settings':     { 'label': 'Profile Settings','icon': 'settings',        'href': '/settings' },
-} %}
+   USAGE:
+       {% include 'partials/sidebar.html.twig' with { active_sidebar: 'profile' } %}
 
-<aside class="up-sidebar">
-    <nav class="up-side-nav">
-        {% for key, link in side_links %}
-            <a
-                href="{{ link.href }}"
-                class="up-side-link{{ active_sidebar|default('') == key ? ' active' : '' }}"
-            >
-                <i data-lucide="{{ link.icon }}" aria-hidden="true"></i>
-                {{ link.label }}
-            </a>
-        {% endfor %}
-        <a href="{{ path('app_logout') }}" class="up-side-link up-side-logout">
-            <i data-lucide="log-out" aria-hidden="true"></i>
-            Logout
+   KEY MAP — pass the key matching the page:
+       overview      → /profile                 (My Account)
+       bookings      → /bookings
+       wishlist      → /wishlist
+       payments      → /payments
+       wallet        → /wallet
+       reviews       → /reviews
+       messages      → /messages
+       notifcenter   → /notifications
+       profile       → /profile/edit            (Profile & Account)
+       security      → /settings
+       notifications → /settings/notifications
+       help          → /help
+   ========================================================= #}
+{% set up_active = active_sidebar|default('overview') %}
+
+<style>
+    /* ---- tokens + shell (idempotent with each page's own copy) ---- */
+    :root {
+        --rh-ink: #1c2a38;
+        --rh-muted: #66788a;
+        --rh-line: #e6ebf1;
+        --rh-card: #ffffff;
+        --rh-accent: #eda423;
+        --rh-radius: 16px;
+    }
+
+    .up-dashboard,
+    .up-dashboard * {
+        box-sizing: border-box;
+    }
+
+    .up-dashboard {
+        display: flex;
+        align-items: flex-start;
+        gap: 22px;
+        max-width: 1240px;
+        margin: 0 auto;
+        padding: 22px 20px 70px;
+    }
+
+    .up-content {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    /* =========================================================
+                                                                       SIDEBAR — ported 1:1 from legacy includes/sidebar.php
+                                                                    ========================================================= */
+    .up-sidebar {
+        --up-w: 240px;
+        --up-w-collapsed: 66px;
+        --up-icon: 18px;
+        --up-gap: 12px;
+        --up-link-pad-y: 10px;
+        --up-link-pad-x: 14px;
+        --up-link-gap: 4px;
+        --up-side-pad: 10px;
+
+        display: flex;
+        flex-direction: column;
+        gap: var(--up-link-gap);
+        width: var(--up-w);
+        padding: 8px var(--up-side-pad);
+        transition: width 0.3s ease;
+        overflow: hidden;
+
+        background: var(--rh-card);
+        border: 1px solid var(--rh-line);
+        border-radius: var(--rh-radius);
+        box-shadow: 0 10px 30px rgba(28, 42, 56, 0.06);
+        position: sticky;
+        top: 86px;
+        flex: 0 0 auto;
+    }
+
+    .up-side-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        width: 100%;
+        padding: 6px 4px;
+        margin: 0;
+        background: transparent;
+        border: none;
+        border-radius: 8px;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+        transition: background 0.2s ease;
+    }
+
+    .up-side-toggle:hover {
+        background: rgba(0, 0, 0, 0.06);
+    }
+
+    .up-side-toggle svg {
+        width: 20px;
+        height: 20px;
+        transition: transform 0.3s ease;
+    }
+
+    .up-side-link {
+        display: flex;
+        align-items: center;
+        gap: var(--up-gap);
+        padding: var(--up-link-pad-y) var(--up-link-pad-x);
+        margin: 0;
+        white-space: nowrap;
+        transition: background 0.2s ease;
+        color: #3e4f61;
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 500;
+        border-radius: 10px;
+    }
+
+    .up-side-link svg {
+        width: var(--up-icon);
+        height: var(--up-icon);
+        flex-shrink: 0;
+        color: #7a8ea3;
+        transition: color 0.2s ease;
+    }
+
+    .up-side-link:hover {
+        background: rgba(28, 42, 56, 0.06);
+        color: var(--rh-ink);
+    }
+
+    .up-side-link:hover svg {
+        color: var(--rh-ink);
+    }
+
+    .up-side-link.active {
+        background: var(--rh-ink);
+        color: #fff;
+        font-weight: 600;
+    }
+
+    .up-side-link.active svg {
+        color: var(--rh-accent);
+    }
+
+    .up-side-label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* collapsed state */
+    .up-sidebar.collapsed {
+        width: var(--up-w-collapsed);
+    }
+
+    .up-sidebar.collapsed .up-side-toggle svg {
+        transform: rotate(180deg);
+    }
+
+    .up-sidebar.collapsed .up-side-toggle {
+        justify-content: center;
+    }
+
+    .up-sidebar.collapsed .up-side-label {
+        display: none;
+    }
+
+    .up-sidebar.collapsed .up-side-link {
+        justify-content: center;
+        gap: 0;
+        padding-left: 0;
+        padding-right: 0;
+    }
+
+    .up-side-logout {
+        margin-top: 10px;
+    }
+
+    /* ================= dark mode ================= */
+    html.dark .up-sidebar {
+        background: #1e2a38;
+        border-color: rgba(255, 255, 255, 0.08);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    }
+
+    html.dark .up-side-link {
+        color: #b9c6d4;
+    }
+
+    html.dark .up-side-link svg {
+        color: #8296ab;
+    }
+
+    html.dark .up-side-link:hover {
+        background: rgba(255, 255, 255, 0.07);
+        color: #fff;
+    }
+
+    html.dark .up-side-link:hover svg {
+        color: #fff;
+    }
+
+    html.dark .up-side-link.active {
+        background: #eda423;
+        color: #1c2a38;
+    }
+
+    html.dark .up-side-link.active svg {
+        color: #1c2a38;
+    }
+
+    html.dark .up-side-toggle:hover {
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    /* ================= responsive ================= */
+    @media (max-width: 860px) {
+        .up-dashboard {
+            flex-direction: column;
+        }
+
+        .up-sidebar,
+        .up-sidebar.collapsed {
+            width: 100%;
+            position: static;
+        }
+
+        .up-sidebar.collapsed .up-side-label {
+            display: inline;
+        }
+
+        .up-sidebar.collapsed .up-side-link {
+            justify-content: flex-start;
+            gap: var(--up-gap);
+            padding-left: var(--up-link-pad-x);
+            padding-right: var(--up-link-pad-x);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .up-sidebar,
+        .up-side-toggle svg,
+        .up-side-link {
+            transition: none;
+        }
+    }
+</style>
+
+<aside class="up-sidebar" id="upSidebar">
+
+    <button
+        type="button"
+        class="up-side-toggle"
+        id="upSidebarToggle"
+        aria-expanded="true"
+        aria-label="Collapse sidebar"
+    >
+        <i data-lucide="chevron-left"></i>
+    </button>
+
+    {% set sideLinks = [
+        ['overview',      '/profile',                'layout-dashboard', 'Overview'],
+        ['bookings',      '/bookings',               'calendar-check',   'My Bookings'],
+        ['wishlist',      '/wishlist',               'heart',            'Wishlist'],
+        ['payments',      '/payments',               'credit-card',      'Payments'],
+        ['wallet',        '/wallet',                 'wallet',           'Wallet'],
+        ['reviews',       '/reviews',                'star',             'Reviews'],
+        ['messages',      '/messages',               'message-square',   'Messages'],
+        ['notifcenter',   '/notifications',          'bell',             'Notifications'],
+        ['profile',       '/profile/edit',           'user-round',       'Profile & Account'],
+        ['security',      '/settings',               'settings',         'Settings'],
+        ['notifications', '/settings/notifications', 'bell-ring',        'Notification Settings'],
+        ['help',          '/help',                   'circle-help',      'Help Center']
+    ] %}
+
+    {% for link in sideLinks %}
+        <a href="{{ link[1] }}" class="up-side-link{{ link[0] == up_active ? ' active' : '' }}">
+            <i data-lucide="{{ link[2] }}"></i>
+            <span class="up-side-label">{{ link[3] }}</span>
         </a>
-    </nav>
+    {% endfor %}
+
+    <a href="/logout" class="up-side-link up-side-logout">
+        <i data-lucide="log-out"></i>
+        <span class="up-side-label">Log Out</span>
+    </a>
+
 </aside>

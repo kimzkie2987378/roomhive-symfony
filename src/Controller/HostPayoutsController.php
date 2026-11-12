@@ -1,0 +1,701 @@
+<?php
+
+namespace App\Controller;
+
+use Doctrine\DBAL\Connection;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Routing\Attribute\Route;
+
+/**
+ * RoomHive — Host › Payouts.
+ * 1:1 port of legacy host/payouts.php.
+ *
+ *   GET|POST /host/payouts  → stat pills (Available / Pending /
+ *   Paid Out), the Request-a-Payout form (amount + method), and
+ *   the Payout History table.
+ *
+ * EARNINGS MATH (same as legacy — see hpTotalEarnings()):
+ *   Available balance = total earnings (confirmed/completed
+ *   earnings + the 2% cancellation fee kept from refunded
+ *   bookings) minus COMPLETED/PROCESSING payouts (paid out) and
+ *   PENDING payouts (locked in for review).
+ *     paidOut    = Σ payouts where status IN ('completed','processing')
+ *     pendingOut = Σ payouts where status = 'pending'
+ *     available  = max(0, totalEarnings - paidOut - pendingOut)
+ *
+ * PAYOUTS TABLE — AUTO-CREATED (fix): ensurePayoutTable() runs
+ *   CREATE TABLE IF NOT EXISTS with the legacy dump's exact schema
+ *   (id / user_id / amount / method / status enum / requested_at /
+ *   processed_at) plus a best-effort SHOW COLUMNS repair that ALTERs
+ *   in any missing column — so the page works without the manual
+ *   phpMyAdmin step. The legacy "Payouts table not created yet"
+ *   empty state stays as the last-resort fallback if even the
+ *   CREATE fails (e.g. no DB permissions).
+ *
+ * EARNINGS SCHEMA DETECTION (fix — the "enter 700 but still error"
+ *   bug): hpTotalEarnings() builds its SELECT from the REAL bookings
+ *   columns (SHOW COLUMNS, identical fallbacks to
+ *   HostEarningsController). The old hard-coded query threw on
+ *   tables without host_payout_amount / refunded_at /
+ *   refunded_amount and silently returned 0.0 — zeroing the
+ *   Available balance, so ANY amount (e.g. 700) failed with
+ *   "exceeds your available balance of ₱0.00".
+ *
+ * INSTANT PAYOUT + RECEIPT (user request): a validated request is
+ *   no longer parked as 'pending' — it is processed immediately:
+ *   one transaction locks this host's payout rows (FOR UPDATE, the
+ *   wallet-charge guard pattern), re-checks the balance INSIDE the
+ *   lock, inserts the row as status 'completed' with processed_at
+ *   set, and commits. The Available pill drops by the amount on the
+ *   redirect (paid_out includes completed rows) and the session
+ *   carries a receipt payload ('rh_receipt', consumed once) that
+ *   renders the green PAYOUT SUCCESSFUL box: reference HP-000xxx,
+ *   amount, method, processed date + time, Completed pill and the
+ *   NEW AVAILABLE BALANCE. The receipt also shows the SENT TO
+ *   row (the masked destination the money was sent to).
+ *
+ * MINIMUM ₱100, NO MAXIMUM (user request v3, replacing the v2
+ *   dynamic minimum): v2 made the minimum dynamic (500 when the
+ *   balance could cover it, else 1) to stop the "min (500) must
+ *   be less than max (468)" browser block. v3 goes one step
+ *   further — ONE fixed minimum: ₱100. The template no longer
+ *   carries a max attribute at all, so the min/max pair can
+ *   never contradict; any amount from ₱100 up to the full
+ *   balance is a valid request, and the available-balance check
+ *   in the ladder below stays as the money model (it rejects
+ *   overdrafts with the honest flash — it is not a "maximum").
+ *   With less than ₱100 available no valid request exists, so
+ *   the template disables the form with a note instead.
+ *
+ * DESTINATION FIELDS (user request v2): each payout method now
+ *   asks for the details the money is actually sent to — GCash
+ *   and PayMaya ask for the 11-digit 09 mobile number, Bank
+ *   Transfer asks for bank + account name + account number, and
+ *   the new "Debit / Credit Card" option asks for card number,
+ *   MM/YY expiry and cardholder name. hpBuildDestination()
+ *   validates the posted fields per method and produces a
+ *   display-safe "sent to" string stored in payouts.destination
+ *   (auto-added by ensurePayoutTable). Card numbers are NEVER
+ *   stored in full — only the masked last-4 form.
+ *
+ * CSRF (1:1 with the legacy pay_csrf_* helpers): the payout
+ *   request is a money-moving POST, so it is token-guarded. The
+ *   token lives in the session under 'pay_csrf' (generated once,
+ *   verified with hash_equals) and rides in the form's hidden
+ *   pay_csrf field. Same per-session pattern as
+ *   AdminPayoutsController's admin_csrf.
+ *
+ * PRG: after handling, redirect back to /host/payouts (legacy
+ *   note: hardcoded target, was $_SERVER['PHP_SELF']).
+ *
+ * FLASHES: session 'rh_flash' = ['type','message'], consumed
+ *   once on the following GET — the same hp_flash_set/take
+ *   pattern HostBookingsController established.
+ *
+ * TOTAL EARNINGS NOTE: legacy called hp_total_earnings() from
+ *   host_init.php — that file has not been pasted yet. Implemented
+ *   here with the SAME math AND the same SCHEMA DETECTION the
+ *   ported earnings page uses (HostEarningsController): confirmed/completed non-refunded
+ *   rows at full payout value (host_payout_amount falls back to
+ *   amount_paid) + the 2% cancellation fee kept from every
+ *   refunded booking (HP_REFUND_FEE_RATE = 0.02). Reconcile 1:1
+ *   when host_init.php arrives.
+ *
+ * Auth: same guard as HostBookingsController / HostListingsController
+ *   — logged_in + user_id (else app_login), then is_host = 1
+ *   (else /host/become-a-host).
+ */
+class HostPayoutsController extends AbstractController
+{
+    /** The 2% cancellation fee the host keeps (same as HostEarningsController). */
+    private const REFUND_FEE_RATE = 0.02;
+
+    /** Session key for the payout CSRF token (legacy pay_csrf). */
+    private const CSRF_KEY = 'pay_csrf';
+
+    public function __construct(private readonly Connection $db) {}
+
+    #[Route('/host/payouts', name: 'app_host_payouts', methods: ['GET', 'POST'])]
+    public function index(Request $request): Response
+    {
+        $session = $request->getSession();
+
+        /* ---- Auth gate (same as HostBookingsController) ---- */
+        $userId = (int) $session->get('user_id');
+        if (!$session->get('logged_in') || $userId <= 0) {
+            return $this->redirectToRoute('app_login');
+        }
+
+        /* ---- Load the user row ---- */
+        $dbUser = $this->db->fetchAssociative(
+            'SELECT id, name, email, avatar_path, is_host, created_at
+             FROM users WHERE id = :id LIMIT 1',
+            ['id' => $userId]
+        );
+
+        if (!$dbUser) {
+            $session->clear();
+            return $this->redirectToRoute('app_login');
+        }
+
+        /* ---- HOST GUARD — non-hosts go to Become a Host ---- */
+        if ((int) $dbUser['is_host'] !== 1) {
+            return $this->redirect('/host/become-a-host');
+        }
+
+        /* =========================================================
+           CSRF TOKEN — generated once per session (legacy
+           pay_csrf_token()); verified on POST below.
+        ========================================================= */
+        $csrfToken = (string) $session->get(self::CSRF_KEY);
+        if ($csrfToken === '') {
+            $csrfToken = bin2hex(random_bytes(32));
+            $session->set(self::CSRF_KEY, $csrfToken);
+        }
+
+        /* =========================================================
+           BADGE COUNTS — navbar bell + sidebar pending tenants.
+        ========================================================= */
+        $notificationCount    = $this->countUnreadNotifications($userId);
+        $pendingTenantsCount  = $this->countPendingTenants($userId);
+
+        /* ---- Host array (mirrors legacy $host from host_init) ---- */
+        $host = [
+            'name'         => (string) $dbUser['name'],
+            'avatar'       => !empty($dbUser['avatar_path'])
+                ? $this->resolvePhoto((string) $dbUser['avatar_path'], '/images/default-avatar.png')
+                : '/images/default-avatar.png',
+            'member_since' => date('F Y', strtotime((string) $dbUser['created_at'])),
+            'location'     => '',
+            'email'        => (string) $dbUser['email'],
+            'phone'        => '',
+            'age'          => '',
+            'about'        => '',
+        ];
+
+        /* =========================================================
+           PAYOUTS TABLE — AUTO-CREATE/REPAIR (fix: no more manual
+           phpMyAdmin step), then the legacy-guarded list query.
+           ========================================================= */
+        $payoutTableExists = $this->ensurePayoutTable();
+        $payouts = [];
+        try {
+            $payouts = $this->db->fetchAllAssociative(
+                'SELECT * FROM payouts WHERE user_id = :id ORDER BY requested_at DESC',
+                ['id' => $userId]
+            );
+        } catch (\Throwable $e) {
+            $payoutTableExists = false;
+        }
+
+        /* ---- Paid out / pending out sums (same loop as legacy) ---- */
+        $paidOut   = 0.0;
+        $pendingOut = 0.0;
+        foreach ($payouts as $p) {
+            $status = (string) $p['status'];
+            if ($status === 'completed' || $status === 'processing') {
+                $paidOut += (float) $p['amount'];
+            }
+            if ($status === 'pending') {
+                $pendingOut += (float) $p['amount'];
+            }
+        }
+
+        $totalEarnings = $this->hpTotalEarnings($userId);
+        $available     = max(0, $totalEarnings - $paidOut - $pendingOut);
+
+        /* MINIMUM ₱100 (user request v3) — one fixed minimum, no
+           maximum: the template has no max attribute, so the
+           min/max pair can never contradict, and any amount from
+           ₱100 up to the full balance is allowed (the balance
+           check in the ladder is the money model, not a cap). */
+        $minAmount = 100;
+
+        /* =========================================================
+           HANDLE REQUEST PAYOUT (POST) — CSRF-verified, then the
+           same validation ladder as legacy. Every path flashes and
+           PRG-redirects back to /host/payouts.
+        ========================================================= */
+        if ($request->isMethod('POST') && $request->request->has('request_payout')) {
+            $amount = (float) ($request->request->get('amount') ?? 0);
+            $method = trim((string) ($request->request->get('method') ?? 'GCash'));
+            $postedToken = (string) $request->request->get('pay_csrf', '');
+
+            /* DESTINATION — the per-method "send to" details; the
+               matching fields are validated in the ladder below. */
+            [$destination, $destinationError] = $this->hpBuildDestination($method, $request);
+
+            if (!is_string($postedToken) || $postedToken === '' || !hash_equals($csrfToken, $postedToken)) {
+                $session->set('rh_flash', [
+                    'type'    => 'error',
+                    'message' => 'Your session expired. Please try again.',
+                ]);
+            } elseif (!$payoutTableExists) {
+                $session->set('rh_flash', [
+                    'type'    => 'error',
+                    'message' => 'Payouts table missing — run the CREATE TABLE SQL first.',
+                ]);
+            } elseif ($amount < $minAmount) {
+                $session->set('rh_flash', [
+                    'type'    => 'error',
+                    'message' => 'Minimum payout request is ₱100.',
+                ]);
+            } elseif ($amount > $available) {
+                $session->set('rh_flash', [
+                    'type'    => 'error',
+                    'message' => 'Requested amount exceeds your available balance of ₱' . number_format($available, 2) . '.',
+                ]);
+            } elseif ($destinationError !== null) {
+                $session->set('rh_flash', [
+                    'type'    => 'error',
+                    'message' => $destinationError,
+                ]);
+            } else {
+                /* =========================================================
+                   INSTANT PAYOUT — one transaction, the same guard
+                   pattern as the wallet charge: lock this host's
+                   payout rows FOR UPDATE (serializes two racing
+                   requests), re-check the balance INSIDE the lock,
+                   insert as 'completed' immediately, commit.
+                ========================================================= */
+                try {
+                    $this->db->beginTransaction();
+
+                    $lockedRows = $this->db->fetchAllAssociative(
+                        'SELECT status, amount FROM payouts WHERE user_id = :id FOR UPDATE',
+                        ['id' => $userId]
+                    );
+                    $paidOutLocked    = 0.0;
+                    $pendingOutLocked = 0.0;
+                    foreach ($lockedRows as $p) {
+                        $st = (string) $p['status'];
+                        if ($st === 'completed' || $st === 'processing') {
+                            $paidOutLocked += (float) $p['amount'];
+                        }
+                        if ($st === 'pending') {
+                            $pendingOutLocked += (float) $p['amount'];
+                        }
+                    }
+                    $availLocked = max(0, $this->hpTotalEarnings($userId) - $paidOutLocked - $pendingOutLocked);
+
+                    if ($amount > $availLocked) {
+                        $this->db->rollBack();
+                        $session->set('rh_flash', [
+                            'type'    => 'error',
+                            'message' => 'Requested amount exceeds your available balance of ₱' . number_format($availLocked, 2) . '.',
+                        ]);
+                        return $this->redirectToRoute('app_host_payouts');
+                    }
+
+                    $now = date('Y-m-d H:i:s');
+                    $destination = mb_substr($destination, 0, 120);
+                    $this->db->insert('payouts', [
+                        'user_id'      => $userId,
+                        'amount'       => $amount,
+                        'method'       => $method,
+                        'destination'  => $destination,
+                        'status'       => 'completed',
+                        'requested_at' => $now,
+                        'processed_at' => $now,
+                    ]);
+                    $payoutId = (int) $this->db->lastInsertId();
+
+                    $this->db->commit();
+
+                    /* The Available pill drops by this amount on the
+                       redirect (paid_out includes completed rows) —
+                       the money is gone, the payout is recorded. */
+                    $newAvailable = max(0, $availLocked - $amount);
+
+                    $session->set('rh_flash', [
+                        'type'    => 'success',
+                        'message' => 'Payout of ₱' . number_format($amount, 2) . ' completed — the amount is gone from your Available balance.',
+                    ]);
+                    $session->set('rh_receipt', [
+                        'reference'     => 'HP-' . str_pad((string) $payoutId, 6, '0', STR_PAD_LEFT),
+                        'amount'        => $amount,
+                        'method'        => $method,
+                        'destination'   => $destination,
+                        'date'          => date('M j, Y'),
+                        'time'          => date('g:i A'),
+                        'new_available' => $newAvailable,
+                    ]);
+                } catch (\Throwable $e) {
+                    if ($this->db->isTransactionActive()) {
+                        $this->db->rollBack();
+                    }
+                    error_log('hostpayouts: instant payout failed: ' . $e->getMessage());
+                    $session->set('rh_flash', [
+                        'type'    => 'error',
+                        'message' => 'Could not process your payout request.',
+                    ]);
+                }
+            }
+
+            /* Hardcoded PRG target (legacy note: was $_SERVER['PHP_SELF']) */
+            return $this->redirectToRoute('app_host_payouts');
+        }
+
+        /* =========================================================
+           SESSION FLASH (rh_flash) — consumed once, then cleared.
+        ========================================================= */
+        $sessionFlash = null;
+        $sf = $session->get('rh_flash');
+        if (is_array($sf) && !empty($sf['message'])) {
+            $sessionFlash = [
+                'type'    => (string) ($sf['type'] ?? 'success'),
+                'message' => (string) $sf['message'],
+            ];
+            $session->remove('rh_flash');
+        }
+
+        /* =========================================================
+           RECEIPT (rh_receipt) — set by the instant-payout branch,
+           consumed once. Renders the green PAYOUT SUCCESSFUL box
+           with the reference, amount, method, processed date+time
+           and the NEW AVAILABLE BALANCE.
+        ========================================================= */
+        $payoutReceipt = null;
+        $rc = $session->get('rh_receipt');
+        if (is_array($rc) && !empty($rc['reference'])) {
+            $payoutReceipt = [
+                'reference'     => (string) $rc['reference'],
+                'amount'        => (float) ($rc['amount'] ?? 0),
+                'method'        => (string) ($rc['method'] ?? ''),
+                'destination'   => (string) ($rc['destination'] ?? ''),
+                'date'          => (string) ($rc['date'] ?? ''),
+                'time'          => (string) ($rc['time'] ?? ''),
+                'new_available' => (float) ($rc['new_available'] ?? 0),
+            ];
+            $session->remove('rh_receipt');
+        }
+
+        /* =========================================================
+           HISTORY ROWS — normalise per-row fields for the template
+           (legacy formatted inside the foreach: M j, Y / ucfirst /
+           number_format 2).
+        ========================================================= */
+        $rows = array_map(function (array $p): array {
+            $status = (string) $p['status'];
+            return [
+                'id'              => (int) $p['id'],
+                'requested'       => !empty($p['requested_at'])
+                    ? date('M j, Y', strtotime((string) $p['requested_at']))
+                    : '',
+                'method'          => (string) $p['method'],
+                'destination'     => (string) ($p['destination'] ?? ''),
+                'status'          => $status,
+                'status_label'    => ucfirst($status),
+                'status_class'    => $this->payoutStatusClass($status),
+                'amount'          => (float) $p['amount'],
+            ];
+        }, $payouts);
+
+        return $this->render('host/payouts.html.twig', [
+            /* Host shell contract (host/base.html.twig + navbar) */
+            'host'                  => $host,
+            'notification_count'    => $notificationCount,
+            'pending_tenants_count' => $pendingTenantsCount,
+            'is_host'               => true,
+
+            /* Page data */
+            'available'        => $available,
+            'min_amount'       => $minAmount,
+            'pending_out'      => $pendingOut,
+            'paid_out'         => $paidOut,
+            'pay_csrf'         => $csrfToken,
+            'payout_table_exists' => $payoutTableExists,
+            'payout_receipt'   => $payoutReceipt,
+            'payouts'          => $rows,
+            'session_flash'    => $sessionFlash,
+        ]);
+    }
+
+    /* =====================================================================
+     *  TOTAL EARNINGS — equivalent of legacy hp_total_earnings()
+     *  (host_init.php, not pasted yet). Uses the SAME math AND the
+     *  SAME SCHEMA DETECTION as the ported earnings page
+     *  (HostEarningsController): the SELECT is built from the real
+     *  bookings columns via SHOW COLUMNS, with identical fallbacks,
+     *  so this balance always matches the Earnings page total.
+     *
+     *  FIX — the old hard-coded SELECT (b.host_payout_amount /
+     *  b.refunded_at / b.refunded_amount) threw on tables missing
+     *  any of those columns and silently returned 0.0, which zeroed
+     *  the Available pill and made every payout request (e.g. 700)
+     *  fail with "exceeds your available balance of ₱0.00".
+     *
+     *  Math:
+     *    • confirmed/completed, non-refunded rows at full payout
+     *      value (host_payout_amount falls back to amount_paid)
+     *    • refunded rows contribute the 2% cancellation fee kept
+     *      (guest gets 98% back)
+     *    • pending/cancelled/rejected rows contribute nothing
+     *  Best-effort: on any DB error returns 0.0 (the pills show
+     *  ₱0.00 rather than breaking the page).
+     * ================================================================= */
+
+    private function hpTotalEarnings(int $hostUserId): float
+    {
+        /* ---- SCHEMA DETECTION — identical to HostEarningsController
+           (SHOW COLUMNS + the same fallback column list) ---- */
+        try {
+            $bookingCols = array_map(
+                fn (array $r): string => (string) $r['Field'],
+                $this->db->fetchAllAssociative('SHOW COLUMNS FROM bookings')
+            );
+        } catch (\Throwable $e) {
+            /* Same fallback list as HostEarningsController */
+            $bookingCols = [
+                'id', 'total', 'amount_paid', 'host_payout_amount', 'status',
+                'created_at', 'checkin_date', 'payout_at', 'refunded_at',
+            ];
+        }
+        $hasB = fn (string $c): bool => in_array($c, $bookingCols, true);
+
+        $sel = [];
+        $sel[] = 'b.id';
+        $sel[] = 'b.status';
+        $sel[] = $hasB('total')              ? 'COALESCE(b.total, 0) AS total'                     : '0 AS total';
+        $sel[] = $hasB('amount_paid')        ? 'COALESCE(b.amount_paid, 0) AS amount_paid'         : '0 AS amount_paid';
+        $sel[] = $hasB('host_payout_amount') ? 'b.host_payout_amount'                              : 'NULL AS host_payout_amount';
+        $sel[] = $hasB('refunded_amount')    ? 'COALESCE(b.refunded_amount, 0) AS refunded_amount' : '0 AS refunded_amount';
+        $sel[] = $hasB('refunded_at')        ? 'b.refunded_at'                                     : 'NULL AS refunded_at';
+
+        try {
+            $bookings = $this->db->fetchAllAssociative(
+                "SELECT " . implode(",\n                   ", $sel) . "
+                   FROM bookings b
+                   JOIN listings l ON l.id = b.listing_id
+                  WHERE l.user_id = :id",
+                ['id' => $hostUserId]
+            );
+        } catch (\Throwable $e) {
+            return 0.0;
+        }
+
+        $total = 0.0;
+        foreach ($bookings as $b) {
+            /* What the booking pays the host (payout falls back to
+               what the guest paid) — same closure as the earnings page */
+            $payout = $b['host_payout_amount'] ?? null;
+            $amount = (float) ($payout !== null ? $payout : ($b['amount_paid'] ?? 0));
+
+            /* Payment status derived in PHP (same thresholds) */
+            $refunded = !empty($b['refunded_at'])
+                || (float) ($b['refunded_amount'] ?? 0) > 0.005;
+
+            if ($refunded) {
+                /* Refunded rows: the host keeps the 2% fee */
+                $total += round($amount * self::REFUND_FEE_RATE, 2);
+                continue;
+            }
+
+            if (in_array((string) $b['status'], ['confirmed', 'completed'], true)) {
+                $total += $amount;
+            }
+        }
+
+        return $total;
+    }
+
+    /* =====================================================================
+     *  PAYOUTS TABLE — AUTO-CREATE/REPAIR.
+     *  Runs on every page load: CREATE TABLE IF NOT EXISTS with the
+     *  legacy dump's exact schema, then a best-effort SHOW COLUMNS
+     *  pass that ALTERs in any missing column (repairs hand-made
+     *  tables whose shape drifted). Returns true when the table is
+     *  guaranteed usable — false falls back to the legacy
+     *  "Payouts table not created yet" empty state + POST error.
+     * ================================================================= */
+
+    private function ensurePayoutTable(): bool
+    {
+        try {
+            $this->db->executeStatement(
+                "CREATE TABLE IF NOT EXISTS payouts (
+                    id INT NOT NULL AUTO_INCREMENT,
+                    user_id INT NOT NULL,
+                    amount DECIMAL(10,2) NOT NULL,
+                    method VARCHAR(30) NOT NULL,
+                    destination VARCHAR(120) DEFAULT NULL,
+                    status ENUM('pending','processing','completed','failed') NOT NULL DEFAULT 'pending',
+                    requested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    processed_at DATETIME DEFAULT NULL,
+                    PRIMARY KEY (id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci"
+            );
+
+            /* Repair hand-made tables: CREATE IF NOT EXISTS does not
+               touch an existing table, so verify every column the
+               controller + AdminPayoutsController rely on. */
+            $cols = array_map(
+                fn (array $r): string => (string) $r['Field'],
+                $this->db->fetchAllAssociative('SHOW COLUMNS FROM payouts')
+            );
+            $repairs = [
+                'user_id'      => 'ADD COLUMN user_id INT NOT NULL DEFAULT 0',
+                'amount'       => 'ADD COLUMN amount DECIMAL(10,2) NOT NULL DEFAULT 0',
+                'method'       => "ADD COLUMN method VARCHAR(30) NOT NULL DEFAULT ''",
+                'destination'  => 'ADD COLUMN destination VARCHAR(120) DEFAULT NULL',
+                'status'       => "ADD COLUMN status ENUM('pending','processing','completed','failed') NOT NULL DEFAULT 'pending'",
+                'requested_at' => 'ADD COLUMN requested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP',
+                'processed_at' => 'ADD COLUMN processed_at DATETIME NULL DEFAULT NULL',
+            ];
+            foreach ($repairs as $col => $ddl) {
+                if (!in_array($col, $cols, true)) {
+                    $this->db->executeStatement('ALTER TABLE payouts ' . $ddl);
+                }
+            }
+
+            return true;
+        } catch (\Throwable $e) {
+            error_log('hostpayouts: ensure payouts table failed: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /* =====================================================================
+     *  DESTINATION — the per-method "send to" details (user request).
+     *  Reads the matching posted fields for the chosen method,
+     *  validates them and returns [displayString, errorMessage].
+     *  The display string is stored in payouts.destination and shown
+     *  in the receipt box + Payout History. Card numbers are never
+     *  stored in full — only the masked last-4 form.
+     * ================================================================= */
+
+    private function hpBuildDestination(string $method, Request $request): array
+    {
+        $post = fn (string $k): string => trim((string) $request->request->get($k, ''));
+
+        switch ($method) {
+            case 'GCash':
+            case 'PayMaya':
+                $digits = preg_replace('/\D+/', '', $post($method === 'GCash' ? 'gcash_number' : 'paymaya_number'));
+                if (!is_string($digits) || !preg_match('/^09\d{9}$/', $digits)) {
+                    return ['', 'Enter a valid ' . $method . ' mobile number — 11 digits starting with 09.'];
+                }
+                return [$method . ' — ' . substr($digits, 0, 4) . ' ' . substr($digits, 4, 3) . ' ' . substr($digits, 7), null];
+
+            case 'Bank Transfer':
+                $bank     = $post('bank_name');
+                $acctName = $post('bank_account_name');
+                $acctNo   = preg_replace('/[\s-]+/', '', $post('bank_account_number'));
+                if ($bank === '' || $acctName === '' || $acctNo === '') {
+                    return ['', 'Enter your bank name, account name and account number.'];
+                }
+                return [$bank . ' — ' . $acctName . ' — ' . $acctNo, null];
+
+            case 'Debit / Credit Card':
+                $digits = preg_replace('/\D+/', '', $post('card_number'));
+                if (!is_string($digits) || strlen($digits) < 13 || strlen($digits) > 19) {
+                    return ['', 'Enter a valid card number (13 to 19 digits).'];
+                }
+                $expiry = $post('card_expiry');
+                if (!preg_match('/^(\d{2})\/(\d{2})$/', $expiry, $m)) {
+                    return ['', 'Enter the card expiry as MM/YY.'];
+                }
+                $mm = (int) $m[1];
+                $yy = 2000 + (int) $m[2];
+                if ($mm < 1 || $mm > 12 || $yy < (int) date('Y')
+                    || ($yy === (int) date('Y') && $mm < (int) date('n'))) {
+                    return ['', 'That card expiry has passed — enter a valid MM/YY.'];
+                }
+                $holder = $post('card_name');
+                if ($holder === '') {
+                    return ['', 'Enter the cardholder name on the card.'];
+                }
+                return ['Card •••• ' . substr($digits, -4) . ' — ' . $holder . ' (exp ' . $expiry . ')', null];
+        }
+
+        return ['', 'Choose a valid payout method.'];
+    }
+
+    /* =====================================================================
+     *  STATUS PILL CLASS — same switch as legacy
+     *  hp_payout_status_class().
+     * ================================================================= */
+
+    private function payoutStatusClass(string $status): string
+    {
+        switch ($status) {
+            case 'completed':
+                return 'hp-status-active';
+            case 'processing':
+                return 'hp-status-pending';
+            case 'pending':
+                return 'hp-status-pending';
+            case 'failed':
+                return 'hp-status-rejected';
+            default:
+                return 'hp-status-unlisted';
+        }
+    }
+
+    /* =====================================================================
+     *  BADGE COUNTS — same implementations as HostBookingsController.
+     * ================================================================= */
+
+    private function countUnreadNotifications(int $userId): int
+    {
+        try {
+            return (int) $this->db->fetchOne(
+                'SELECT COUNT(*) FROM notifications WHERE user_id = :u AND is_read = 0',
+                ['u' => $userId]
+            );
+        } catch (\Throwable $e) {
+            return 0;
+        }
+    }
+
+    private function countPendingTenants(int $hostUserId): int
+    {
+        try {
+            return (int) $this->db->fetchOne(
+                "SELECT COUNT(*) FROM bookings b
+                 JOIN listings l ON l.id = b.listing_id
+                 WHERE l.user_id = :h AND b.status = 'pending'",
+                ['h' => $hostUserId]
+            );
+        } catch (\Throwable $e) {
+            return 0;
+        }
+    }
+
+    /* =====================================================================
+     *  PHOTO PATH RESOLVER — same as HostListingsController /
+     *  HostProfileController / HostBookingsController /
+     *  AdminController / AccountController.
+     * ================================================================= */
+
+    private function resolvePhoto(string $path, string $fallback = '/images/ListingPlaceholder.png'): string
+    {
+        $path = trim($path);
+        if ($path === '') {
+            return $fallback;
+        }
+        /* BUGFIX: no leading-slash early-return — DB values like
+           /webprogg/uploads/avatars/… must be remapped, not echoed
+           (same fix as HostPublicProfileController) */
+        if (preg_match('#^https?://#i', $path)) {
+            return $path;
+        }
+        $path = str_replace('\\', '/', ltrim($path, '/'));
+        if (stripos($path, 'webprogg/') === 0) {
+            $path = substr($path, strlen('webprogg/'));
+        }
+        if (stripos($path, 'host/') === 0) {
+            $path = substr($path, strlen('host/'));
+            return '/uploads/host/' . $path;
+        }
+        if (stripos($path, 'uploads/') === 0) {
+            return '/' . $path;
+        }
+        if (stripos($path, 'cover_') === 0) {
+            return '/uploads/listing_photos/cover/' . basename($path);
+        }
+        return '/uploads/listing_photos/' . $path;
+    }
+}

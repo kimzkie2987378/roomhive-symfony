@@ -1,0 +1,423 @@
+{# =========================================================
+   RoomHive — Help Center
+   templates/user/help.html.twig
+
+   REBUILT onto the shared account shell — same recipe as
+   notifications / bookings / payments:
+
+     - Sidebar: shared partial templates/partials/sidebar.html.twig,
+       highlight key 'help'. The legacy require of includes/sidebar.php
+       is gone; the collapse JS stays on this page.
+     - Footer: shared partials/footer.html.twig (= user_footer.php).
+     - Lucide: guarded loader (window.__rhNavbarLucide — never
+       double-loads with the navbar's). The island uses lucide-react
+       internally, so it needs no loader.
+     - Reveal: the REAL legacy mechanism (.up-reveal waits for
+       .in-view) + the 1.5s failsafe the legacy version lacked.
+     - Theme boot: swapped rhTheme/data-theme-preview -> the app key
+       roomhive_theme -> html.dark + html[data-theme] (the old key was
+       never written, so this page could never go dark — real bug).
+     - javaScript.js dropped (no ported page carries it anymore).
+
+   NAVBAR CLEARANCE + LAYOUT — page-local, bulletproof (same fix as
+   the notifications page, adapted for the page head):
+     - The PAGE HEAD above the shell carries the fixed-navbar
+       clearance (myaccount.css owns .ub-page-head — same as the
+       security page).
+     - The shell overrides live on main.up-dashboard (higher
+       specificity, always wins vs myaccount.css) with
+       max-width: 1560px — occupies the available area instead of
+       the legacy ~1240px cap.
+     - .up-dashboard .up-sidebar { top: 110px; } — the sticky offset
+       matches the other account pages, so the sidebar stays clear
+       of the navbar while scrolling (the partial's default is 86px).
+
+   Content (1:1 with legacy helpcenter.php):
+   - ub-page-head (eyebrow / "How can we help?" / lead)
+   - FAQ — React ISLAND (faq-accordion.js): PHP owns the data
+     (faqs from HelpController::index), React owns open/close state.
+     mount -> #react-faq, props -> #react-faq-props (JSON_HEX_* flags).
+     Copy the bundle from webprogg/assets/react/ next to
+     payment-history.js — no rebuild needed.
+   - Contact Support card: success/error alerts, subject select +
+     message textarea, POSTs back to this route with the session
+     CSRF pair (key 'help_contact'); inserts an open support ticket.
+   - "Other Ways to Reach Us" card (phone / mail Lucide lines).
+
+   Data from HelpController::index (user, faqs, errors, sent,
+   notif_count, csrf_help). Controller untouched — template-only
+   change. Pure Twig -> Ctrl+F5.
+========================================================= #}
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Help Center — RoomHive</title>
+        <script>
+            /* theme boot — before paint (app key: roomhive_theme) */
+            (function () {
+                try {
+                    if (localStorage.getItem("roomhive_theme") === "dark") {
+                        document.documentElement.classList.add("dark");
+                        document.documentElement.setAttribute("data-theme", "dark");
+                    }
+                } catch (e) {}
+            })();
+        </script>
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/myaccount.css') }}">
+        <script>
+            document.documentElement.classList.add("js");
+        </script>
+
+        <style>
+            :root {
+                --rh-ink: #1c2a38;
+                --rh-muted: #66788a;
+                --rh-line: #e6ebf1;
+                --rh-card: #ffffff;
+                --rh-accent: #eda423;
+                --rh-accent-deep: #d98c12;
+                --rh-radius: 16px;
+            }
+
+            /* =========================================================
+                                               NAVBAR CLEARANCE + LAYOUT — page-local, bulletproof
+                                               The PAGE HEAD above the shell carries the fixed-navbar
+                                               clearance (myaccount.css owns .ub-page-head — same as the
+                                               security page). The shell overrides live on
+                                               main.up-dashboard (higher specificity, always wins vs
+                                               myaccount.css) with max-width: 1560px — occupies the
+                                               available area instead of the legacy ~1240px cap.
+                                            ========================================================== */
+            main.up-dashboard {
+                margin-top: 0;
+                padding: 22px 20px 70px;
+                max-width: 1560px;
+            }
+
+            /* sticky offset matches the other account pages — when you
+                                               scroll, the sidebar sticks at the 110px line instead of
+                                               tucking under the navbar (the partial's default is 86px) */
+            .up-dashboard .up-sidebar {
+                top: 110px;
+            }
+
+            /* sidebar markup + styles live in templates/partials/sidebar.html.twig */
+
+            /* Lucide contact icons */
+            .hc-contact-line {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 13px;
+                color: var(--up-ink-soft, #555);
+                margin: 0 0 8px;
+            }
+
+            .hc-contact-line svg {
+                width: 15px;
+                height: 15px;
+                flex-shrink: 0;
+            }
+
+            .hc-contact-line:last-child {
+                margin-bottom: 0;
+            }
+
+            /* =========================================================
+                                               LUCIDE ICONS (lucide.dev)
+                                               Lucide copies the placeholder's classes onto the
+                                               generated <svg>, so the rules above keep working.
+                                            ========================================================== */
+            svg.lucide {
+                display: inline-block;
+                vertical-align: -0.18em;
+                flex-shrink: 0;
+            }
+
+            /* Alert icons (success + error) — same sizing as
+                                               security / edit profile */
+            .up-alert svg {
+                width: 16px;
+                height: 16px;
+                flex-shrink: 0;
+                vertical-align: -3px;
+                margin-right: 6px;
+            }
+
+            /* FAQ caret — the <span> is rendered by the React island;
+                                               myaccount.css's .open rotation CSS still applies to it */
+            .up-faq-caret {
+                display: inline-flex;
+                align-items: center;
+            }
+
+            .up-faq-caret svg {
+                width: 14px;
+                height: 14px;
+            }
+
+            /* Form labels */
+            .up-field > label {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+
+            .up-field > label svg {
+                width: 14px;
+                height: 14px;
+                color: #b07708;
+            }
+
+            /* Submit button */
+            .up-btn-solid {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+            }
+
+            .up-btn-solid svg {
+                width: 15px;
+                height: 15px;
+            }
+        </style>
+    </head>
+
+    <body>
+
+        {{ include('partials/navbar.html.twig', {
+        is_logged_in: true,
+        is_host: is_host ?? false,
+        nav_avatar: user.avatar_path ?? null,
+        notification_count: notif_count ?? 0,
+        current_page: 'help'
+    }) }}
+
+        <!-- PAGE HEADER — PLAIN -->
+        <header class="ub-page-head">
+            <span class="ub-eyebrow">Help Center</span>
+            <h1>How can we help?</h1>
+            <p class="ub-lead">Answers to common questions, or send our team a message directly.</p>
+        </header>
+
+        <main class="up-dashboard">
+
+            <!-- ==================================================
+             SIDEBAR — shared partial (templates/partials/sidebar.html.twig)
+             highlight = active_sidebar key · collapse JS stays on this page
+        =================================================== -->
+            {% include 'partials/sidebar.html.twig' with { active_sidebar: 'help' } %}
+
+            <div class="up-content">
+
+                <div class="up-two-col">
+
+                    <!-- FAQ — REACT ISLAND (faq-accordion.js)
+                     PHP owns the data (faqs); React owns the
+                     open/close state and rendering. -->
+                    <section class="up-card up-reveal">
+                        <div class="up-card-header">
+                            <h3>Frequently Asked Questions</h3>
+                        </div>
+
+                        <div id="react-faq"></div>
+                        <script type="application/json" id="react-faq-props">{{ faqs|json_encode(15) }}</script>{# 15 = JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT #}
+                        <script type="module" src="{{ asset('assets/react/faq-accordion.js') }}"></script>
+                    </section>
+
+                    <!-- CONTACT SUPPORT -->
+                    <div class="up-right-col">
+
+                        <div class="up-card up-reveal" style="--i: 1;">
+                            <div class="up-card-header">
+                                <h3>Contact Support</h3>
+                            </div>
+
+                            {% if sent %}
+                                <div class="up-alert up-alert-success" style="margin-bottom:16px;">
+                                    <p><i data-lucide="circle-check"></i>Message sent — our team will reply to {{ user.email }} soon.</p>
+                                </div>
+                            {% endif %}
+
+                            {% if errors is not empty %}
+                                <div class="up-alert up-alert-error" style="margin-bottom:16px;">
+                                    {% for error in errors %}
+                                        <p><i data-lucide="circle-x"></i>{{ error }}</p>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+
+                            <form method="POST" action="{{ path('app_help') }}" style="display:flex; flex-direction:column; gap:16px;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_help }}">
+
+                                <div class="up-field">
+                                    <label for="hcSubject"><i data-lucide="tag" aria-hidden="true"></i> Subject</label>
+                                    <select id="hcSubject" name="subject" required>
+                                        <option value="">Choose a topic</option>
+                                        <option value="Booking issue">Booking issue</option>
+                                        <option value="Payment issue">Payment issue</option>
+                                        <option value="Account access">Account access</option>
+                                        <option value="Verification">Verification</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+
+                                <div class="up-field">
+                                    <label for="hcMessage"><i data-lucide="pen-line" aria-hidden="true"></i> Message</label>
+                                    <textarea id="hcMessage" name="message" rows="5" required placeholder="Tell us what's going on..."></textarea>
+                                </div>
+
+                                <button type="submit" class="up-btn-solid">
+                                    <i data-lucide="send" aria-hidden="true"></i> SEND MESSAGE
+                                </button>
+                            </form>
+                        </div>
+
+                        <div class="up-card up-reveal" style="--i: 2;">
+                            <div class="up-card-header">
+                                <h3>Other Ways to Reach Us</h3>
+                            </div>
+                            <p class="hc-contact-line"><i data-lucide="phone" aria-hidden="true"></i> 0927 569 3574</p>
+                            <p class="hc-contact-line"><i data-lucide="mail" aria-hidden="true"></i> kimdivino55@gmail.com</p>
+                        </div>
+
+                    </div>
+
+                </div>
+            </div>
+        </main>
+
+        {{ include('partials/footer.html.twig') }}
+
+        <!-- Lucide — guarded loader, same key as navbar (never double-runs).
+         Renders every <i data-lucide="..."> as inline SVG. -->
+        <script>
+            (function () {
+                "use strict";
+                function renderRhIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
+                }
+                if (!window.__rhNavbarLucide) {
+                    window.__rhNavbarLucide = true;
+                    var s = document.createElement("script");
+                    s.src = "https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js";
+                    s.addEventListener("load", renderRhIcons);
+                    document.head.appendChild(s);
+                }
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", renderRhIcons);
+                } else {
+                    renderRhIcons();
+                }
+                window.addEventListener("load", renderRhIcons);
+            })();
+        </script>
+
+        <!-- Sidebar collapse — same behavior + localStorage key as legacy -->
+        <script>
+            (function () {
+                var sidebar = document.getElementById("upSidebar");
+                var toggle = document.getElementById("upSidebarToggle");
+                if (!sidebar || !toggle) {
+                    return;
+                }
+
+                var STORAGE_KEY = "roomhive_sidebar_collapsed";
+                var links = sidebar.querySelectorAll(".up-side-link");
+
+                function updateTitles(collapsed) {
+                    links.forEach(function (link) {
+                        var label = link.querySelector(".up-side-label");
+                        if (collapsed) {
+                            link.setAttribute("title", label ? label.textContent : "");
+                        } else {
+                            link.removeAttribute("title");
+                        }
+                    });
+                }
+
+                function applyState(collapsed) {
+                    sidebar.classList.toggle("collapsed", collapsed);
+                    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                    toggle.setAttribute(
+                        "aria-label",
+                        collapsed ? "Expand sidebar" : "Collapse sidebar",
+                    );
+                    updateTitles(collapsed);
+                }
+
+                var savedCollapsed = false;
+                try {
+                    savedCollapsed = localStorage.getItem(STORAGE_KEY) === "1";
+                } catch (e) {}
+                applyState(savedCollapsed);
+
+                toggle.addEventListener("click", function () {
+                    var nowCollapsed = !sidebar.classList.contains("collapsed");
+                    applyState(nowCollapsed);
+                    try {
+                        localStorage.setItem(STORAGE_KEY, nowCollapsed ? "1" : "0");
+                    } catch (e) {}
+                });
+            })();
+        </script>
+
+        <!-- Reveal — the REAL legacy mechanism: myaccount.css waits for .in-view.
+     Plus a 1.5s failsafe so the page can never render blank. -->
+        <script>
+            (function () {
+                "use strict";
+
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                var revealEls = Array.prototype.slice.call(
+                    document.querySelectorAll(".up-reveal"),
+                );
+
+                function showAll() {
+                    revealEls.forEach(function (el) {
+                        el.classList.add("in-view");
+                    });
+                }
+
+                if (reduced || !("IntersectionObserver" in window)) {
+                    showAll();
+                } else {
+                    var io = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) {
+                                    return;
+                                }
+                                var el = entry.target;
+                                io.unobserve(el);
+                                el.classList.add("in-view");
+                                window.setTimeout(function () {
+                                    el.style.setProperty("--i", "0");
+                                }, 1200);
+                            });
+                        },
+                        {
+                            threshold: 0.12,
+                            rootMargin: "0px 0px -40px 0px",
+                        },
+                    );
+                    revealEls.forEach(function (el) {
+                        io.observe(el);
+                    });
+
+                    /* failsafe — force-reveal anything still hidden after 1.5s */
+                    setTimeout(showAll, 1500);
+                }
+            })();
+        </script>
+
+    </body>
+
+</html>

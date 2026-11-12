@@ -1,0 +1,1613 @@
+{# roomhive/host/pending-tenants.html.twig
+   Host › Pending Tenants — 1:1 port of legacy booking/pendingtenants.php
+   (SIGN-TO-ACCEPT edition). Extends host/base.html.twig; sidebar
+   "Pending Tenants" highlights via active_nav = 'pending'.
+
+   What the page does (same as legacy):
+     • Cards for every booking with status='pending' on the host's
+       listings: listing photo, title + map-pin location, applicant
+       row (avatar, or the temporary navy/gold circle-user-round icon
+       when no avatar is uploaded — same 36px box, honey ring, so
+       layout never shifts), Verified / Not Verified pill (✓ stays
+       text — legacy kept it as text too), applied date, payment
+       status pill (Fully Paid / Advance Paid / Pending), View
+       Receipt link, dates strip (calendar-days) and ₱ total with
+       Reject / Accept buttons.
+     • Clicking a card opens the Application Details modal (listing,
+       tenant, personal photo for in-person recognition — click for
+       full size, payment, dates, guests, total).
+     • ACCEPT = SIGN-TO-ACCEPT: opens the signature pad; drawing
+       ink enables "Sign & Accept", which saves the signature then
+       accepts, removes the card and redirects to the guest's
+       receipt. REJECT confirms and goes straight to the endpoint.
+     • Canvas fix carried over: the pad is sized when it OPENS
+       (skip 0x0 while hidden; re-apply stroke settings after every
+       resize — resizing wipes the 2D context state).
+
+   Icons — official lucide.dev art via admin/_macros.html.twig:
+     map-pin → ui.icon('pin') · circle-user-round → ui.icon('circle-user-round')
+     file-text → ui.icon('file-text') · calendar-days → ui.icon('calendar-days')
+     pen-line → ui.icon('pen-line')
+   (circle-user-round / file-text / calendar-days / pen-line are NEW
+   keys added to the macro for this page — additive, all previous
+   keys untouched.)
+
+   Actions (JS at the bottom, 1:1 with the legacy script; only the
+   fetch URLs moved to the Symfony URL map):
+     • POST /host/bookings/{id}/sign    legacy sign-receipt.php
+       (body booking_id + signature dataURL; TODO route — 404s until
+       that file is pasted and ported)
+     • POST /host/bookings/{id}/accept  legacy accept-booking.php
+       (TODO route — same one HostListingsController documents)
+     • POST /host/bookings/{id}/reject  legacy reject-booking.php
+       (TODO route)
+     • Receipt link → /payment/confirmation/{id} (legacy
+       payment-confirmation.php?id=N — already ported in
+       PaymentController, route app_payment_confirmation)
+     • Sidebar badge sync after accept/reject (legacy refreshBadges,
+       selector now targets /host/pending-tenants).
+
+   Pairs with: HostPendingTenantsController (route
+   /host/pending-tenants, name app_host_pending_tenants, GET only).
+#}
+{% extends 'host/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'pending' %}
+
+{% block page_title %}Pending Tenants — RoomHive{% endblock %}
+
+{% block styles %}
+<style>
+    /* ---- Page header (same values as host/listings.html.twig) ---- */
+    .hp-page-header {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 16px; flex-wrap: wrap;
+    }
+    .hp-page-title { margin: 0; font-size: 24px; font-weight: 800; color: var(--rh-ink); }
+    .hp-page-subtitle { margin: 4px 0 0; font-size: 13px; color: var(--rh-muted); max-width: 680px; }
+
+    /* ---- Empty state (same values as host/listings.html.twig) ---- */
+    .hp-empty-state {
+        text-align: center; padding: 56px 20px;
+        background: #fff; border: 1px dashed var(--rh-line);
+        border-radius: var(--rh-radius);
+        font-size: 13.5px; color: var(--rh-muted);
+    }
+    .hp-empty-state p { margin: 0; }
+    .hp-empty-state-title { font-size: 15px; font-weight: 700; color: var(--rh-ink); margin-bottom: 6px; }
+
+    /* ---- Primary button (legacy hostprofile.css; the shell only
+            ships hp-btn-outline) ---- */
+    .hp-btn-primary {
+        display: inline-block; padding: 8px 16px; border-radius: 9px;
+        border: 1px solid var(--rh-accent);
+        background: linear-gradient(135deg, #f6b93b, #eda423);
+        color: #1c2a38; font-size: 12px; font-weight: 700;
+        font-family: inherit; text-decoration: none; cursor: pointer;
+        box-shadow: 0 8px 18px rgba(237, 164, 35, 0.35);
+        transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .hp-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 24px rgba(237, 164, 35, 0.45);
+    }
+
+    /* =====================================================
+       pt-* — 1:1 with the legacy page styles
+    ====================================================== */
+
+    /* Verified pill (list + modal) */
+    .pt-verified-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 9px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 800;
+        vertical-align: middle;
+    }
+
+    .pt-verified-pill.yes {
+        background: #E8F8F1;
+        color: #178A50;
+        border: 1px solid rgba(23, 138, 80, .35);
+    }
+
+    .pt-verified-pill.no {
+        background: #FFF4E0;
+        color: #C77A00;
+        border: 1px dashed rgba(237, 164, 35, .5);
+    }
+
+    /* Cards */
+    .pt-list {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .pt-card {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        background: #fff;
+        border: 1px solid rgba(28, 42, 56, 0.08);
+        border-radius: 16px;
+        padding: 16px;
+        flex-wrap: wrap;
+        cursor: pointer;
+        box-shadow: 0 6px 20px rgba(28, 42, 56, 0.06);
+        transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s ease, border-color 0.25s ease;
+    }
+
+    .pt-card:hover {
+        transform: translateY(-3px);
+        border-color: rgba(237, 164, 35, 0.45);
+        box-shadow: 0 18px 34px rgba(237, 164, 35, 0.16);
+    }
+
+    .pt-card:focus-visible {
+        outline: 2px solid #eda423;
+        outline-offset: 2px;
+    }
+
+    .pt-listing-photo {
+        width: 88px;
+        height: 88px;
+        object-fit: cover;
+        border-radius: 12px;
+        flex-shrink: 0;
+        transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .pt-card:hover .pt-listing-photo {
+        transform: scale(1.04);
+    }
+
+    .pt-info {
+        flex: 1;
+        min-width: 200px;
+    }
+
+    .pt-listing-title {
+        margin: 0;
+        font-weight: 700;
+        color: #1c2a38;
+    }
+
+    .pt-listing-location {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin: 2px 0 8px;
+        font-size: 12px;
+        color: #6b7684;
+    }
+
+    .pt-tenant-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .pt-tenant-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 2px rgba(237, 164, 35, 0.5);
+    }
+
+    .pt-tenant-name {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: #1c2a38;
+    }
+
+    .pt-tenant-email {
+        margin: 0;
+        font-size: 12px;
+        color: #6b7684;
+    }
+
+    .pt-applied-date {
+        margin: 8px 0 0;
+        font-size: 11px;
+        color: #999999;
+    }
+
+    .pt-payment {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        flex-basis: 100%;
+        max-width: 170px;
+        padding: 8px 12px;
+        text-align: center;
+    }
+
+    .pt-payment-status {
+        display: inline-block;
+        padding: 4px 11px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .pt-payment-paid {
+        background: #E8F8F1;
+        color: #1FA971;
+        border: 1px solid #B9E3C5;
+    }
+
+    .pt-payment-pending {
+        background: #FDF1DC;
+        color: #B07708;
+        border: 1px solid rgba(237, 164, 35, 0.5);
+    }
+
+    .pt-payment-time {
+        font-size: 11px;
+        color: #6b7684;
+    }
+
+    .pt-receipt-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        margin-top: 3px;
+        padding: 4px 11px;
+        border-radius: 999px;
+        background: #FDF1DC;
+        border: 1px solid rgba(237, 164, 35, 0.5);
+        color: #B07708;
+        font-size: 11px;
+        font-weight: 700;
+        text-decoration: none;
+        white-space: nowrap;
+        transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .pt-receipt-link:hover {
+        background: #ffffff;
+        transform: translateY(-1px);
+        box-shadow: 0 6px 14px rgba(237, 164, 35, 0.25);
+    }
+
+    @media (min-width: 720px) {
+        .pt-payment {
+            flex-basis: auto;
+        }
+    }
+
+    .pt-dates {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-basis: 100%;
+        max-width: 220px;
+        padding: 8px 12px;
+        border-left: 1px solid rgba(28, 42, 56, 0.08);
+        border-right: 1px solid rgba(28, 42, 56, 0.08);
+        font-size: 12px;
+        font-weight: 600;
+        color: #1c2a38;
+        text-align: center;
+        justify-content: center;
+    }
+
+    @media (min-width: 720px) {
+        .pt-dates {
+            flex-basis: auto;
+        }
+    }
+
+    .pt-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 10px;
+    }
+
+    .pt-total {
+        color: #1c2a38;
+        font-size: 15px;
+    }
+
+    .pt-buttons {
+        display: flex;
+        gap: 8px;
+    }
+
+    .pt-btn-accept {
+        background: linear-gradient(135deg, #f6b93b, #eda423) !important;
+        border: none !important;
+        color: #1c2a38 !important;
+        box-shadow: 0 8px 18px rgba(237, 164, 35, 0.35);
+    }
+
+    .pt-btn-accept:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 24px rgba(237, 164, 35, 0.45);
+    }
+
+    .pt-btn-reject {
+        color: #E14B4B;
+        border-color: #E14B4B;
+    }
+
+    .pt-btn-reject:hover {
+        background: #FCEAEA;
+    }
+
+    /* Modal base */
+    .pt-modal-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(20, 20, 43, 0.45);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        z-index: 1000;
+    }
+
+    .pt-modal-overlay.open {
+        display: flex;
+    }
+
+    .pt-modal {
+        position: relative;
+        background: #fff;
+        border-radius: 18px;
+        padding: 24px;
+        width: 100%;
+        max-width: 440px;
+        max-height: 90vh;
+        overflow-y: auto;
+        animation: ptModalIn 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    @keyframes ptModalIn {
+        from {
+            opacity: 0;
+            transform: translateY(16px) scale(0.98);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    }
+
+    .pt-modal::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        border-radius: 18px 18px 0 0;
+        background: linear-gradient(90deg, #eda423, #f6c04e, #eda423);
+    }
+
+    .pt-modal-close {
+        position: absolute;
+        top: 12px;
+        right: 14px;
+        width: 30px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: none;
+        border-radius: 50%;
+        font-size: 22px;
+        line-height: 1;
+        color: #6b7684;
+        cursor: pointer;
+        transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .pt-modal-close:hover {
+        background: #FDF1DC;
+        color: #1c2a38;
+    }
+
+    .pt-modal-listing {
+        display: flex;
+        gap: 12px;
+        padding-bottom: 14px;
+        margin-bottom: 14px;
+        border-bottom: 1px solid rgba(28, 42, 56, 0.08);
+    }
+
+    .pt-modal-listing-photo {
+        width: 64px;
+        height: 64px;
+        object-fit: cover;
+        border-radius: 10px;
+        flex-shrink: 0;
+    }
+
+    .pt-modal-listing-title {
+        margin: 0;
+        font-weight: 700;
+        color: #1c2a38;
+    }
+
+    .pt-modal-listing-location {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin: 4px 0 0;
+        font-size: 12px;
+        color: #6b7684;
+    }
+
+    .pt-modal-tenant {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding-bottom: 14px;
+        margin-bottom: 14px;
+        border-bottom: 1px solid rgba(28, 42, 56, 0.08);
+    }
+
+    .pt-modal-tenant-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 2px rgba(237, 164, 35, 0.5);
+    }
+
+    .pt-modal-tenant-name {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        color: #1c2a38;
+    }
+
+    .pt-modal-tenant-email {
+        margin: 0;
+        font-size: 12px;
+        color: #6b7684;
+    }
+
+    .pt-modal-heading {
+        margin: 0 0 12px;
+        font-size: 15px;
+        color: #1c2a38;
+    }
+
+    .pt-modal-payment {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 12px;
+        margin-bottom: 10px;
+        background: #FAFAFD;
+        border: 1px solid rgba(28, 42, 56, 0.08);
+        border-radius: 10px;
+    }
+
+    .pt-modal-payment-status {
+        display: inline-block;
+        padding: 4px 11px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+    }
+
+    .pt-modal-payment-time {
+        font-size: 12px;
+        color: #6b7684;
+    }
+
+    .pt-modal-receipt-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 10px;
+        padding: 9px 14px;
+        border-radius: 10px;
+        background: #FDF1DC;
+        border: 1px solid rgba(237, 164, 35, 0.5);
+        color: #B07708;
+        font-size: 12.5px;
+        font-weight: 700;
+        text-decoration: none;
+        transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .pt-modal-receipt-link:hover {
+        background: #ffffff;
+        transform: translateY(-1px);
+        box-shadow: 0 8px 18px rgba(237, 164, 35, 0.25);
+    }
+
+    .pt-modal-paid-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        margin-bottom: 10px;
+        background: #FAFAFD;
+        border: 1px solid rgba(28, 42, 56, 0.08);
+        border-radius: 10px;
+    }
+
+    .pt-modal-paid-row>div {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .pt-modal-paid-row strong {
+        color: #1c2a38;
+        font-size: 14px;
+    }
+
+    .pt-modal-daterange {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 12px;
+        margin-bottom: 14px;
+        background: #FAFAFD;
+        border: 1px solid rgba(28, 42, 56, 0.08);
+        border-radius: 10px;
+    }
+
+    .pt-modal-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 14px;
+        margin-bottom: 14px;
+    }
+
+    .pt-modal-detail {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .pt-modal-muted {
+        font-size: 12px;
+        color: #6b7684;
+    }
+
+    .pt-modal-total-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-top: 14px;
+        border-top: 1px solid rgba(28, 42, 56, 0.08);
+        margin-bottom: 16px;
+    }
+
+    .pt-modal-total-row strong {
+        color: #1c2a38;
+        font-size: 17px;
+    }
+
+    .pt-modal-buttons {
+        justify-content: flex-end;
+    }
+
+    /* SIGN-TO-ACCEPT MODAL */
+    .pt-sign-sub {
+        margin: -4px 0 14px;
+        font-size: 12.5px;
+        color: #6b7684;
+        line-height: 1.6;
+    }
+
+    .pt-sign-sub b {
+        color: #1c2a38;
+    }
+
+    .pt-sign-summary {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        padding: 12px;
+        margin-bottom: 12px;
+        background: #FAFAFD;
+        border: 1px solid rgba(28, 42, 56, 0.08);
+        border-radius: 10px;
+    }
+
+    .pt-sign-summary>div {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .pt-sign-summary strong {
+        color: #1c2a38;
+        font-size: 12.5px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .pt-sign-canvas-wrap {
+        position: relative;
+        margin-bottom: 10px;
+    }
+
+    #ptSignCanvas {
+        display: block;
+        width: 100%;
+        height: 220px;
+        background: #fff;
+        border: 1.5px dashed #C9CDD6;
+        border-radius: 12px;
+        touch-action: none;
+        cursor: crosshair;
+    }
+
+    .pt-sign-hint {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        pointer-events: none;
+        color: #AAB1BE;
+        font-size: 13px;
+        font-weight: 600;
+        transition: opacity 0.2s ease;
+    }
+
+    .pt-sign-hint.hidden {
+        opacity: 0;
+    }
+
+    .pt-sign-tools {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 14px;
+    }
+
+    #ptSignConfirm[disabled] {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none !important;
+        box-shadow: none !important;
+    }
+
+    /* =====================================================
+       ★ TEMP PROFILE ICON (no uploaded avatar)
+       Same box as the <img> it replaces — ring, size,
+       spacing identical, so layout never shifts.
+       (Legacy put this class on the lucide-replaced <svg>;
+       the macro svg carries it directly on the card, and the
+       modal wraps it in a span the JS can toggle.)
+    ====================================================== */
+    .pt-avatar-icon {
+        width: 36px;
+        height: 36px;
+        padding: 7px;
+        box-sizing: border-box;
+        flex-shrink: 0;
+
+        background: #1c2a38;
+        border: 2px solid #fff;
+        border-radius: 50%;
+        box-shadow: 0 0 0 2px rgba(237, 164, 35, 0.5);
+
+        color: #f6c04e;
+        display: block;
+    }
+
+    .pt-modal-avatar-icon {
+        width: 40px;
+        height: 40px;
+        padding: 8px;
+        box-sizing: border-box;
+        flex-shrink: 0;
+
+        background: #1c2a38;
+        border: 2px solid #fff;
+        border-radius: 50%;
+        box-shadow: 0 0 0 2px rgba(237, 164, 35, 0.5);
+
+        color: #f6c04e;
+        display: block;
+    }
+
+    @media (max-width: 720px) {
+        .pt-actions {
+            width: 100%;
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+        }
+    }
+
+    /* =====================================================
+       ICONS (lucide.dev art via admin/_macros.html.twig —
+       svg.icon replaces legacy svg.lucide)
+    ====================================================== */
+    svg.icon {
+        display: inline-block;
+        vertical-align: -0.18em;
+        flex-shrink: 0;
+    }
+
+    .pt-listing-location svg.icon,
+    .pt-modal-listing-location svg.icon {
+        width: 12px;
+        height: 12px;
+        color: #8B93A6;
+        flex-shrink: 0;
+    }
+
+    .pt-dates svg.icon {
+        width: 14px;
+        height: 14px;
+        color: #8B93A6;
+        flex-shrink: 0;
+    }
+
+    .pt-receipt-link svg.icon,
+    .pt-modal-receipt-link svg.icon {
+        width: 12px;
+        height: 12px;
+        flex-shrink: 0;
+    }
+
+    .pt-sign-hint svg.icon {
+        width: 14px;
+        height: 14px;
+    }
+
+    /* ---- Dark mode (same approach as host/listings.html.twig) ---- */
+    body[data-theme="dark"] .hp-page-title { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-empty-state { background: #141b24; border-color: #1a222b; color: #8d99a5; }
+    body[data-theme="dark"] .hp-empty-state-title { color: #e8ecf1; }
+    body[data-theme="dark"] .pt-card { background: #141b24; border-color: #1a222b; }
+    body[data-theme="dark"] .pt-listing-title,
+    body[data-theme="dark"] .pt-tenant-name,
+    body[data-theme="dark"] .pt-total,
+    body[data-theme="dark"] .pt-dates,
+    body[data-theme="dark"] .pt-modal,
+    body[data-theme="dark"] .pt-modal-listing-title,
+    body[data-theme="dark"] .pt-modal-tenant-name,
+    body[data-theme="dark"] .pt-modal-heading,
+    body[data-theme="dark"] .pt-modal-paid-row strong,
+    body[data-theme="dark"] .pt-sign-sub b,
+    body[data-theme="dark"] .pt-sign-summary strong { color: #e8ecf1; }
+    body[data-theme="dark"] .pt-tenant-email,
+    body[data-theme="dark"] .pt-listing-location,
+    body[data-theme="dark"] .pt-payment-time,
+    body[data-theme="dark"] .pt-modal-muted,
+    body[data-theme="dark"] .pt-modal-payment-time,
+    body[data-theme="dark"] .pt-sign-sub { color: #8d99a5; }
+    body[data-theme="dark"] .pt-card,
+    body[data-theme="dark"] .pt-modal-listing,
+    body[data-theme="dark"] .pt-modal-tenant,
+    body[data-theme="dark"] .pt-modal-payment,
+    body[data-theme="dark"] .pt-modal-paid-row,
+    body[data-theme="dark"] .pt-modal-daterange,
+    body[data-theme="dark"] .pt-sign-summary { border-color: #1a222b; }
+    body[data-theme="dark"] .pt-modal-payment,
+    body[data-theme="dark"] .pt-modal-paid-row,
+    body[data-theme="dark"] .pt-modal-daterange,
+    body[data-theme="dark"] .pt-sign-summary { background: #10161d; }
+    body[data-theme="dark"] #ptSignCanvas { background: #10161d; border-color: #2a3441; }
+    body[data-theme="dark"] .pt-receipt-link,
+    body[data-theme="dark"] .pt-modal-receipt-link { background: rgba(237, 164, 35, 0.12); }
+    body[data-theme="dark"] .pt-receipt-link:hover,
+    body[data-theme="dark"] .pt-modal-receipt-link:hover { background: rgba(237, 164, 35, 0.06); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="hp-page-header">
+    <div>
+        <h1 class="hp-page-title">Pending Tenants</h1>
+        <p class="hp-page-subtitle">Tenants who applied for your spaces sit here until you accept or reject them. Accepting now requires signing the guest's receipt first. Verification badges show who completed ID + profile.</p>
+    </div>
+</div>
+
+<div class="pt-list">
+    {% if applications is empty %}
+
+        <div class="hp-empty-state">
+            <p class="hp-empty-state-title">No pending applications</p>
+            <p>Once a tenant applies for one of your spaces, they'll show up here for you to accept or reject.</p>
+        </div>
+
+    {% else %}
+        {% for app in applications %}
+            <div
+                class="pt-card"
+                data-booking-id="{{ app.booking_id }}"
+                data-booking-ref="{{ app.booking_ref }}"
+                data-listing-title="{{ app.listing_title }}"
+                data-listing-location="{{ app.listing_location }}"
+                data-listing-photo="{{ app.listing_photo }}"
+                data-tenant-name="{{ app.tenant_name }}"
+                data-tenant-email="{{ app.tenant_email }}"
+                data-tenant-avatar="{{ app.tenant_avatar }}"
+                data-tenant-has-avatar="{{ app.tenant_has_avatar ? '1' : '0' }}"
+                data-tenant-personal="{{ app.tenant_personal }}"
+                data-tenant-verified="{{ app.tenant_verified ? '1' : '0' }}"
+                data-checkin="{{ app.checkin_label }}"
+                data-checkout="{{ app.checkout_label }}"
+                data-daterange="{{ app.date_range }}"
+                data-payment-status="{{ app.payment_status }}"
+                data-payment-class="{{ app.payment_class }}"
+                data-payment-time="{{ app.payment_time }}"
+                data-guests="{{ app.guests }}"
+                data-applied="{{ app.applied }}"
+                data-total="{{ app.total }}"
+                data-paid="{{ app.paid }}"
+                data-balance="{{ app.balance }}"
+                data-receipt-url="{{ app.receipt_url }}"
+                tabindex="0"
+                role="button"
+                aria-label="View application details from {{ app.tenant_name }}">
+
+                <img
+                    class="pt-listing-photo"
+                    src="{{ app.listing_photo }}"
+                    alt="{{ app.listing_title }}"
+                    onerror="this.onerror=null;this.src='/images/ListingPlaceholder.png';">
+
+                <div class="pt-info">
+                    <p class="pt-listing-title">{{ app.listing_title }}</p>
+                    <p class="pt-listing-location">
+                        {{ ui.icon('pin') }}
+                        {{ app.listing_location }}
+                    </p>
+
+                    <div class="pt-tenant-row">
+                        {# ★ TEMP PROFILE — real photo when one exists,
+                           temporary icon otherwise #}
+                        {% if app.tenant_has_avatar %}
+                            <img
+                                class="pt-tenant-avatar"
+                                src="{{ app.tenant_avatar }}"
+                                alt="{{ app.tenant_name }}"
+                                onerror="this.onerror=null;this.src='/images/default-avatar.png';">
+                        {% else %}
+                            {{ ui.icon('circle-user-round', 'pt-avatar-icon') }}
+                        {% endif %}
+                        <div>
+                            <p class="pt-tenant-name">
+                                {{ app.tenant_name }}
+                                {% if app.tenant_verified %}
+                                    <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 9px;background:#E8F8F1;color:#178A50;border:1px solid rgba(23,138,80,.35);border-radius:999px;font-size:10px;font-weight:800;vertical-align:middle;">&#10003; Verified</span>
+                                {% else %}
+                                    <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 9px;background:#FFF4E0;color:#C77A00;border:1px dashed rgba(237,164,35,.5);border-radius:999px;font-size:10px;font-weight:800;vertical-align:middle;">Not Verified</span>
+                                {% endif %}
+                            </p>
+                            <p class="pt-tenant-email">{{ app.tenant_email }}</p>
+                        </div>
+                    </div>
+
+                    <p class="pt-applied-date">
+                        Applied {{ app.applied }}
+                    </p>
+                </div>
+
+                <div class="pt-payment">
+                    <span class="pt-payment-status {{ app.payment_class }}">
+                        {{ app.payment_status }}
+                    </span>
+                    <span class="pt-payment-time">{{ app.payment_time }}</span>
+                    {% if app.receipt_url %}
+                        <a
+                            class="pt-receipt-link"
+                            href="{{ app.receipt_url }}"
+                            target="_blank"
+                            rel="noopener"
+                            title="Open the guest's official receipt">{{ ui.icon('file-text') }} View Receipt</a>
+                    {% endif %}
+                </div>
+
+                <div class="pt-dates">
+                    {{ ui.icon('calendar-days') }}
+                    <span>{{ app.date_range }}</span>
+                </div>
+
+                <div class="pt-actions">
+                    <strong class="pt-total">&#8369; {{ app.total }}</strong>
+                    <div class="pt-buttons">
+                        <button
+                            type="button"
+                            class="hp-btn-outline pt-btn-reject"
+                            data-booking-id="{{ app.booking_id }}"
+                            data-tenant-name="{{ app.tenant_name }}">
+                            Reject
+                        </button>
+                        <button
+                            type="button"
+                            class="hp-btn-primary pt-btn-accept"
+                            data-booking-id="{{ app.booking_id }}"
+                            data-tenant-name="{{ app.tenant_name }}">
+                            Accept
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        {% endfor %}
+    {% endif %}
+</div>
+
+<!-- =========================================================
+     APPLICATION DETAILS MODAL
+========================================================= -->
+<div class="pt-modal-overlay" id="ptModalOverlay">
+    <div class="pt-modal" role="dialog" aria-modal="true" aria-labelledby="ptModalTitle">
+
+        <button type="button" class="pt-modal-close" id="ptModalClose" aria-label="Close">&times;</button>
+
+        <div class="pt-modal-listing">
+            <img class="pt-modal-listing-photo" id="ptModalListingPhoto" src="" alt="">
+            <div>
+                <p class="pt-modal-listing-title" id="ptModalListingTitle"></p>
+                <p class="pt-modal-listing-location">
+                    {{ ui.icon('pin') }}
+                    <span id="ptModalListingLocation"></span>
+                </p>
+            </div>
+        </div>
+
+        <div class="pt-modal-tenant">
+            <img class="pt-modal-tenant-avatar" id="ptModalTenantAvatar" src="" alt="">
+            {# ★ TEMP PROFILE — icon variant, toggled by fillModal()
+               from data-tenant-has-avatar #}
+            <span class="pt-modal-avatar-icon" id="ptModalTenantAvatarIcon" style="display:none">{{ ui.icon('circle-user-round') }}</span>
+            <div>
+                <p class="pt-modal-tenant-name">
+                    <span id="ptModalTenantName"></span>
+                    <span id="ptModalTenantVerified" class="pt-verified-pill"></span>
+                </p>
+                <p class="pt-modal-tenant-email" id="ptModalTenantEmail"></p>
+            </div>
+        </div>
+
+        <div id="ptModalTenantPersonalWrap" style="display:none; margin:-4px 0 14px;">
+            <span style="display:block; font-size:11px; font-weight:700; letter-spacing:.6px; text-transform:uppercase; color:#8B93A6; margin-bottom:6px;">Guest Personal Photo</span>
+            <a id="ptModalTenantPersonalLink" href="#" target="_blank" rel="noopener" title="Open full size">
+                <img id="ptModalTenantPersonal" src="" alt="Personal photo"
+                    style="width:100%; max-width:380px; height:170px; object-fit:cover; object-position:center; border-radius:10px; border:1px solid #EEF1F6; display:block;">
+            </a>
+            <span style="display:block; margin-top:5px; font-size:11px; color:#8B93A6;">
+                Used to recognize the guest in person. Click to open full size.
+            </span>
+        </div>
+
+        <h3 class="pt-modal-heading" id="ptModalTitle">Application Details</h3>
+
+        <div class="pt-modal-payment">
+            <span class="pt-modal-payment-status" id="ptModalPaymentStatus"></span>
+            <span class="pt-modal-payment-time" id="ptModalPaymentTime"></span>
+        </div>
+
+        <a class="pt-modal-receipt-link" id="ptModalReceiptLink" href="#" target="_blank" rel="noopener" style="display:none;">
+            {{ ui.icon('file-text') }} View Guest Receipt
+        </a>
+
+        <div class="pt-modal-paid-row">
+            <div>
+                <span class="pt-modal-muted">Paid so far</span>
+                <strong>&#8369; <span id="ptModalPaid"></span></strong>
+            </div>
+            <div>
+                <span class="pt-modal-muted">Balance</span>
+                <strong>&#8369; <span id="ptModalBalance"></span></strong>
+            </div>
+        </div>
+
+        <div class="pt-modal-daterange">
+            <span class="pt-modal-muted">Dates</span>
+            <strong id="ptModalDateRange"></strong>
+        </div>
+
+        <div class="pt-modal-grid">
+            <div class="pt-modal-detail">
+                <span class="pt-modal-muted">Check-in</span>
+                <strong id="ptModalCheckin"></strong>
+            </div>
+            <div class="pt-modal-detail">
+                <span class="pt-modal-muted">Check-out</span>
+                <strong id="ptModalCheckout"></strong>
+            </div>
+            <div class="pt-modal-detail">
+                <span class="pt-modal-muted">Guests</span>
+                <strong id="ptModalGuests"></strong>
+            </div>
+            <div class="pt-modal-detail">
+                <span class="pt-modal-muted">Applied On</span>
+                <strong id="ptModalApplied"></strong>
+            </div>
+        </div>
+
+        <div class="pt-modal-total-row">
+            <span class="pt-modal-muted">Total</span>
+            <strong>&#8369; <span id="ptModalTotal"></span></strong>
+        </div>
+
+        <div class="pt-buttons pt-modal-buttons">
+            <button type="button" class="hp-btn-outline pt-btn-reject" id="ptModalReject">
+                Reject
+            </button>
+            <button type="button" class="hp-btn-primary pt-btn-accept" id="ptModalAccept">
+                Accept
+            </button>
+        </div>
+
+    </div>
+</div>
+
+<!-- =========================================================
+     SIGN-TO-ACCEPT MODAL (signature pad)
+========================================================= -->
+<div class="pt-modal-overlay" id="ptSignOverlay">
+    <div class="pt-modal pt-sign-modal" role="dialog" aria-modal="true" aria-labelledby="ptSignTitle">
+
+        <button type="button" class="pt-modal-close" id="ptSignClose" aria-label="Close">&times;</button>
+
+        <h3 class="pt-modal-heading" id="ptSignTitle">Sign the receipt to accept</h3>
+        <p class="pt-sign-sub">
+            Your signature will be stamped on the guest's official receipt for
+            booking <b id="ptSignBookingRef">#000000</b>. Signing also accepts this application.
+        </p>
+
+        <div class="pt-sign-summary">
+            <div><span class="pt-modal-muted">Tenant</span><strong id="ptSignTenant"></strong></div>
+            <div><span class="pt-modal-muted">Listing</span><strong id="ptSignListing"></strong></div>
+            <div><span class="pt-modal-muted">Paid so far</span><strong>&#8369; <span id="ptSignPaid"></span></strong></div>
+            <div><span class="pt-modal-muted">Total</span><strong>&#8369; <span id="ptSignTotal"></span></strong></div>
+        </div>
+
+        <a class="pt-modal-receipt-link" id="ptSignViewReceipt" href="#" target="_blank" rel="noopener" style="display:none;">
+            {{ ui.icon('file-text') }} View full receipt
+        </a>
+
+        <div class="pt-sign-canvas-wrap">
+            <canvas id="ptSignCanvas"></canvas>
+            <span class="pt-sign-hint" id="ptSignHint">{{ ui.icon('pen-line') }} Draw your signature here</span>
+        </div>
+
+        <div class="pt-sign-tools">
+            <button type="button" class="hp-btn-outline" id="ptSignClear">Clear</button>
+        </div>
+
+        <div class="pt-buttons pt-modal-buttons">
+            <button type="button" class="hp-btn-outline" id="ptSignCancel">Cancel</button>
+            <button type="button" class="hp-btn-primary" id="ptSignConfirm" disabled>
+                Sign &amp; Accept
+            </button>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    (function() {
+        "use strict";
+
+        /* =========================================================
+           SHARED HELPERS
+        ========================================================= */
+        function openOverlay(el) {
+            if (el) el.classList.add('open');
+        }
+
+        function closeOverlay(el) {
+            if (el) el.classList.remove('open');
+        }
+
+        /* Keep the sidebar "Pending Tenants" badge in sync after
+           an accept/reject without a page reload. */
+        function refreshBadges() {
+            var link = document.querySelector('a[href="/host/pending-tenants"]');
+            if (!link) {
+                return;
+            }
+            var badge = link.querySelector('.hp-side-badge');
+            if (!badge) {
+                return;
+            }
+            var n = (parseInt(badge.textContent, 10) || 0) - 1;
+            if (n <= 0) {
+                badge.remove();
+            } else {
+                badge.textContent = n;
+            }
+        }
+
+        /* =========================================================
+           ACCEPT / REJECT (reject goes through here directly;
+           accept goes through the signature pad instead)
+           Symfony URL map: POST /host/bookings/{id}/reject
+           (legacy reject-booking.php). Responses {success} |
+           {message}.
+        ========================================================= */
+        function handleDecision(bookingId, tenantName, buttons, card, endpoint, confirmMessage, busyText, onSuccess) {
+            if (!confirm(confirmMessage.replace('%s', tenantName || 'this tenant'))) {
+                return;
+            }
+
+            buttons.forEach(function(b) {
+                b.disabled = true;
+            });
+            buttons.forEach(function(b) {
+                if (b.classList.contains('pt-btn-accept') || b.classList.contains('pt-btn-reject')) {
+                    b.textContent = busyText;
+                }
+            });
+
+            fetch(endpoint.replace('{id}', encodeURIComponent(bookingId)), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: 'booking_id=' + encodeURIComponent(bookingId)
+                })
+                .then(function(res) {
+                    return res.json();
+                })
+                .then(function(data) {
+                    if (data.success) {
+                        if (card) card.remove();
+                        if (onSuccess) onSuccess();
+                    } else {
+                        alert(data.error || data.message || 'Something went wrong. Please try again.');
+                    }
+                })
+                .catch(function() {
+                    alert('Something went wrong. Please try again.');
+                })
+                .finally(function() {
+                    buttons.forEach(function(b) {
+                        if (!b || !document.body.contains(b)) {
+                            return;
+                        }
+                        b.disabled = false;
+                        if (b.classList.contains('pt-btn-accept')) {
+                            b.textContent = 'Accept';
+                        }
+                        if (b.classList.contains('pt-btn-reject')) {
+                            b.textContent = 'Reject';
+                        }
+                    });
+                });
+        }
+
+        /* Remove a card by booking id (used by the signature
+           confirm, where the triggering card may not be in scope) */
+        function removeCard(bookingId) {
+            var card = document.querySelector('.pt-card[data-booking-id="' + bookingId + '"]');
+            if (card) {
+                card.remove();
+            }
+        }
+
+        /* =========================================================
+           DETAILS MODAL
+        ========================================================= */
+        var ptOverlay = document.getElementById('ptModalOverlay');
+        var ptClose = document.getElementById('ptModalClose');
+
+        function fillModal(card) {
+            var d = card.dataset;
+
+            document.getElementById('ptModalListingPhoto').src = d.listingPhoto;
+            document.getElementById('ptModalListingTitle').textContent = d.listingTitle;
+            document.getElementById('ptModalListingLocation').textContent = d.listingLocation;
+
+            /* ★ TEMP PROFILE — img vs icon, per applicant */
+            var avImg = document.getElementById('ptModalTenantAvatar');
+            var avIco = document.getElementById('ptModalTenantAvatarIcon');
+            if (d.tenantHasAvatar === '1') {
+                avImg.style.display = '';
+                avIco.style.display = 'none';
+                avImg.src = d.tenantAvatar;
+            } else {
+                avImg.style.display = 'none';
+                avIco.style.display = '';
+            }
+
+            document.getElementById('ptModalTenantName').textContent = d.tenantName;
+            document.getElementById('ptModalTenantEmail').textContent = d.tenantEmail;
+
+            var pill = document.getElementById('ptModalTenantVerified');
+            pill.textContent = d.tenantVerified === '1' ? '\u2713 Verified' : 'Not Verified';
+            pill.className = 'pt-verified-pill ' + (d.tenantVerified === '1' ? 'yes' : 'no');
+
+            var wrap = document.getElementById('ptModalTenantPersonalWrap');
+            if (d.tenantPersonal) {
+                wrap.style.display = 'block';
+                document.getElementById('ptModalTenantPersonal').src = d.tenantPersonal;
+                document.getElementById('ptModalTenantPersonalLink').href = d.tenantPersonal;
+            } else {
+                wrap.style.display = 'none';
+            }
+
+            var status = document.getElementById('ptModalPaymentStatus');
+            status.textContent = d.paymentStatus;
+            status.className = 'pt-modal-payment-status ' + (d.paymentClass === 'pt-payment-paid' ? 'pt-payment-paid' : 'pt-payment-pending');
+            document.getElementById('ptModalPaymentTime').textContent = d.paymentTime;
+
+            var receipt = document.getElementById('ptModalReceiptLink');
+            if (d.receiptUrl) {
+                receipt.style.display = 'inline-flex';
+                receipt.href = d.receiptUrl;
+            } else {
+                receipt.style.display = 'none';
+            }
+
+            document.getElementById('ptModalPaid').textContent = d.paid;
+            document.getElementById('ptModalBalance').textContent = d.balance;
+            document.getElementById('ptModalDateRange').textContent = d.daterange;
+            document.getElementById('ptModalCheckin').textContent = d.checkin;
+            document.getElementById('ptModalCheckout').textContent = d.checkout;
+            document.getElementById('ptModalGuests').textContent = d.guests;
+            document.getElementById('ptModalApplied').textContent = d.applied;
+            document.getElementById('ptModalTotal').textContent = d.total;
+
+            ptOverlay.dataset.bookingId = d.bookingId;
+            ptOverlay.dataset.bookingRef = d.bookingRef;
+            ptOverlay.dataset.tenantName = d.tenantName;
+            ptOverlay.dataset.receiptUrl = d.receiptUrl || '';
+        }
+
+        function openDetails(card) {
+            fillModal(card);
+            openOverlay(ptOverlay);
+        }
+
+        Array.prototype.forEach.call(document.querySelectorAll('.pt-card'), function(card) {
+            card.addEventListener('click', function(event) {
+                if (event.target.closest('a, button')) {
+                    return;
+                }
+                openDetails(card);
+            });
+            card.addEventListener('keydown', function(event) {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    openDetails(card);
+                }
+            });
+        });
+
+        ptClose.addEventListener('click', function() {
+            closeOverlay(ptOverlay);
+        });
+        ptOverlay.addEventListener('click', function(event) {
+            if (event.target === ptOverlay) {
+                closeOverlay(ptOverlay);
+            }
+        });
+
+        /* =========================================================
+           REJECT (card buttons + details modal)
+        ========================================================= */
+        Array.prototype.forEach.call(document.querySelectorAll('.pt-btn-reject'), function(btn) {
+            btn.addEventListener('click', function(event) {
+                event.stopPropagation();
+
+                var card = btn.closest('.pt-card');
+                var bookingId, tenantName, buttons;
+
+                if (card) {
+                    bookingId = card.dataset.bookingId;
+                    tenantName = card.dataset.tenantName;
+                    buttons = Array.prototype.slice.call(card.querySelectorAll('.pt-btn-reject, .pt-btn-accept'));
+                } else {
+                    bookingId = ptOverlay.dataset.bookingId;
+                    tenantName = ptOverlay.dataset.tenantName;
+                    buttons = [document.getElementById('ptModalReject'), document.getElementById('ptModalAccept')];
+                }
+
+                handleDecision(
+                    bookingId,
+                    tenantName,
+                    buttons,
+                    card,
+                    '/host/bookings/{id}/reject',
+                    "Reject %s's application for this listing? Their reserve will be refunded in full.",
+                    'Rejecting...',
+                    refreshBadges
+                );
+            });
+        });
+
+        /* =========================================================
+           ACCEPT — opens the signature pad (card + modal)
+        ========================================================= */
+        var ptSignOverlay = document.getElementById('ptSignOverlay');
+        var ptSignCanvas = document.getElementById('ptSignCanvas');
+        var ptSignHint = document.getElementById('ptSignHint');
+        var ptSignConfirm = document.getElementById('ptSignConfirm');
+        var ptSignCtx = ptSignCanvas ? ptSignCanvas.getContext('2d') : null;
+        var ptHasInk = false;
+
+        Array.prototype.forEach.call(document.querySelectorAll('.pt-btn-accept'), function(btn) {
+            btn.addEventListener('click', function(event) {
+                event.stopPropagation();
+
+                var card = btn.closest('.pt-card');
+                var bookingId, tenantName, bookingRef, listingTitle, paid, total, receiptUrl;
+
+                if (card) {
+                    bookingId = card.dataset.bookingId;
+                    tenantName = card.dataset.tenantName;
+                    bookingRef = card.dataset.bookingRef;
+                    listingTitle = card.dataset.listingTitle;
+                    paid = card.dataset.paid;
+                    total = card.dataset.total;
+                    receiptUrl = card.dataset.receiptUrl;
+                } else {
+                    bookingId = ptOverlay.dataset.bookingId;
+                    tenantName = ptOverlay.dataset.tenantName;
+                    bookingRef = ptOverlay.dataset.bookingRef;
+                    listingTitle = document.getElementById('ptModalListingTitle').textContent;
+                    paid = document.getElementById('ptModalPaid').textContent;
+                    total = document.getElementById('ptModalTotal').textContent;
+                    receiptUrl = ptOverlay.dataset.receiptUrl || '';
+                }
+
+                document.getElementById('ptSignBookingRef').textContent = '#' + bookingRef;
+                document.getElementById('ptSignTenant').textContent = tenantName;
+                document.getElementById('ptSignListing').textContent = listingTitle;
+                document.getElementById('ptSignPaid').textContent = paid;
+                document.getElementById('ptSignTotal').textContent = total;
+
+                var viewLink = document.getElementById('ptSignViewReceipt');
+                if (receiptUrl) {
+                    viewLink.style.display = 'inline-flex';
+                    viewLink.href = receiptUrl;
+                } else {
+                    viewLink.style.display = 'none';
+                }
+
+                ptSignOverlay.dataset.bookingId = bookingId;
+                ptSignOverlay.dataset.bookingRef = bookingRef;
+
+                closeOverlay(ptOverlay);
+                openOverlay(ptSignOverlay);
+
+                /* ★ CANVAS FIX — size NOW, while the overlay is
+                   visible. Sizing at page load (overlay hidden)
+                   produced a 0x0 bitmap that could never draw. */
+                signSizeCanvas();
+            });
+        });
+
+        /* =========================================================
+           SIGNATURE PAD — canvas draw (pointer events, HiDPI)
+           ★ CANVAS FIX: skip sizing while hidden (0x0 bitmap),
+           and re-apply stroke settings after every resize —
+           resizing a canvas wipes its 2D context state.
+        ========================================================= */
+        function signSizeCanvas() {
+            if (!ptSignCanvas || !ptSignCtx) {
+                return;
+            }
+
+            var ratio = window.devicePixelRatio || 1;
+            var rect = ptSignCanvas.getBoundingClientRect();
+
+            /* Skip while hidden — sizing a display:none canvas
+               produces a 0x0 bitmap that can never draw */
+            if (rect.width === 0 || rect.height === 0) {
+                return;
+            }
+
+            var data = ptHasInk ? ptSignCanvas.toDataURL() : null;
+
+            ptSignCanvas.width = Math.round(rect.width * ratio);
+            ptSignCanvas.height = Math.round(rect.height * ratio);
+            ptSignCtx.scale(ratio, ratio);
+
+            /* Resizing wipes context state — re-apply stroke
+               settings */
+            ptSignCtx.lineWidth = 2.2;
+            ptSignCtx.lineCap = 'round';
+            ptSignCtx.lineJoin = 'round';
+            ptSignCtx.strokeStyle = '#1c2a38';
+
+            if (data) {
+                var img = new Image();
+                img.onload = function() {
+                    ptSignCtx.drawImage(img, 0, 0, rect.width, rect.height);
+                };
+                img.src = data;
+            }
+        }
+
+        function signStrokeStart(x, y) {
+            ptHasInk = true;
+            ptSignHint.classList.add('hidden');
+            ptSignConfirm.disabled = false;
+            ptSignCtx.beginPath();
+            ptSignCtx.moveTo(x, y);
+        }
+
+        function signStrokeMove(x, y) {
+            ptSignCtx.lineTo(x, y);
+            ptSignCtx.stroke();
+        }
+
+        if (ptSignCanvas && ptSignCtx) {
+
+            /* Initial call is now harmless — the zero-size guard
+               skips it while the overlay is hidden */
+            signSizeCanvas();
+
+            var signResizeTimer = null;
+            window.addEventListener('resize', function() {
+                window.clearTimeout(signResizeTimer);
+                signResizeTimer = window.setTimeout(signSizeCanvas, 150);
+            });
+
+            ptSignCanvas.addEventListener('pointerdown', function(e) {
+                e.preventDefault();
+                var r = ptSignCanvas.getBoundingClientRect();
+                signStrokeStart(e.clientX - r.left, e.clientY - r.top);
+                ptSignCanvas.setPointerCapture(e.pointerId);
+            });
+
+            ptSignCanvas.addEventListener('pointermove', function(e) {
+                if (!ptHasInk || e.buttons === 0) {
+                    return;
+                }
+                var r = ptSignCanvas.getBoundingClientRect();
+                signStrokeMove(e.clientX - r.left, e.clientY - r.top);
+            });
+
+            window.addEventListener('pointerup', function() {
+                if (ptSignCtx) {
+                    ptSignCtx.beginPath();
+                }
+            });
+        }
+
+        function signReset() {
+            if (ptSignCtx && ptSignCanvas) {
+                var rect = ptSignCanvas.getBoundingClientRect();
+                ptSignCtx.clearRect(0, 0, rect.width, rect.height);
+            }
+            ptHasInk = false;
+            if (ptSignHint) {
+                ptSignHint.classList.remove('hidden');
+            }
+            if (ptSignConfirm) {
+                ptSignConfirm.disabled = true;
+                ptSignConfirm.textContent = 'Sign & Accept';
+            }
+        }
+
+        function closeSign() {
+            closeOverlay(ptSignOverlay);
+            signReset();
+        }
+
+        var ptSignClear = document.getElementById('ptSignClear');
+        var ptSignClose = document.getElementById('ptSignClose');
+        var ptSignCancel = document.getElementById('ptSignCancel');
+
+        if (ptSignClear) {
+            ptSignClear.addEventListener('click', signReset);
+        }
+        if (ptSignClose) {
+            ptSignClose.addEventListener('click', closeSign);
+        }
+        if (ptSignCancel) {
+            ptSignCancel.addEventListener('click', closeSign);
+        }
+
+        ptSignOverlay.addEventListener('click', function(event) {
+            if (event.target === ptSignOverlay) {
+                closeSign();
+            }
+        });
+
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeOverlay(ptOverlay);
+                closeSign();
+            }
+        });
+
+        /* =========================================================
+           CONFIRM — save the signature
+           (POST /host/bookings/{id}/sign, legacy sign-receipt.php),
+           then accept (POST /host/bookings/{id}/accept, legacy
+           accept-booking.php), then open the receipt
+           (/payment/confirmation/{id}, legacy
+           payment-confirmation.php?id=N).
+        ========================================================= */
+        if (ptSignConfirm) {
+            ptSignConfirm.addEventListener('click', function() {
+
+                if (!ptHasInk) {
+                    return;
+                }
+
+                var bookingId = ptSignOverlay.dataset.bookingId;
+                if (!bookingId) {
+                    return;
+                }
+
+                ptSignConfirm.disabled = true;
+                ptSignConfirm.textContent = 'Signing\u2026';
+
+                var dataUrl = ptSignCanvas.toDataURL('image/png');
+
+                fetch('/host/bookings/' + encodeURIComponent(bookingId) + '/sign', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        },
+                        body: 'booking_id=' + encodeURIComponent(bookingId) +
+                            '&signature=' + encodeURIComponent(dataUrl),
+                        credentials: 'same-origin'
+                    })
+                    .then(function(res) {
+                        return res.json();
+                    })
+                    .then(function(data) {
+                        if (!data || !data.success) {
+                            throw new Error((data && (data.error || data.message)) || 'Signing failed.');
+                        }
+                        return fetch('/host/bookings/' + encodeURIComponent(bookingId) + '/accept', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded'
+                            },
+                            body: 'booking_id=' + encodeURIComponent(bookingId),
+                            credentials: 'same-origin'
+                        }).then(function(res) {
+                            return res.json();
+                        });
+                    })
+                    .then(function(data) {
+                        if (data && data.success) {
+                            removeCard(bookingId);
+                            refreshBadges();
+                            closeSign();
+                            window.location.href =
+                                '/payment/confirmation/' + encodeURIComponent(bookingId);
+                        } else {
+                            throw new Error((data && (data.error || data.message)) || 'Could not accept the application.');
+                        }
+                    })
+                    .catch(function(err) {
+                        window.alert(err.message || 'Something went wrong. Please try again.');
+                        ptSignConfirm.disabled = false;
+                        ptSignConfirm.textContent = 'Sign & Accept';
+                    });
+            });
+        }
+
+    })();
+</script>
+{% endblock %}

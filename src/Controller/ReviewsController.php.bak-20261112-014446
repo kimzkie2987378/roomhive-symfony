@@ -1,0 +1,137 @@
+<?php
+
+namespace App\Controller;
+
+use Doctrine\DBAL\Connection;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Routing\Attribute\Route;
+
+/**
+ * RoomHive — My Account › Reviews (1:1 port of legacy user/userreviews.php).
+ *
+ *   GET /reviews   → stat cards (count / average) + every review the
+ *                    renter has left, newest first, linked to the listing.
+ *
+ * Legacy behaviour kept intact:
+ *   - Hosts are bounced to /host/profile (host pages not ported yet).
+ *   - Rows resolve the listing cover photo (photo_type = 'cover').
+ *   - Average rating rounded to 1 decimal; 0 when no reviews yet.
+ *
+ * Port notes:
+ *   - resolve_photo() becomes resolvePhoto(): 'webprogg/' prefixes are
+ *     stripped, bare filenames land in /uploads/listing_photos/cover/.
+ *   - Review rows open /listings/{id} — adjust that href when the
+ *     listing-detail page is ported (legacy pointed at listing-detail.php).
+ */
+class ReviewsController extends AbstractController
+{
+    public function __construct(private readonly Connection $db) {}
+
+    #[Route('/reviews', name: 'app_reviews', methods: ['GET'], priority: 2)]
+    public function index(Request $request): Response
+    {
+        $session = $request->getSession();
+        $userId  = (int)$session->get('user_id');
+        if (!$session->get('logged_in') || $userId <= 0) {
+            return $this->redirectToRoute('app_login');
+        }
+
+        $user = $this->db->fetchAssociative(
+            'SELECT id, name, email, avatar_path, is_host FROM users WHERE id = :id LIMIT 1',
+            ['id' => $userId]
+        );
+        if (!$user) {
+            $session->clear();
+            return $this->redirectToRoute('app_login');
+        }
+        $user['id'] = (int)$user['id'];
+
+        if ((int)$user['is_host'] === 1) {
+            return new RedirectResponse('/host/profile');
+        }
+
+        /* ---- reviews left by this user (newest first) ---- */
+        $rows = $this->db->fetchAllAssociative(
+            "SELECT r.id, r.rating, r.comment, r.created_at,
+                    l.id AS listing_id, l.title, l.location,
+                    p.photo_path AS cover_photo
+               FROM reviews r
+               JOIN listings l ON l.id = r.listing_id
+               LEFT JOIN listing_photos p
+                      ON p.listing_id = l.id AND p.photo_type = 'cover'
+              WHERE r.user_id = :id
+              ORDER BY r.created_at DESC",
+            ['id' => $userId]
+        );
+
+        $reviews = [];
+        foreach ($rows as $row) {
+            $reviews[] = [
+                'id'         => (int)$row['id'],
+                'listing_id' => (int)$row['listing_id'],
+                'title'      => (string)$row['title'],
+                'location'   => (string)$row['location'],
+                'thumb'      => $this->resolvePhoto($row['cover_photo'] ?? null),
+                'rating'     => (float)$row['rating'],
+                'comment'    => (string)($row['comment'] ?? ''),
+                'date'       => date('M j, Y', strtotime((string)$row['created_at'])),
+            ];
+        }
+
+        $reviewCount   = count($reviews);
+        $averageRating = $reviewCount > 0
+            ? round(array_sum(array_column($reviews, 'rating')) / $reviewCount, 1)
+            : 0;
+
+        return $this->render('user/reviews.html.twig', [
+            'user'           => $user,
+            'reviews'        => $reviews,
+            'review_count'   => $reviewCount,
+            'average_rating' => $averageRating,
+            'notif_count'    => $this->notifCount($userId),
+        ]);
+    }
+
+    /* =====================================================================
+     |  HELPERS — same pattern as WalletController / PaymentController
+     | ================================================================== */
+
+    /**
+     * Legacy resolve_photo(): http(s) stays as-is; a stored 'webprogg/'
+     * prefix is stripped to the site root; a bare filename is a cover
+     * photo inside uploads/listing_photos/cover/.
+     */
+    private function resolvePhoto(?string $path, string $fallback = ''): string
+    {
+        $path = trim((string)$path);
+        if ($path === '') {
+            return $fallback;
+        }
+        if (preg_match('#^https?://#i', $path)) {
+            return $path;
+        }
+        $p = ltrim($path, '/');
+        if (stripos($p, 'webprogg/') === 0) {
+            $p = substr($p, strlen('webprogg/'));
+        }
+        if (strpos($p, '/') === false) {
+            return '/uploads/listing_photos/cover/' . $p;
+        }
+        return '/' . $p;
+    }
+
+    private function notifCount(int $userId): int
+    {
+        try {
+            return (int)$this->db->fetchOne(
+                'SELECT COUNT(*) FROM notifications WHERE user_id = :id AND is_read = 0',
+                ['id' => $userId]
+            );
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+}

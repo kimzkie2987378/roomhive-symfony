@@ -1,0 +1,613 @@
+{# =========================================================
+   RoomHive — My Account › Messages (Tenant Inbox)
+   templates/user/messages.html.twig
+
+   REBUILT onto the shared account shell — same recipe as
+   help / notifications / bookings / payments:
+
+     - Sidebar: shared partial templates/partials/sidebar.html.twig,
+       highlight key 'messages'. The inline <aside> + its ~110-line
+       CSS block are gone (the partial owns them) — and with them
+       the Saved Searches entry (removed from the sidebar
+       everywhere; help is now the last entry).
+     - Footer: shared partials/footer.html.twig added after </main>
+       (= legacy user_footer.php).
+     - Lucide: guarded loader (window.__rhNavbarLucide — never
+       double-loads with the navbar's) replaces the plain CDN tag
+       + upRefreshIcons().
+     - Reveal: the kill-switch CSS is dropped -> the REAL legacy
+       mechanism (.up-reveal waits for .in-view) + the 1.5s
+       failsafe so the page can never render blank.
+     - Collapse: same localStorage key (roomhive_sidebar_collapsed)
+       + the updateTitles version (collapsed links get title
+       tooltips instead of hidden labels).
+
+   NAVBAR CLEARANCE + LAYOUT — page-local, bulletproof (same fix as
+   the help page — this page has the same ub-page-head):
+     - The PAGE HEAD above the shell carries the fixed-navbar
+       clearance (myaccount.css owns .ub-page-head — same as the
+       security page).
+     - The shell overrides live on main.up-dashboard (higher
+       specificity, always wins vs myaccount.css) with
+       max-width: 1560px — occupies the available area instead of
+       the legacy ~1240px cap.
+     - .up-dashboard .up-sidebar { top: 110px; } — the sticky
+       offset matches the other account pages, so the sidebar
+       stays clear of the navbar while scrolling (the partial's
+       default is 86px).
+
+   Content (1:1 with the pasted page — nothing content-side changed):
+   - LIST PANE: Chats header + compose (→ /listings; legacy
+     opened the browse page), search input, All/Unread tabs,
+     conversation rows with avatar, unread badge, listing tag
+   - THREAD PANE: back chevron (→ /messages), host identity
+     (avatar + name + listing tag) linking out to the host's
+     public profile, view-host-profile icon button, view-listing
+     info button, day dividers (Today/Yesterday/full date),
+     bubbles + times (|nl2br — same as legacy nl2br(h($body)))
+   - COMPOSER: POST app_messages_send (legacy sendmessage.php,
+     ported as MessagesController::send) with csrf_token +
+     conversation_id, PRG back to the thread
+   - empty states: no conversations at all / no thread selected
+   - flash banner: renders ONLY after a failed send (port
+     addition — a failed send is never silent)
+
+   NOTE: page CSS lives in assets/usermessages.css — make sure
+   it is copied to public/assets/ alongside style.css.
+
+   Data from MessagesController::index (user, flash, conversations,
+   is_explicit_thread, active_conversation, thread_messages,
+   notif_count [0 — legacy], csrf_messages).
+   Controller untouched — template-only change. Pure Twig -> Ctrl+F5.
+========================================================= #}
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Messages · RoomHive</title>
+
+        <script>
+            /* theme boot — before paint (same key as profile/payments) */
+            (function () {
+                try {
+                    if (localStorage.getItem("roomhive_theme") === "dark") {
+                        document.documentElement.classList.add("dark");
+                        document.documentElement.setAttribute("data-theme", "dark");
+                    }
+                } catch (e) {}
+            })();
+            document.documentElement.classList.add("js");
+        </script>
+
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/myaccount.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/usermessages.css') }}">
+
+        <style>
+            :root {
+                --rh-ink: #1c2a38;
+                --rh-muted: #66788a;
+                --rh-line: #e6ebf1;
+                --rh-card: #ffffff;
+                --rh-accent: #eda423;
+                --rh-accent-deep: #d98c12;
+                --rh-radius: 16px;
+            }
+
+            body {
+                background: #f3f5f9;
+            }
+
+            svg.lucide {
+                display: inline-block;
+                vertical-align: -0.18em;
+                flex-shrink: 0;
+            }
+
+            /* =========================================================
+                                       NAVBAR CLEARANCE + LAYOUT — page-local, bulletproof
+                                       The PAGE HEAD above the shell carries the fixed-navbar
+                                       clearance (myaccount.css owns .ub-page-head — same as
+                                       the security page). The shell overrides live on
+                                       main.up-dashboard (higher specificity, always wins vs
+                                       myaccount.css) with max-width: 1560px — occupies the
+                                       available area instead of the legacy ~1240px cap.
+                                    ========================================================== */
+            main.up-dashboard {
+                margin-top: 0;
+                padding: 22px 20px 70px;
+                max-width: 1560px;
+            }
+
+            /* sticky offset matches the other account pages — when you
+                                       scroll, the sidebar sticks at the 110px line instead of
+                                       tucking under the navbar (the partial's default is 86px) */
+            .up-dashboard .up-sidebar {
+                top: 110px;
+            }
+
+            /* sidebar markup + styles live in templates/partials/sidebar.html.twig */
+
+            /* =====================================================
+                                                   MESSAGES — page styles (carried over 1:1 from legacy
+                                                   usermessages.php's own <style> block)
+                                                ====================================================== */
+            .um-flash {
+                display: flex;
+                align-items: flex-start;
+                gap: 8px;
+                padding: 10px 14px;
+                margin: 0 0 12px;
+                border-radius: 8px;
+                font-size: 14px;
+            }
+            .um-flash svg {
+                width: 16px;
+                height: 16px;
+                flex-shrink: 0;
+                margin-top: 2px;
+            }
+            .um-flash span {
+                flex: 1;
+            }
+            .um-flash-error {
+                background: #fdecea;
+                color: #b3261e;
+                border: 1px solid #f5c6c2;
+            }
+            .um-flash-success {
+                background: #e9f7ef;
+                color: #1e7e42;
+                border: 1px solid #bfe8cf;
+            }
+
+            /* Compose (+) button */
+            .up-msg-compose {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .up-msg-compose svg {
+                width: 16px;
+                height: 16px;
+            }
+
+            /* Search field icon */
+            .up-msg-search-wrap svg {
+                width: 16px;
+                height: 16px;
+            }
+
+            /* Thread back chevron */
+            .up-msg-back {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .up-msg-back svg {
+                width: 18px;
+                height: 18px;
+            }
+
+            /* Thread action buttons (view host profile / view listing) */
+            .up-msg-icon-btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .up-msg-icon-btn svg {
+                width: 17px;
+                height: 17px;
+            }
+
+            /* Send button — Lucide's send is an outline; CSS fill
+                                                   overrides the svg's fill="none" so it stays SOLID */
+            .up-msg-send-btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .up-msg-send-btn svg {
+                width: 18px;
+                height: 18px;
+                fill: currentColor;
+            }
+
+            /* Empty-state / welcome bubble icon */
+            .up-msg-welcome-icon {
+                display: inline-flex;
+            }
+            .up-msg-welcome-icon svg {
+                width: 30px;
+                height: 30px;
+            }
+
+            /* Search/tab filtering hides rows with this class
+                                                   (legacy relied on usermessages.css for it) */
+            .js-hidden {
+                display: none !important;
+            }
+        </style>
+    </head>
+    <body>
+
+        {{ include('partials/navbar.html.twig', {
+            is_logged_in: true,
+            is_host: is_host ?? false,
+            nav_avatar: user.avatar_path ?? null,
+            notification_count: notif_count ?? 0,
+            current_page: 'messages'
+        }) }}
+
+        <!-- PAGE HEADER — PLAIN -->
+        <header class="ub-page-head">
+            <span class="ub-eyebrow">Tenant Inbox</span>
+            <h1>Your conversations</h1>
+            <p class="ub-lead">Talk with hosts about your bookings and questions.</p>
+        </header>
+
+        <main class="up-dashboard">
+
+            <!-- ==================================================
+                 SIDEBAR — shared partial (templates/partials/sidebar.html.twig)
+                 highlight = active_sidebar key · collapse JS stays on this page
+            =================================================== -->
+            {% include 'partials/sidebar.html.twig' with { active_sidebar: 'messages' } %}
+
+            <div class="up-content">
+
+                {% if flash %}
+                    <div class="um-flash {{ flash.type == 'success' ? 'um-flash-success' : 'um-flash-error' }}">
+                        <i data-lucide="{{ flash.type == 'success' ? 'circle-check' : 'circle-x' }}" aria-hidden="true"></i>
+                        <span>{{ flash.message }}</span>
+                    </div>
+                {% endif %}
+
+                {% if conversations is empty %}
+
+                    <!-- EMPTY STATE: no conversations at all yet -->
+                    <section class="up-card up-msg-card-empty up-reveal">
+                        <div class="up-msg-list-header">
+                            <h2>Chats</h2>
+                        </div>
+                        <div class="up-msg-welcome">
+                            <span class="up-msg-welcome-icon">
+                                <i data-lucide="message-circle" aria-hidden="true"></i>
+                            </span>
+                            <h3>No conversations yet</h3>
+                            <p>Once you message a host about a stay, your conversation will show up here.</p>
+                            <a href="/listings" class="up-btn-outline">BROWSE LISTINGS</a>
+                        </div>
+                    </section>
+
+                {% else %}
+
+                    <section class="up-card up-msg-card up-reveal{{ is_explicit_thread ? ' up-msg-mobile-open' : '' }}">
+
+                        <!-- LIST PANE -->
+                        <div class="up-msg-list-pane">
+                            <div class="up-msg-list-header">
+                                <h2>Chats</h2>
+                                <a href="/listings" class="up-msg-compose" title="Start a new conversation" aria-label="Start a new conversation">
+                                    <i data-lucide="plus" aria-hidden="true"></i>
+                                </a>
+                            </div>
+
+                            <div class="up-msg-search-wrap">
+                                <i data-lucide="search" aria-hidden="true"></i>
+                                <input type="text" id="msgSearchInput" class="up-msg-search" placeholder="Search messages" autocomplete="off">
+                            </div>
+
+                            <div class="up-msg-tabs" id="msgTabs">
+                                <button type="button" class="up-msg-tab active" data-filter="all">All</button>
+                                <button type="button" class="up-msg-tab" data-filter="unread">Unread</button>
+                            </div>
+
+                            <div class="up-msg-list" id="msgList">
+                                {% for c in conversations %}
+                                    {% set isActive = active_conversation and c.id == active_conversation.id %}
+                                    {% set isUnread = c.unread > 0 %}
+                                    <a
+                                        href="/messages?conversation={{ c.id }}"
+                                        class="up-msg-list-item{{ isActive ? ' active' : '' }}{{ isUnread ? ' unread' : '' }}"
+                                    >
+                                        <span class="up-msg-avatar">
+                                            <img src="{{ c.host_avatar }}" alt="{{ c.host_name }}">
+                                        </span>
+                                        <span class="up-msg-item-body">
+                                            <span class="up-msg-item-top">
+                                                <span class="up-msg-name">{{ c.host_name }}</span>
+                                                {% if isUnread %}
+                                                    <span class="up-msg-badge">{{ c.unread }}</span>
+                                                {% endif %}
+                                            </span>
+                                            {% if c.listing_title != '' %}
+                                                <span class="up-msg-listing-tag">{{ c.listing_title }}</span>
+                                            {% endif %}
+                                            <span class="up-msg-preview">{{ c.last_body }}</span>
+                                        </span>
+                                    </a>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <!-- THREAD PANE -->
+                        <div class="up-msg-thread">
+                            {% if active_conversation %}
+
+                                <div class="up-msg-thread-header">
+                                    <a href="/messages" class="up-msg-back" aria-label="Back to messages">
+                                        <i data-lucide="chevron-left" aria-hidden="true"></i>
+                                    </a>
+
+                                    <!-- Avatar + name link out to the host's
+                                         public profile, so tenants can see who
+                                         they're chatting with beyond the thread. -->
+                                    <a
+                                        href="{{ path('app_host_public_profile', { id: active_conversation.host_id }) }}"
+                                        class="up-msg-thread-identity"
+                                        title="View {{ active_conversation.host_name }}'s profile"
+                                    >
+                                        <img class="up-msg-thread-avatar" src="{{ active_conversation.host_avatar }}" alt="">
+                                        <div class="up-msg-thread-info">
+                                            <div class="up-msg-thread-name">{{ active_conversation.host_name }}</div>
+                                            {% if active_conversation.listing_title != '' %}
+                                                <p class="up-msg-thread-listing">{{ active_conversation.listing_title }}</p>
+                                            {% endif %}
+                                        </div>
+                                    </a>
+
+                                    <div class="up-msg-thread-actions">
+                                        <a
+                                            href="{{ path('app_host_public_profile', { id: active_conversation.host_id }) }}"
+                                            class="up-msg-icon-btn"
+                                            title="View host profile"
+                                            aria-label="View host profile"
+                                        >
+                                            <i data-lucide="user-round" aria-hidden="true"></i>
+                                        </a>
+                                        {% if active_conversation.listing_id %}
+                                            <a
+                                                href="/listings/{{ active_conversation.listing_id }}"
+                                                class="up-msg-icon-btn"
+                                                title="View listing"
+                                                aria-label="View listing"
+                                            >
+                                                <i data-lucide="info" aria-hidden="true"></i>
+                                            </a>
+                                        {% endif %}
+                                    </div>
+                                </div>
+
+                                <div class="up-msg-thread-body" id="msgThreadBody">
+                                    {% if thread_messages is empty %}
+                                        <div class="up-msg-welcome">
+                                            <span class="up-msg-welcome-icon">
+                                                <i data-lucide="message-circle" aria-hidden="true"></i>
+                                            </span>
+                                            <h3>Say hello</h3>
+                                            <p>No messages in this conversation yet.</p>
+                                        </div>
+                                    {% endif %}
+
+                                    {% set lastDay = null %}
+                                    {% for m in thread_messages %}
+                                        {% if m.day_key != lastDay %}
+                                            <span class="up-msg-day-divider">{{ m.day_label }}</span>
+                                            {% set lastDay = m.day_key %}
+                                        {% endif %}
+                                        <div class="up-msg-row {{ m.is_mine ? 'mine' : 'theirs' }}">
+                                            <div class="up-msg-bubble-wrap">
+                                                <div class="up-msg-bubble">{{ m.body|nl2br }}</div>
+                                                <span class="up-msg-time">{{ m.time }}</span>
+                                            </div>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+
+                                <form action="{{ path('app_messages_send') }}" method="POST" class="up-msg-composer">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_messages }}">
+                                    <input type="hidden" name="conversation_id" value="{{ active_conversation.id }}">
+                                    <input type="text" name="body" class="up-msg-input" placeholder="Write a message..." autocomplete="off" required>
+                                    <button type="submit" class="up-msg-send-btn" aria-label="Send message">
+                                        <i data-lucide="send" aria-hidden="true"></i>
+                                    </button>
+                                </form>
+
+                            {% else %}
+                                <div class="up-msg-welcome">
+                                    <span class="up-msg-welcome-icon">
+                                        <i data-lucide="message-circle" aria-hidden="true"></i>
+                                    </span>
+                                    <h3>Select a conversation</h3>
+                                    <p>Pick a chat on the left to see your messages.</p>
+                                </div>
+                            {% endif %}
+                        </div>
+
+                    </section>
+
+                {% endif %}
+
+            </div>
+        </main>
+
+        {{ include('partials/footer.html.twig') }}
+
+        <!-- Lucide — guarded loader, same key as navbar (never double-runs).
+             Renders every <i data-lucide="..."> as inline SVG. -->
+        <script>
+            (function () {
+                "use strict";
+                function renderRhIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
+                }
+                if (!window.__rhNavbarLucide) {
+                    window.__rhNavbarLucide = true;
+                    var s = document.createElement("script");
+                    s.src = "https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js";
+                    s.addEventListener("load", renderRhIcons);
+                    document.head.appendChild(s);
+                }
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", renderRhIcons);
+                } else {
+                    renderRhIcons();
+                }
+                window.addEventListener("load", renderRhIcons);
+            })();
+        </script>
+
+        <!-- Sidebar collapse — same behavior + localStorage key as legacy -->
+        <script>
+            (function () {
+                var sidebar = document.getElementById("upSidebar");
+                var toggle = document.getElementById("upSidebarToggle");
+                if (!sidebar || !toggle) {
+                    return;
+                }
+
+                var STORAGE_KEY = "roomhive_sidebar_collapsed";
+                var links = sidebar.querySelectorAll(".up-side-link");
+
+                function updateTitles(collapsed) {
+                    links.forEach(function (link) {
+                        var label = link.querySelector(".up-side-label");
+                        if (collapsed) {
+                            link.setAttribute("title", label ? label.textContent : "");
+                        } else {
+                            link.removeAttribute("title");
+                        }
+                    });
+                }
+
+                function applyState(collapsed) {
+                    sidebar.classList.toggle("collapsed", collapsed);
+                    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                    toggle.setAttribute(
+                        "aria-label",
+                        collapsed ? "Expand sidebar" : "Collapse sidebar",
+                    );
+                    updateTitles(collapsed);
+                }
+
+                var savedCollapsed = false;
+                try {
+                    savedCollapsed = localStorage.getItem(STORAGE_KEY) === "1";
+                } catch (e) {}
+                applyState(savedCollapsed);
+
+                toggle.addEventListener("click", function () {
+                    var nowCollapsed = !sidebar.classList.contains("collapsed");
+                    applyState(nowCollapsed);
+                    try {
+                        localStorage.setItem(STORAGE_KEY, nowCollapsed ? "1" : "0");
+                    } catch (e) {}
+                });
+            })();
+        </script>
+
+        <script>
+            (function () {
+                // Open the thread already scrolled to the newest message.
+                var body = document.getElementById("msgThreadBody");
+                if (body) {
+                    body.scrollTop = body.scrollHeight;
+                }
+
+                // Search + All/Unread filtering over the conversation list.
+                // Purely client-side — every conversation is already in the
+                // DOM, so no extra request is needed.
+                var searchInput = document.getElementById("msgSearchInput");
+                var tabsWrap = document.getElementById("msgTabs");
+                var list = document.getElementById("msgList");
+                if (!searchInput || !tabsWrap || !list) {
+                    return;
+                }
+
+                var items = Array.prototype.slice.call(
+                    list.querySelectorAll(".up-msg-list-item"),
+                );
+                var activeFilter = "all";
+
+                function applyFilters() {
+                    var term = searchInput.value.trim().toLowerCase();
+                    items.forEach(function (item) {
+                        var matchesTab =
+                            activeFilter === "all" || item.classList.contains("unread");
+                        var matchesSearch =
+                            !term || item.textContent.toLowerCase().indexOf(term) !== -1;
+                        item.classList.toggle("js-hidden", !(matchesTab && matchesSearch));
+                    });
+                }
+
+                searchInput.addEventListener("input", applyFilters);
+
+                tabsWrap.querySelectorAll(".up-msg-tab").forEach(function (tab) {
+                    tab.addEventListener("click", function () {
+                        tabsWrap.querySelectorAll(".up-msg-tab").forEach(function (t) {
+                            t.classList.remove("active");
+                        });
+                        tab.classList.add("active");
+                        activeFilter = tab.getAttribute("data-filter");
+                        applyFilters();
+                    });
+                });
+            })();
+        </script>
+
+        <!-- Reveal — the REAL legacy mechanism: myaccount.css waits for .in-view.
+     Plus a 1.5s failsafe so the page can never render blank. -->
+        <script>
+            (function () {
+                "use strict";
+
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                var revealEls = Array.prototype.slice.call(
+                    document.querySelectorAll(".up-reveal"),
+                );
+
+                function showAll() {
+                    revealEls.forEach(function (el) {
+                        el.classList.add("in-view");
+                    });
+                }
+
+                if (reduced || !("IntersectionObserver" in window)) {
+                    showAll();
+                } else {
+                    var io = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) {
+                                    return;
+                                }
+                                var el = entry.target;
+                                io.unobserve(el);
+                                el.classList.add("in-view");
+                                window.setTimeout(function () {
+                                    el.style.setProperty("--i", "0");
+                                }, 1200);
+                            });
+                        },
+                        {
+                            threshold: 0.12,
+                            rootMargin: "0px 0px -40px 0px",
+                        },
+                    );
+                    revealEls.forEach(function (el) {
+                        io.observe(el);
+                    });
+
+                    /* failsafe — force-reveal anything still hidden after 1.5s */
+                    setTimeout(showAll, 1500);
+                }
+            })();
+        </script>
+
+    </body>
+
+</html>

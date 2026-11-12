@@ -1,0 +1,189 @@
+{# roomhive/staff/login.html.twig
+   Staff Login page — standalone login form for staff members.
+   Rendered by StaffAuthController::login().
+#}
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Staff Login — RoomHive</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            body {
+                font-family: "Inter", sans-serif;
+                background: #f6f7fb;
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 24px;
+            }
+            .login-wrap {
+                width: 100%;
+                max-width: 400px;
+            }
+            .brand {
+                text-align: center;
+                margin-bottom: 24px;
+            }
+            .brand-logo {
+                font-size: 26px;
+                font-weight: 800;
+                color: #14142b;
+                letter-spacing: -0.5px;
+            }
+            .brand-logo span {
+                color: #eda423;
+            }
+            .brand-sub {
+                font-size: 13px;
+                color: #8b93a6;
+                margin-top: 4px;
+            }
+            .card {
+                background: #fff;
+                border: 1px solid #eef1f6;
+                border-radius: 14px;
+                box-shadow: 0 10px 30px rgba(20, 20, 43, 0.08);
+                padding: 28px;
+            }
+            .card h1 {
+                font-size: 18px;
+                font-weight: 700;
+                color: #14142b;
+                margin-bottom: 4px;
+            }
+            .card .card-sub {
+                font-size: 13px;
+                color: #8b93a6;
+                margin-bottom: 20px;
+            }
+            .error-banner {
+                background: #fceaea;
+                color: #e14b4b;
+                padding: 10px 14px;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 500;
+                margin-bottom: 16px;
+            }
+            .field {
+                margin-bottom: 14px;
+            }
+            .field label {
+                display: block;
+                font-size: 12px;
+                font-weight: 600;
+                color: #5b6172;
+                margin-bottom: 6px;
+            }
+            .field input {
+                width: 100%;
+                padding: 10px 12px;
+                border: 1px solid #e3e6ee;
+                border-radius: 8px;
+                font-size: 14px;
+                font-family: inherit;
+                color: #14142b;
+                background: #fbfcfe;
+                outline: none;
+                transition:
+                    border-color 0.15s ease,
+                    box-shadow 0.15s ease;
+            }
+            .field input:focus {
+                border-color: #eda423;
+                box-shadow: 0 0 0 3px rgba(237, 164, 35, 0.15);
+                background: #fff;
+            }
+            .submit-btn {
+                width: 100%;
+                padding: 11px 16px;
+                margin-top: 6px;
+                background: linear-gradient(180deg, #f6c04e, #eda423);
+                color: #14142b;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 700;
+                font-family: inherit;
+                cursor: pointer;
+                transition:
+                    filter 0.15s ease,
+                    transform 0.05s ease;
+            }
+            .submit-btn:hover {
+                filter: brightness(1.05);
+            }
+            .submit-btn:active {
+                transform: translateY(1px);
+            }
+            .hint {
+                margin-top: 18px;
+                padding-top: 14px;
+                border-top: 1px solid #eef1f6;
+                font-size: 12px;
+                color: #8b93a6;
+                text-align: center;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="login-wrap">
+            <div class="brand">
+                <div class="brand-logo">Room<span>Hive</span></div>
+                <div class="brand-sub">Staff Management Portal</div>
+            </div>
+
+            <div class="card">
+                <h1>Staff Login</h1>
+                <p class="card-sub">Sign in with your staff account.</p>
+
+                {% if error %}
+                    <div class="error-banner">{{ error }}</div>
+                {% endif %}
+
+                <form method="post" action="{{ path('app_staff_login') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+
+                    <div class="field">
+                        <label for="email">Staff Email</label>
+                        <input
+                            type="email"
+                            id="email"
+                            name="email"
+                            value="{{ old_email|default('') }}"
+                            placeholder="staff1@roomhive.com"
+                            autofocus
+                            autocomplete="username"
+                            required
+                        >
+                    </div>
+
+                    <div class="field">
+                        <label for="password">Password</label>
+                        <input
+                            type="password"
+                            id="password"
+                            name="password"
+                            placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"
+                            autocomplete="current-password"
+                            required
+                        >
+                    </div>
+
+                    <button type="submit" class="submit-btn">Sign In</button>
+                </form>
+
+                <div class="hint">Authorized RoomHive staff only.</div>
+            </div>
+        </div>
+    </body>
+</html>

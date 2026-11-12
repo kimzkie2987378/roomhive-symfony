@@ -1,0 +1,373 @@
+{# roomhive/admin/base.html.twig
+   SHARED ADMIN SHELL — sidebar + topbar + JS, defined ONCE.
+   Every admin page extends this and only provides a content block.
+
+   Mirrors the legacy admin_init.php pattern:
+     admin_page_start('Title', 'Nav Label', '<style>...</style>');
+     ...content...
+     admin_page_end();
+
+   In Twig:
+     {% extends 'admin/base.html.twig' %}
+     {% import 'admin/_macros.html.twig' as ui %}
+     {% set active_nav = 'Users' %}
+     {% block styles %}<style>...page-specific CSS...</style>{% endblock %}
+     {% block content %}
+       ...page content (can call {{ ui.icon(...) }}, {{ ui.empty_state(...) }},
+       {{ ui.list_image(...) }})...
+     {% endblock %}
+
+   Each child template:
+     - MUST set active_nav (string matching one of nav_items[].label)
+       so the right sidebar entry gets the .active class.
+     - MUST {% import 'admin/_macros.html.twig' as ui %} if it uses
+       ui.icon/empty_state/list_image (Twig macros do NOT inherit
+       through extends — they must be imported per-template).
+     - MAY override `page_title` (default: 'RoomHive Admin').
+     - MAY override `page_heading` + `page_subheading` (the H1 + caption
+       shown at the top of the content area).
+     - MAY provide a `styles` block for page-specific CSS.
+     - MAY provide a `scripts` block for page-specific JS at the
+       bottom (after the shared nav-alignment script).
+#}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{# The sidebar nav. Active label comes from the child template's
+   `active_nav` variable. Add new admin pages here as you port them —
+   the corresponding child template just sets active_nav to the
+   matching label. #}
+{% set is_staff = (app.session is defined and app.session and app.session.get('admin_role') == 'staff') %}
+
+{% if is_staff %}
+    {% set nav_items = [
+        {'label':'Dashboard','icon':'home','href':'/staff'},
+        {'label':'Users','icon':'users','href':'/admin/users'},
+        {'label':'Bookings','icon':'calendar','href':'/admin/bookings'},
+        {'label':'Listings','icon':'listing','href':'/admin/listings'},
+        {'label':'Listings Application','icon':'clipboard','href':'/admin/listing-applications'},
+        {'label':'Host Applications','icon':'user-check','href':'/admin/host-applications'},
+        {'label':'Payouts','icon':'wallet','href':'/admin/payouts'},
+        {'label':'Reviews','icon':'star','href':'/admin/reviews'},
+        {'label':'Messages','icon':'message','href':'/admin/messages'},
+        {'label':'Reports','icon':'bar-chart','href':'/admin/reports'},
+        {'label':'Settings','icon':'settings','href':'/admin/settings'}
+    ] %}
+{% else %}
+    {% set nav_items = [
+        {'label':'Dashboard','icon':'home','href':'/admin'},
+        {'label':'Users','icon':'users','href':'/admin/users'},
+        {'label':'Staff','icon':'user-check','href':'/admin/staff'},
+        {'label':'Bookings','icon':'calendar','href':'/admin/bookings'},
+        {'label':'Listings','icon':'listing','href':'/admin/listings'},
+        {'label':'Listings Application','icon':'clipboard','href':'/admin/listing-applications'},
+        {'label':'Host Applications','icon':'user-check','href':'/admin/host-applications'},
+        {'label':'Payouts','icon':'wallet','href':'/admin/payouts'},
+        {'label':'Wallet','icon':'wallet','href':'/admin/wallet'},
+        {'label':'Reviews','icon':'star','href':'/admin/reviews'},
+        {'label':'Messages','icon':'message','href':'/admin/messages'},
+        {'label':'Reports','icon':'bar-chart','href':'/admin/reports'},
+        {'label':'Settings','icon':'settings','href':'/admin/settings'}
+    ] %}
+{% endif %}
+
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>{% block page_title %}RoomHive Admin{% endblock %}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="{{ asset('assets/admin.css') }}">
+        <script>
+            document.documentElement.classList.add("js");
+        </script>
+        <style>
+            /* ===== SHARED ADMIN SHELL CSS ===== */
+            .sidebar .nav {
+                padding-top: 10px;
+            }
+            .admin-chip {
+                position: relative;
+                cursor: pointer;
+            }
+            .admin-menu {
+                display: none;
+                position: absolute;
+                top: calc(100% + 10px);
+                right: 0;
+                min-width: 200px;
+                background: #fff;
+                border: 1px solid #eef1f6;
+                border-radius: 10px;
+                box-shadow: 0 10px 30px rgba(20, 20, 43, 0.12);
+                padding: 8px;
+                z-index: 50;
+            }
+            .admin-chip.open .admin-menu {
+                display: block;
+            }
+            .admin-menu-header {
+                display: flex;
+                flex-direction: column;
+                padding: 8px 10px 10px;
+                border-bottom: 1px solid #eef1f6;
+                margin-bottom: 6px;
+            }
+            .admin-menu-name {
+                font-weight: 600;
+                font-size: 13px;
+                color: #14142b;
+            }
+            .admin-menu-email {
+                font-size: 12px;
+                color: #8b93a6;
+                margin-top: 2px;
+            }
+            .admin-menu-item {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 8px 10px;
+                border-radius: 8px;
+                font-size: 13px;
+                color: #14142b;
+                text-decoration: none;
+            }
+            .admin-menu-item:hover {
+                background: #f6f7fb;
+            }
+            .admin-menu-item .icon {
+                width: 16px;
+                height: 16px;
+            }
+            .admin-logout {
+                color: #e14b4b;
+            }
+
+            /* ---- NAV ALIGNMENT: mobile sidebar toggle + topbar shadow ---- */
+            .sidebar-overlay {
+                display: none;
+                position: fixed;
+                inset: 0;
+                background: rgba(20, 20, 43, 0.45);
+                z-index: 90;
+            }
+            @media (max-width: 1000px) {
+                .layout.sidebar-open .sidebar-overlay {
+                    display: block;
+                }
+                .layout.sidebar-open .sidebar {
+                    display: block;
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    bottom: 0;
+                    z-index: 100;
+                    overflow-y: auto;
+                }
+            }
+            .topbar.topbar-scrolled {
+                box-shadow: 0 6px 18px rgba(20, 20, 43, 0.08);
+            }
+
+            /* People/list thumbnails share a default look */
+            .people-list img,
+            .listing-list img,
+            .booking-list img {
+                background: #f6f4ee;
+                object-fit: cover;
+            }
+
+            /* ---- Status badges (shared by every admin page) ----
+                                                       Controllers map status labels to these classes via
+                                                       BADGE_CLASS_MAP; without colors they render as gray pills. */
+            .badge {
+                font-size: 11px;
+                font-weight: 700;
+                padding: 4px 9px;
+                border-radius: 999px;
+                display: inline-block;
+            }
+            .badge-pending {
+                background: #fff4e0;
+                color: #c77a00;
+            }
+            .badge-approved {
+                background: #e7f7ec;
+                color: #2fa84f;
+            }
+            .badge-confirmed {
+                background: #e7f0ff;
+                color: #2f6fed;
+            }
+            .badge-completed {
+                background: #e7f7ec;
+                color: #2fa84f;
+            }
+            .badge-cancelled {
+                background: #eef1f6;
+                color: #5b6172;
+            }
+            .badge-rejected {
+                background: #fceaea;
+                color: #e14b4b;
+            }
+            .badge-unlisted {
+                background: #eef1f6;
+                color: #5b6172;
+            }
+        </style>
+        {% block styles %}{% endblock %}
+    </head>
+    <body>
+
+        <div class="layout" id="adminLayout">
+
+            <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+            <aside class="sidebar">
+                <nav class="nav">
+                    {% for item in nav_items %}
+                        <a href="{{ item.href }}" class="nav-item{{ item.label == active_nav|default('') ? ' active' : '' }}">
+                            {{ ui.icon(item.icon) }}<span>{{ item.label }}</span>
+                        </a>
+                    {% endfor %}
+                </nav>
+            </aside>
+
+            <div class="main">
+
+                <header class="topbar" id="adminTopbar">
+                    <button class="icon-btn menu-btn" id="menuBtn" aria-label="Toggle menu">{{ ui.icon('menu') }}</button>
+                    <div class="search-box">
+                        {{ ui.icon('search') }}
+                        <input type="text" placeholder="Search users, bookings, properties...">
+                    </div>
+                    <div class="topbar-right">
+                        {# Bell carries the .nav-bell class (added by this port) so the
+                   dropdown fragment attaches to it — same fragment CSS + JS as
+                   the user/host navbar bell. The static badge span is gone:
+                   the fragment's JS manages the badge live (decrements on
+                   click, disappears at 0, caps at "99+"), driven by the
+                   admin's own queue counts (pending host applications +
+                   pending listings — the same numbers this static badge
+                   always showed). #}
+                        <button class="icon-btn bell-btn nav-bell" aria-label="Notifications" aria-expanded="false">
+                            {{ ui.icon('bell') }}
+                        </button>
+                        <div class="admin-chip" id="adminChip">
+                            <div class="admin-avatar admin-avatar-fallback">{{ admin_name|slice(0, 1)|upper }}</div>
+                            <div class="admin-info">
+                                <span class="admin-name">{{ admin_name }}</span>
+                                <span class="admin-role">{{ is_staff ? 'Staff' : 'Administrator' }}</span>
+                            </div>
+                            {{ ui.icon('chevron-down', 'chevron') }}
+                            <div class="admin-menu" id="adminMenu">
+                                <div class="admin-menu-header">
+                                    <span class="admin-menu-name">{{ admin_name }}</span>
+                                    {% if admin_email|default('') %}<span class="admin-menu-email">{{ admin_email }}</span>{% endif %}
+                                </div>
+                                <a href="/admin/logout" class="admin-menu-item admin-logout">
+                                    {{ ui.icon('lock') }}<span>Log Out</span>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </header>
+
+                {# =========================================================
+           NOTIFICATION BELL DROPDOWN (admin variant) — fragment
+           sub-request, port of includes/notification_dropdown.php.
+           Same panel/CSS/JS as the user + host navbar bell, driven
+           by the admin's own queue semantics (pending host
+           applications + pending listings → their review queues).
+           Flagged ADAPTATION: legacy rendered nothing for admins
+           (admin sessions never carry user_id); this port applies
+           the dropdown to the admin bell per the port request.
+           The JS below moves the panel into the .nav-bell button
+           above and manages its badge.
+        ========================================================== #}
+                {{ render(controller('App\\Controller\\NotificationDropdownController::adminPanel')) }}
+
+                <div class="content">
+                    {% block page_heading %}
+                        {% if page_heading|default('') %}
+                            <div class="page-heading">
+                                <h1>{{ page_heading }}{% block page_heading_extra %}{% endblock %}</h1>
+                                {% if page_subheading|default('') %}<p>{{ page_subheading }}</p>{% endif %}
+                            </div>
+                        {% endif %}
+                    {% endblock %}
+
+                    {% block content %}{% endblock %}
+                </div>
+            </div>
+        </div>
+
+        <script>
+            /* =====================================================
+                                                   NAV ALIGNMENT — canonical shared admin UI script.
+                                                   Loaded on EVERY admin page (chip dropdown + mobile sidebar
+                                                   toggle + topbar scroll shadow). Page-specific scripts go
+                                                   in the page's `scripts` block below.
+                                                ====================================================== */
+            (function () {
+                "use strict";
+
+                var chip = document.getElementById("adminChip");
+                if (chip) {
+                    chip.addEventListener("click", function (e) {
+                        chip.classList.toggle("open");
+                        e.stopPropagation();
+                    });
+                    document.addEventListener("click", function () {
+                        chip.classList.remove("open");
+                    });
+                    document.addEventListener("keydown", function (e) {
+                        if (e.key === "Escape") {
+                            chip.classList.remove("open");
+                        }
+                    });
+                }
+
+                var layout = document.getElementById("adminLayout");
+                var menuBtn = document.getElementById("menuBtn");
+                var overlay = document.getElementById("sidebarOverlay");
+
+                function closeSidebar() {
+                    if (layout) {
+                        layout.classList.remove("sidebar-open");
+                    }
+                }
+
+                if (menuBtn && layout) {
+                    menuBtn.addEventListener("click", function (e) {
+                        layout.classList.toggle("sidebar-open");
+                        e.stopPropagation();
+                    });
+                }
+                if (overlay) {
+                    overlay.addEventListener("click", closeSidebar);
+                }
+                document.addEventListener("keydown", function (e) {
+                    if (e.key === "Escape") {
+                        closeSidebar();
+                    }
+                });
+
+                var topbar = document.getElementById("adminTopbar");
+                if (topbar) {
+                    var onScroll = function () {
+                        topbar.classList.toggle("topbar-scrolled", window.scrollY > 8);
+                    };
+                    window.addEventListener("scroll", onScroll, { passive: true });
+                    onScroll();
+                }
+            })();
+        </script>
+
+        {% block scripts %}{% endblock %}
+
+    </body>
+</html>

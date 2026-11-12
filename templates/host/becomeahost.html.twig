@@ -1,22 +1,91 @@
-<!doctype html>
+{# =========================================================
+   RoomHive — Become a Host · Step 1 (Application Form)
+   templates/host/become_a_host.html.twig
+
+   First host-flow page in the Symfony port (NOT an account-area
+   page — different shell family):
+
+     - Shell: legacy host-page-v2 (own --hive-* design tokens,
+       honeycomb ::before texture, glow blobs, step tracker,
+       live progress bar). NOT the up-dashboard shell used by the
+       account pages — NO sidebar, NO myaccount.css.
+     - Navbar: shared partials/navbar.html.twig (current_page
+       '/become-a-host'); user is logged in, not yet a host.
+     - Footer: shared partials/footer.html.twig after </main>.
+     - Lucide: guarded loader (window.__rhNavbarLucide — never
+       double-runs with the navbar's) replaces the plain CDN tag.
+       hiveRefreshIcons() is preserved as a thin alias so the
+       form/upload IIFE's existing "refreshIcons()" init call
+       keeps working unchanged.
+     - Form: SELF-POSTS via action="" (HTML spec: an empty action
+       submits to the current URL) — the legacy form pointed back
+       at becomeahost.php, so this is the 1:1 equivalent. Route-
+       name-agnostic: the first port used path('app_become_a_host')
+       and threw "route does not exist" on render when the
+       controller's route name didn't match (cont-32 fix). The
+       controller route must therefore accept BOTH GET and POST on
+       the same URL (methods: ['GET', 'POST']). The hidden
+       csrf_token (csrf) is the controller's self-contained CSRF
+       addition (session-stored token, validated via hash_equals —
+       no SecurityBundle needed); the rest of the markup is 1:1.
+
+   Controller contract (HostApplicationController::apply):
+     errors          string[]   validation errors from prior POST
+     form            array     submitted values for re-sticking
+                               (full_name/email/phone/age/province/
+                                city/id_type/id_number); prefilled
+                                from the users row on first GET.
+                                cont-43: 'location' was split into
+                                province + city — the controller
+                                reads $_POST['province'] and
+                                $_POST['city'] separately, then
+                                combines them into the DB's
+                                location column ("City, Province").
+                                cont-45: the form ALSO posts a hidden
+                                `location` field kept in sync as
+                                "City, Province" by JS — so a controller
+                                that still validates/saves the legacy
+                                single `location` key keeps working
+                                unchanged. The template re-sticks
+                                province/city from form.location
+                                (split on the comma) when the render
+                                array only carries the legacy key.
+     hostSteps       array     4-step tracker config
+     currentHostStep int       active step number (1 on this page)
+     csrf            string    CSRF token for the form
+     is_logged_in    bool      navbar guard (always true here)
+     nav_avatar      string    navbar avatar URL
+     current_page    string    navbar active-marker ('/become-a-host')
+
+   ⚠ RECONSTRUCTED CONTENT — your pasted PHP was already
+   reconstructed in three places (ID-type options past "sss",
+   ID-number field, upload box markup, submit button label,
+   page scripts). The Twig preserves that reconstruction 1:1 —
+   verify the reconstructed option values (umid / philhealth /
+   tin / postal) match what your DB actually stores.
+========================================================= #}
+<!DOCTYPE html>
 <html lang="en">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>RoomHive - Become a Host</title>
 
+        <!-- POPPINS FONT -->
         <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+        <!-- MAIN CSS -->
         <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
 
+        <!-- enables JS-gated entrance animations -->
         <script>
             document.documentElement.classList.add("js");
         </script>
 
+        <!-- =====================================================
+             BECOME-A-HOST ENHANCEMENT LAYER (STEP 1)
+        ====================================================== -->
         <style>
-            /* =====================================================
-                                                                                                               BECOME-A-HOST ENHANCEMENT LAYER (STEP 1)
-                                                                                                               (unchanged from the legacy page)
-                                                                                                            ====================================================== */
             .host-page-v2 {
                 --hive-amber: #ecac3a;
                 --hive-amber-dark: #cf8f1f;
@@ -32,6 +101,8 @@
 
                 position: relative;
             }
+
+            /* ---------- honeycomb texture + glow blobs ---------- */
 
             .host-page-v2::before {
                 content: "";
@@ -105,6 +176,8 @@
                 animation: hiveDrift 18s ease-in-out infinite alternate-reverse;
             }
 
+            /* ---------- entrance (one orchestrated reveal) ---------- */
+
             @keyframes hiveRise {
                 from {
                     opacity: 0;
@@ -125,6 +198,8 @@
             .js .host-page-v2 .host-form-card {
                 animation-delay: 0.08s;
             }
+
+            /* ---------- header polish ---------- */
 
             .host-page-v2 .host-header {
                 text-align: center;
@@ -209,6 +284,8 @@
                 animation: hiveShimmer 3.5s linear infinite;
             }
 
+            /* ---------- step tracker ---------- */
+
             .host-page-v2 .host-steps {
                 position: relative;
             }
@@ -244,6 +321,8 @@
                 background: rgba(236, 172, 58, 0.16);
                 color: var(--hive-amber-dark);
             }
+
+            /* ---------- progress bar ---------- */
 
             .host-progress {
                 max-width: 760px;
@@ -283,6 +362,8 @@
                 );
                 transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
             }
+
+            /* ---------- error banner ---------- */
 
             .host-page-v2 .form-errors {
                 max-width: 760px;
@@ -328,6 +409,8 @@
                 font-weight: 700;
             }
 
+            /* ---------- form card + fields ---------- */
+
             .host-page-v2 .host-form-card {
                 max-width: 760px;
                 margin: 36px auto 0;
@@ -361,6 +444,10 @@
             .host-page-v2 .form-heading p {
                 margin-top: 18px;
             }
+
+            /* explicit grid definitions — .three-columns was
+                                                               previously only defined scoped to step 2's .rh-step2,
+                                                               so step 1's grids could silently collapse. */
 
             .host-page-v2 .form-grid {
                 display: grid;
@@ -469,6 +556,8 @@
                 animation: hiveShake 0.4s;
             }
 
+            /* ---------- upload box ---------- */
+
             .host-page-v2 .upload-box {
                 border: 2px dashed #e2d4b6;
 
@@ -523,12 +612,16 @@
                 transform: scale(1.005);
             }
 
+            /* Larger preview so the ID is actually legible once uploaded.
+                                                               Only grows the box in its "has-image" state — the empty
+                                                               click-to-upload state keeps its normal size. */
             .upload-box.has-image {
                 min-height: 320px;
                 background-color: #111418;
                 background-repeat: no-repeat;
                 background-position: center;
                 background-size: contain;
+                /* show the whole ID, not a cropped slice */
             }
 
             .upload-box.has-image .upload-icon,
@@ -616,6 +709,8 @@
                 display: block;
             }
 
+            /* trust note under the ID upload */
+
             .upload-secure-note {
                 display: flex;
                 align-items: center;
@@ -642,6 +737,8 @@
                     min-height: 220px;
                 }
             }
+
+            /* ---------- submit button ---------- */
 
             .host-page-v2 .next-button {
                 position: relative;
@@ -680,6 +777,8 @@
                 opacity: 0.75;
                 cursor: progress;
             }
+
+            /* infinite shine sweep, matching steps 3 & 4 */
 
             .host-page-v2 .next-button::after {
                 content: "";
@@ -738,6 +837,8 @@
                 display: inline-block;
             }
 
+            /* ---------- keyframes for the added decoration ---------- */
+
             @keyframes hiveDrift {
                 from {
                     transform: translate(0, 0) scale(1);
@@ -767,12 +868,19 @@
                 }
             }
 
+            /* =====================================================
+                                                               LUCIDE ICONS (lucide.dev)
+                                                               Lucide copies the placeholder's classes onto the
+                                                               generated <svg>, so existing selectors keep working.
+                                                            ====================================================== */
+
             svg.lucide {
                 display: inline-block;
                 vertical-align: -0.18em;
                 flex-shrink: 0;
             }
 
+            /* Step tracker — Lucide replaces the old PNG icons */
             .host-page-v2 .step-circle svg {
                 width: 30px;
                 height: 30px;
@@ -788,17 +896,21 @@
                 color: var(--hive-good);
             }
 
+            /* Field label icons */
             .host-page-v2 .input-group label svg {
                 width: 14px;
                 height: 14px;
                 color: var(--hive-honey-dark);
             }
 
+            /* Location input trailing icon (kept inside its .input-with-icon
+                                                               span so style.css positioning still applies) */
             .input-with-icon svg {
                 width: 16px;
                 height: 16px;
             }
 
+            /* Upload box */
             .host-page-v2 .upload-box .upload-icon {
                 display: inline-flex;
             }
@@ -819,11 +931,13 @@
                 height: 15px;
             }
 
+            /* [hidden] must win over the display:flex the overlay sets */
             .upload-box-overlay[hidden],
             .upload-remove-btn[hidden] {
                 display: none !important;
             }
 
+            /* Upload validity borders */
             .input-group.is-valid .upload-box {
                 border-color: var(--hive-good) !important;
             }
@@ -832,6 +946,7 @@
                 border-color: var(--hive-bad) !important;
             }
 
+            /* Submit button */
             .next-button {
                 display: inline-flex;
                 align-items: center;
@@ -847,6 +962,10 @@
             .next-button.is-loading .next-arrow {
                 display: none;
             }
+
+            /* ---------- reduced motion (targeted, so the
+                                                               loading spinner still spins for users who need it
+                                                               to know the form is submitting) ---------- */
 
             @media (prefers-reduced-motion: reduce) {
                 .hive-blob,
@@ -868,20 +987,250 @@
                     transform: none !important;
                 }
             }
+
+            /* =====================================================
+                                                               PH LOCATION DROPDOWN — cities + provinces (cont-40)
+                                                               Custom dropdown under #location on Step 1. Shows:
+                                                                 1. CITIES matching the typed text first
+                                                                    (each item displays "City, Province")
+                                                                 2. PROVINCES matching the typed text second
+                                                                    (each item displays the province name)
+                                                               When a city is picked → input fills as "City, Province"
+                                                               (with the comma). When a province is picked → input
+                                                               fills as just the province name.
+                                                               Pure JS, no API key, no external requests.
+                                                            ===================================================== */
+
+            /* =====================================================
+                                                               PH LOCATION DROPDOWN (cont-43)
+                                                               Two independent dropdown instances — one under the
+                                                               #province input, one under the #city input. Each is a
+                                                               single-panel dropdown (header + list) anchored to its
+                                                               input's .input-with-icon wrapper. The same CSS drives
+                                                               both instances; the JS creates one per field.
+                                                               Replaces cont-40/42's combined single-dropdown with
+                                                               the two-section structure.
+                                                            ===================================================== */
+
+            .host-page-v2 .input-with-icon > .rh-location-dropdown {
+                position: absolute;
+                top: 100%;
+                left: 0;
+                right: 0;
+                max-height: 300px;
+                overflow-y: auto;
+                background: #ffffff;
+                border: 1px solid var(--hive-line);
+                border-radius: 12px;
+                box-shadow: 0 14px 28px -12px rgba(28, 29, 34, 0.3);
+                margin-top: 4px;
+                z-index: 1000;
+                display: none;
+                font-family: "Poppins", sans-serif;
+                box-sizing: border-box;
+            }
+
+            .host-page-v2 .input-with-icon > .rh-location-dropdown.is-open {
+                display: block;
+            }
+
+            /* STACKING LIFT WHILE OPEN (cont-44 — "can't click the
+                                                               suggestions" fix):
+                                                               The user's assets/style.css positions .input-group
+                                                               (and possibly .form-grid), which turns every group and
+                                                               row into its own stacking context. The dropdown lives
+                                                               inside the PROVINCE group's context, so LATER groups
+                                                               (Row 4's ID Type label + select, the City group, etc.)
+                                                               painted ABOVE the open dropdown — it looked fine but
+                                                               clicks landed on those invisible elements instead of
+                                                               the suggestions. Fix: while a dropdown is open, JS adds
+                                                               rh-dd-host / rh-dd-host-group / rh-dd-host-row to the
+                                                               input's wrapper, group and grid row, jumping that whole
+                                                               chain to z-index 5000 — above every sibling group and
+                                                               row regardless of what style.css does. Classes are
+                                                               removed on close, so nothing changes while closed. */
+            .host-page-v2 .input-with-icon.rh-dd-host {
+                position: relative;
+                z-index: 5000;
+            }
+
+            .host-page-v2 .input-group.rh-dd-host-group {
+                position: relative;
+                z-index: 5000;
+            }
+
+            .host-page-v2 .form-grid.rh-dd-host-row {
+                position: relative;
+                z-index: 5000;
+            }
+
+            /* pointer-events insurance — never let an inherited
+                                                               pointer-events: none from style.css eat the picks */
+            .host-page-v2 .input-with-icon > .rh-location-dropdown.is-open {
+                pointer-events: auto;
+            }
+
+            .rh-location-dropdown .rh-location-header {
+                display: block;
+                padding: 8px 14px;
+                font-size: 10.5px;
+                font-weight: 700;
+                letter-spacing: 0.8px;
+                text-transform: uppercase;
+                color: var(--hive-ink-soft);
+                background: var(--hive-cream);
+                border-bottom: 1px solid var(--hive-line);
+                border-top-left-radius: 12px;
+                border-top-right-radius: 12px;
+                position: sticky;
+                top: 0;
+                z-index: 1;
+            }
+
+            .rh-location-dropdown .rh-location-list {
+                display: block;
+            }
+
+            .rh-location-dropdown .rh-location-item {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 9px 14px;
+                font-size: 13px;
+                color: #1c1d22;
+                border-top: 1px solid var(--hive-line);
+                cursor: pointer;
+                transition: background-color 0.15s ease;
+                box-sizing: border-box;
+                position: relative;
+                width: 100%;
+            }
+
+            .rh-location-dropdown .rh-location-item:first-of-type {
+                border-top: none;
+            }
+
+            .rh-location-dropdown .rh-location-item:hover,
+            .rh-location-dropdown .rh-location-item.is-highlighted {
+                background-color: var(--hive-cream);
+            }
+
+            /* SPANS INSIDE DROPDOWN ITEMS — CRITICAL (cont-41 fix):
+                                                               The page's global rule `.host-page-v2 .input-with-icon span`
+                                                               (specificity 0,0,2,1) — meant for the location input's
+                                                               trailing map-pin icon — would otherwise absolute-position
+                                                               EVERY <span> inside .input-with-icon, including these
+                                                               dropdown spans, pinning them all to the right edge of
+                                                               the input, causing them to overlap on top of each
+                                                               other AND the item name (the cont-41 bug — same root
+                                                               cause as cont-38 on Step 2). We use 3-class selectors
+                                                               (0,0,3,0) which beat the global 2-class+1-type rule
+                                                               AND explicitly reset position/right/top/transform so
+                                                               no inherited absolute positioning bleeds through. */
+            .rh-location-dropdown .rh-location-item .rh-location-icon {
+                color: var(--hive-honey);
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+                width: 18px;
+                height: 18px;
+                position: static;
+                right: auto;
+                top: auto;
+                transform: none;
+            }
+
+            .rh-location-dropdown .rh-location-item .rh-location-icon svg {
+                width: 16px;
+                height: 16px;
+                display: block;
+                /* cont-44: style.css positions .input-with-icon svg
+                                                                   absolutely (it drives the input's trailing pin) —
+                                                                   reset that here or every item's pin flies to the
+                                                                   input's right edge and stacks into a pile. */
+                position: static;
+                right: auto;
+                top: auto;
+                transform: none;
+            }
+
+            .rh-location-dropdown .rh-location-item .rh-location-name {
+                flex: 1 1 auto;
+                min-width: 0;
+                font-weight: 500;
+                color: #1c1d22;
+                font-size: 13px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                position: static;
+                right: auto;
+                top: auto;
+                transform: none;
+            }
+
+            /* Sub-label shows the province for city items
+                                                               (e.g. "Dumaguete — Negros Oriental") */
+            .rh-location-dropdown .rh-location-item .rh-location-sub {
+                font-size: 11.5px;
+                color: var(--hive-ink-soft);
+                font-weight: 400;
+                margin-left: 2px;
+                position: static;
+                right: auto;
+                top: auto;
+                transform: none;
+            }
+
+            .rh-location-dropdown .rh-location-item .rh-location-tag {
+                font-size: 10px;
+                font-weight: 600;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+                color: var(--hive-amber-dark);
+                background: rgba(236, 172, 58, 0.16);
+                padding: 3px 9px;
+                border-radius: 999px;
+                flex-shrink: 0;
+                display: inline-block;
+                position: static;
+                right: auto;
+                top: auto;
+                transform: none;
+            }
         </style>
     </head>
 
     <body>
 
-        {# ADAPT: your Symfony navbar partial (same pattern as listings) #}
-        {% include 'partials/navbar.html.twig' with { current_page: '/host/become-a-host' } %}
+        {# =========================================================
+           NAVBAR — shared partial (the user is logged in, not yet
+           a host — that's why this page exists at all). The
+           legacy file also included notification_dropdown.php
+           separately; the navbar partial owns the dropdown now,
+           so a single include is enough.
+        ========================================================= #}
+        {{ include('partials/navbar.html.twig', {
+            is_logged_in: is_logged_in ?? true,
+            is_host: is_host ?? false,
+            nav_avatar: nav_avatar ?? '/images/default-avatar.png',
+            notification_count: notification_count ?? notif_count ?? 0,
+            current_page: current_page ?? '/become-a-host'
+        }) }}
 
+        <!-- =========================================================
+             MAIN HOST PAGE
+        ========================================================== -->
         <main class="host-page host-page-v2">
 
+            <!-- decorative glow blobs (honeycomb lives on ::before) -->
             <span class="hive-blob hive-blob-1" aria-hidden="true"></span>
             <span class="hive-blob hive-blob-2" aria-hidden="true"></span>
 
-            <!-- ============ HOST HEADER ============ -->
+            <!-- =================================================
+                 HOST HEADER
+            ================================================== -->
             <section class="host-header">
 
                 <span class="hero-badge">
@@ -898,30 +1247,50 @@
                     <span class="hive-shimmer">4 Easy Steps</span>
                 </h1>
 
+                {# =================================================
+                   HOST STEPS — icons are Lucide SVGs.
+                   The controller (HostApplicationController::apply)
+                   passes hostSteps + currentHostStep; the |default
+                   fallbacks keep the page renderable without a
+                   controller (e.g. during static prototyping).
+                ================================================== #}
+                {% set host_steps = hostSteps|default([
+                    { number: 1, icon: 'user-plus',      alt: 'Create Account',  title: 'Create Account',  description: 'Sign up as a host in minutes' },
+                    { number: 2, icon: 'home',           alt: 'Add Your Space',   title: 'Add Your Space',   description: 'Tell us about your property' },
+                    { number: 3, icon: 'image-plus',     alt: 'Upload Photos',    title: 'Upload Photos',    description: 'Show your space to attract renters' },
+                    { number: 4, icon: 'calendar-check', alt: 'Get Bookings',     title: 'Get Bookings',     description: 'Approve bookings and start earning' }
+                ]) %}
+                {% set current_host_step = currentHostStep|default(1) %}
+
                 <div class="host-steps" style="margin-top:36px;">
 
-                    {% for step in hostSteps %}
-                        {% set stepState = step.number == currentHostStep
+                    {% for step in host_steps %}
+                        {% set step_state = step.number == current_host_step
                             ? 'current'
-                            : (step.number < currentHostStep ? 'done' : 'upcoming') %}
+                            : (step.number < current_host_step ? 'done' : 'upcoming') %}
 
-                        <div class="host-step" data-state="{{ stepState }}">
+                        <div class="host-step" data-state="{{ step_state }}">
 
+                            <!-- ICON (Lucide — "alt" is reused as the accessible label) -->
                             <div class="step-circle">
                                 <i data-lucide="{{ step.icon }}" role="img" aria-label="{{ step.alt }}"></i>
                             </div>
 
-                            {% if loop.index < hostSteps|length %}
+                            <!-- CONNECTING LINE -->
+                            {% if not loop.last %}
                                 <div class="step-line"></div>
                             {% endif %}
 
+                            <!-- NUMBER -->
                             <div class="step-number">{{ step.number }}</div>
 
+                            <!-- TITLE -->
                             <h3>{{ step.title }}</h3>
 
+                            <!-- DESCRIPTION -->
                             <p>{{ step.description }}</p>
 
-                            {% if stepState == 'current' %}
+                            {% if step_state == 'current' %}
                                 <span class="step-tag">You're here</span>
                             {% endif %}
 
@@ -930,10 +1299,14 @@
 
                 </div>
 
+                {# =================================================
+                   FORM COMPLETION PROGRESS
+                   Updated live by JS as required fields are filled.
+                ================================================== #}
                 <div class="host-progress">
                     <div class="host-progress-top">
                         <span>Application details</span>
-                        <span><strong id="progressCount">0</strong> of <span id="progressTotal">8</span> fields complete</span>
+                        <span><strong id="progressCount">0</strong> of <span id="progressTotal">9</span> fields complete</span>
                     </div>
                     <div class="host-progress-track">
                         <div class="host-progress-fill" id="progressFill"></div>
@@ -942,36 +1315,51 @@
 
             </section>
 
-            <!-- ============ ERROR MESSAGES ============ -->
-            {% if errors|length > 0 %}
+            <!-- =====================================================
+                 ERROR MESSAGES
+            ====================================================== -->
+            {% if errors is not empty %}
+
                 <div class="form-errors" role="alert" aria-live="assertive">
                     {% for error in errors %}
                         <p>{{ error }}</p>
                     {% endfor %}
                 </div>
+
             {% endif %}
 
-            <!-- ============ HOST FORM ============ -->
+            <!-- =====================================================
+                 HOST FORM
+            ====================================================== -->
             <section class="host-form-card">
 
+                <!-- FORM HEADING -->
                 <div class="form-heading">
                     <h2>Tell Us About You</h2>
                     <p>Let's get to know you first.</p>
                 </div>
 
+                <!-- FORM -->
                 <form
-                    action="{{ path('app_host_apply') }}"
+                    action=""
                     method="POST"
                     enctype="multipart/form-data"
                     id="hostForm"
                     novalidate
                 >
 
-                    <input type="hidden" name="_token" value="{{ csrf }}">
+                    {# Symfony CSRF — added in the port (legacy PHP had none).
+                       Controller should validate via hash_equals
+                       against the session-stored token, same pattern
+                       as MessagesController::send / HelpController. #}
+                    <input type="hidden" name="csrf_token" value="{{ csrf ?? '' }}">
 
-                    {# ---------- ROW 1 ---------- #}
+                    <!-- =================================================
+                         ROW 1 — rebalanced grids: 2 + 2 + 3, no orphans.
+                    ================================================== -->
                     <div class="form-grid two-columns">
 
+                        <!-- FULL NAME -->
                         <div class="input-group" data-field="full_name">
                             <label for="full_name">
                                 <i data-lucide="user" aria-hidden="true"></i>
@@ -982,13 +1370,14 @@
                                 id="full_name"
                                 name="full_name"
                                 placeholder="Enter your full name"
-                                value="{{ form.full_name }}"
+                                value="{{ form.full_name|default('') }}"
                                 aria-describedby="hint_full_name"
                                 required
                             >
                             <small class="field-hint" id="hint_full_name"></small>
                         </div>
 
+                        <!-- EMAIL -->
                         <div class="input-group" data-field="email">
                             <label for="email">
                                 <i data-lucide="mail" aria-hidden="true"></i>
@@ -999,7 +1388,7 @@
                                 id="email"
                                 name="email"
                                 placeholder="Enter your email"
-                                value="{{ form.email }}"
+                                value="{{ form.email|default('') }}"
                                 aria-describedby="hint_email"
                                 required
                             >
@@ -1008,9 +1397,12 @@
 
                     </div>
 
-                    {# ---------- ROW 2 ---------- #}
+                    <!-- =================================================
+                         ROW 2
+                    ================================================== -->
                     <div class="form-grid two-columns">
 
+                        <!-- PHONE -->
                         <div class="input-group" data-field="phone">
                             <label for="phone">
                                 <i data-lucide="phone" aria-hidden="true"></i>
@@ -1020,98 +1412,181 @@
                                 type="tel"
                                 id="phone"
                                 name="phone"
-                                placeholder="09XXXXXXXXX"
+                                placeholder="09XX XXX XXXX"
+                                value="{{ form.phone|default('') }}"
+                                pattern="09[0-9]{9}"
                                 maxlength="11"
+                                minlength="11"
                                 inputmode="numeric"
-                                value="{{ form.phone }}"
                                 aria-describedby="hint_phone"
                                 required
                             >
-                            <small class="field-hint" id="hint_phone"></small>
+                            <small class="field-hint" id="hint_phone">Must start with 09 — e.g. 09171234567</small>
                         </div>
 
+                        <!-- AGE -->
                         <div class="input-group" data-field="age">
                             <label for="age">
-                                <i data-lucide="calendar" aria-hidden="true"></i>
+                                <i data-lucide="cake" aria-hidden="true"></i>
                                 Age
                             </label>
                             <input
                                 type="number"
                                 id="age"
                                 name="age"
+                                placeholder="Enter your age"
                                 min="18"
                                 max="120"
-                                placeholder="Must be 18 or older"
-                                value="{{ form.age }}"
+                                value="{{ form.age|default('') }}"
                                 aria-describedby="hint_age"
                                 required
                             >
-                            <small class="field-hint" id="hint_age"></small>
+                            <small class="field-hint" id="hint_age">You must be 18 or older to become a host.</small>
                         </div>
 
                     </div>
 
-                    {# ---------- ROW 3 — location autocomplete +
-                                ID type + ID number ---------- #}
-                    {% set id_types = {
-                        'passport':        'Passport',
-                        'drivers_license': "Driver's License",
-                        'umid':            'UMID',
-                        'philhealth':      'PhilHealth ID',
-                        'prc':             'PRC ID',
-                        'postal':          'Postal ID',
-                        'tin':             'TIN ID',
-                        'voters':          "Voter's ID",
-                        'nbi':             'NBI Clearance',
-                        'sss':             'SSS ID',
-                    } %}
+                    <!-- =================================================
+                         ROW 3 — PROVINCE / CITY (cont-43)
+                         The old single "Location" field is now TWO
+                         fields: Province (upper) + City (lower).
+                         Each has its own suggestion dropdown. The
+                         controller combines them into the DB's
+                         location column as "City, Province" on save.
+                    ================================================== -->
+                    <div class="form-grid two-columns">
 
-                    <div class="form-grid three-columns">
-
-                        {# LOCATION — province → towns autocomplete
-                           (LocationProvider twig global + partial below).
-                           Free text is never blocked — whatever is in
-                           the box is POSTed as `location`. #}
-                        <div class="input-group" data-field="location">
-                            <label for="location">
+                        <!-- PROVINCE -->
+                        <div class="input-group" data-field="province">
+                            <label for="province">
                                 <i data-lucide="map-pin" aria-hidden="true"></i>
-                                Location
+                                Province
                             </label>
-                            <span class="input-with-icon">
+                            <div class="input-with-icon">
                                 <input
                                     type="text"
-                                    id="location"
-                                    name="location"
-                                    placeholder="e.g. Lambunao, Iloilo"
-                                    value="{{ form.location }}"
-                                    data-location-search
-                                    autocomplete="off"
-                                    aria-describedby="hint_location"
+                                    id="province"
+                                    name="province"
+                                    placeholder="Select or type a province"
+                                    value="{{ form.province|default(form.location|default('')|split(',')|last|trim) }}"
+                                    aria-describedby="hint_province"
                                     required
                                 >
-                                <i data-lucide="map-pin" aria-hidden="true"></i>
-                            </span>
-                            <small class="field-hint" id="hint_location"></small>
+                                <span aria-hidden="true">
+                                    <i data-lucide="map-pin"></i>
+                                </span>
+                            </div>
+                            <small class="field-hint" id="hint_province"></small>
                         </div>
 
+                        <!-- CITY / MUNICIPALITY -->
+                        <div class="input-group" data-field="city">
+                            <label for="city">
+                                <i data-lucide="building-2" aria-hidden="true"></i>
+                                City / Municipality
+                            </label>
+                            <div class="input-with-icon">
+                                <input
+                                    type="text"
+                                    id="city"
+                                    name="city"
+                                    placeholder="Select or type your city"
+                                    value="{{ form.city|default(form.location|default('')|split(',')|first|trim) }}"
+                                    aria-describedby="hint_city"
+                                    required
+                                >
+                                <span aria-hidden="true">
+                                    <i data-lucide="building-2"></i>
+                                </span>
+                            </div>
+                            <small class="field-hint" id="hint_city"></small>
+                        </div>
+
+                    </div>
+
+                    <!-- =================================================
+                         HIDDEN location FIELD (cont-45)
+                         Since cont-43 the visible form posts `province`
+                         and `city` separately — but a controller that
+                         still validates/saves the legacy single
+                         `location` key would then ALWAYS fail with
+                         "enter your location" even when both fields
+                         are filled. This hidden input carries the
+                         legacy format ("City, Province"): JS below
+                         keeps it in sync on every keystroke and at
+                         submit time. Controllers reading province +
+                         city simply ignore it — both versions work.
+                    ================================================== -->
+                    <input
+                        type="hidden"
+                        name="location"
+                        id="rhLocationField"
+                        value="{{ form.location|default('') }}"
+                    >
+
+                    <!-- =================================================
+                         ROW 4
+                    ================================================== -->
+                    <div class="form-grid two-columns">
+
+                        <!-- ID TYPE -->
+                        <!-- ⚠ RECONSTRUCTED (paste cut off inside the "sss" option):
+                             umid / philhealth / tin / postal are guesses —
+                             VERIFY they match what your DB stores. -->
                         <div class="input-group" data-field="id_type">
                             <label for="id_type">
-                                <i data-lucide="badge-check" aria-hidden="true"></i>
+                                <i data-lucide="id-card" aria-hidden="true"></i>
                                 ID Type
                             </label>
-                            <select id="id_type" name="id_type" aria-describedby="hint_id_type" required>
-                                <option value="" disabled {{ form.id_type == '' ? 'selected' : '' }}>
-                                    Select your ID type
+                            <select
+                                id="id_type"
+                                name="id_type"
+                                aria-describedby="hint_id_type"
+                                required
+                            >
+
+                                <option value="" disabled {{ form.id_type|default('') == '' ? 'selected' : '' }}>
+                                    Select ID Type
                                 </option>
-                                {% for value, label in id_types %}
-                                    <option value="{{ value }}" {{ form.id_type == value ? 'selected' : '' }}>
-                                        {{ label }}
-                                    </option>
-                                {% endfor %}
+
+                                <option value="passport" {{ form.id_type|default('') == 'passport' ? 'selected' : '' }}>
+                                    Passport
+                                </option>
+
+                                <option value="drivers-license" {{ form.id_type|default('') == 'drivers-license' ? 'selected' : '' }}>
+                                    Driver's License
+                                </option>
+
+                                <option value="philid" {{ form.id_type|default('') == 'philid' ? 'selected' : '' }}>
+                                    PhilID / National ID
+                                </option>
+
+                                <option value="sss" {{ form.id_type|default('') == 'sss' ? 'selected' : '' }}>
+                                    SSS ID
+                                </option>
+
+                                <!-- ⚠ RECONSTRUCTED below this line — verify values -->
+                                <option value="umid" {{ form.id_type|default('') == 'umid' ? 'selected' : '' }}>
+                                    UMID
+                                </option>
+
+                                <option value="philhealth" {{ form.id_type|default('') == 'philhealth' ? 'selected' : '' }}>
+                                    PhilHealth ID
+                                </option>
+
+                                <option value="tin" {{ form.id_type|default('') == 'tin' ? 'selected' : '' }}>
+                                    TIN ID
+                                </option>
+
+                                <option value="postal" {{ form.id_type|default('') == 'postal' ? 'selected' : '' }}>
+                                    Postal ID
+                                </option>
                             </select>
                             <small class="field-hint" id="hint_id_type"></small>
                         </div>
 
+                        <!-- ID NUMBER -->
+                        <!-- ⚠ RECONSTRUCTED (paste cut off here) -->
                         <div class="input-group" data-field="id_number">
                             <label for="id_number">
                                 <i data-lucide="hash" aria-hidden="true"></i>
@@ -1122,7 +1597,7 @@
                                 id="id_number"
                                 name="id_number"
                                 placeholder="Enter your ID number"
-                                value="{{ form.id_number }}"
+                                value="{{ form.id_number|default('') }}"
                                 aria-describedby="hint_id_number"
                                 required
                             >
@@ -1131,74 +1606,86 @@
 
                     </div>
 
-                    {# ---------- UPLOAD ID ---------- #}
+                    <!-- =================================================
+                         UPLOAD VALID ID
+                         ⚠ RECONSTRUCTED (paste cut off here) — markup
+                         matches the existing CSS hooks (.upload-box,
+                         .has-image, .drag-over, .upload-box-overlay,
+                         .upload-remove-btn, .upload-error,
+                         .upload-secure-note).
+                    ================================================== -->
                     <div class="input-group" data-field="upload_id">
 
                         <label>
-                            <i data-lucide="id-card" aria-hidden="true"></i>
+                            <i data-lucide="upload" aria-hidden="true"></i>
                             Upload Valid ID
                         </label>
 
                         <div
                             class="upload-box"
                             id="uploadBox"
-                            tabindex="0"
                             role="button"
-                            aria-label="Upload your valid ID — click or drag and drop"
+                            tabindex="0"
+                            aria-label="Upload your valid ID — click, or drag and drop an image"
                         >
-
-                            <span class="upload-icon">
-                                <i data-lucide="cloud-upload" aria-hidden="true"></i>
-                            </span>
-
-                            <span class="upload-text">
-                                <strong>Click to upload</strong><br>
-                                <span>or drag &amp; drop &mdash; JPG or PNG, max 5MB</span>
-                            </span>
 
                             <input
                                 type="file"
-                                id="upload_id_input"
+                                id="upload_id"
                                 name="upload_id"
-                                accept=".jpg,.jpeg,.png,image/jpeg,image/png"
-                                class="js-hidden"
-                                aria-describedby="hint_upload_id"
+                                accept="image/jpeg,image/png"
+                                hidden
                             >
 
-                            <div class="upload-box-overlay" id="uploadOverlay" hidden>
-                                <strong id="uploadFileName"></strong>
-                                <span id="uploadFileSize"></span>
-                                <span class="upload-check">
-                                    <i data-lucide="circle-check" aria-hidden="true"></i>
-                                    ID ready
-                                </span>
+                            <span class="upload-icon" aria-hidden="true">
+                                <i data-lucide="cloud-upload"></i>
+                            </span>
+
+                            <div class="upload-text">
+                                <strong>Click to upload</strong>
+                                <br>
+                                <span>or drag and drop &middot; JPG or PNG &middot; max 5MB</span>
                             </div>
 
+                            <!-- Remove button (shown once an image is loaded) -->
                             <button
                                 type="button"
                                 class="upload-remove-btn"
-                                id="uploadRemoveBtn"
-                                aria-label="Remove uploaded ID"
+                                id="uploadRemove"
+                                aria-label="Remove uploaded image"
                                 hidden
                             >
                                 <i data-lucide="x" aria-hidden="true"></i>
                             </button>
 
+                            <!-- Overlay (shown once an image is loaded) -->
+                            <div class="upload-box-overlay" id="uploadOverlay" hidden>
+                                <strong id="uploadFileName"></strong>
+                                <span>Preview ready</span>
+                                <span class="upload-check">
+                                    <i data-lucide="circle-check" aria-hidden="true"></i>
+                                    Image loaded
+                                </span>
+                            </div>
+
                         </div>
 
-                        <small class="upload-error" id="uploadError" role="alert"></small>
+                        <p class="upload-error" id="uploadError" role="alert"></p>
 
-                        <div class="upload-secure-note">
-                            <i data-lucide="lock" aria-hidden="true"></i>
-                            Your ID is only used to verify your identity &mdash; it is never shown on your listing.
-                        </div>
+                        <p class="upload-secure-note">
+                            <i data-lucide="shield-check" aria-hidden="true"></i>
+                            Your ID is stored securely and only visible to RoomHive admins
+                        </p>
 
                     </div>
 
-                    <button type="submit" class="next-button" id="hostSubmitBtn">
+                    <!-- SUBMIT -->
+                    <!-- ⚠ RECONSTRUCTED button label — change "Next Step" if
+                         your original said something else -->
+                    <button type="submit" class="next-button" id="nextBtn">
                         <span class="btn-spinner" aria-hidden="true"></span>
-                        Next step
                         <i data-lucide="arrow-right" class="next-arrow" aria-hidden="true"></i>
+                        <span class="next-label">Next Step</span>
                     </button>
 
                 </form>
@@ -1207,382 +1694,1122 @@
 
         </main>
 
-        {# ADAPT: your Symfony footer partial, if you have one #}
-        {% include 'partials/footer.html.twig' ignore missing %}
+        {# SHARED FOOTER (single source of truth — partials/footer.html.twig) #}
+        {{ include('partials/footer.html.twig') }}
 
-        {# ============ LUCIDE LOADER ============ #}
-        <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-        <script>
-            function hiveRefreshIcons() {
-                if (window.lucide && typeof lucide.createIcons === "function") {
-                    lucide.createIcons();
-                }
-            }
-            if (document.readyState === "loading") {
-                document.addEventListener("DOMContentLoaded", hiveRefreshIcons);
-            } else {
-                hiveRefreshIcons();
-            }
-        </script>
-
-        {# ============ VALIDATION / PROGRESS / UPLOAD ============ #}
+        {# =========================================================
+           LUCIDE ICONS — guarded loader (same key as navbar: never
+           double-runs). Renders every <i data-lucide="..."> as an
+           inline SVG. hiveRefreshIcons() is preserved as a thin
+           alias so the form/upload IIFE's existing
+           `var refreshIcons = window.hiveRefreshIcons` reference
+           keeps working unchanged.
+        ========================================================= #}
         <script>
             (function () {
                 "use strict";
 
-                var form = document.getElementById("hostForm");
-                if (!form) {
-                    return;
+                function renderRhIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
                 }
 
-                var card = form.closest(".host-form-card");
+                /* legacy alias — the form/upload IIFE reads
+                                                                   window.hiveRefreshIcons; keep it pointing at the
+                                                                   same render so its init call still works */
+                window.hiveRefreshIcons = renderRhIcons;
 
-                var validators = {
-                    full_name: function (v) {
-                        if (!v.trim()) return "Please enter your full name.";
-                        return "";
-                    },
-                    email: function (v) {
-                        if (!v.trim()) return "Please enter your email address.";
-                        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()))
-                            return "Enter a valid email address.";
-                        return "";
-                    },
-                    phone: function (v) {
-                        if (!v.trim()) return "Please enter your phone number.";
-                        if (!/^09\d{9}$/.test(v.trim()))
-                            return "Phone must be 11 digits starting with 09.";
-                        return "";
-                    },
-                    age: function (v) {
-                        if (!v.trim()) return "Please enter your age.";
-                        if (!/^\d+$/.test(v.trim())) return "Enter a whole number.";
-                        var n = parseInt(v, 10);
-                        if (n < 18) return "You must be at least 18 years old to host.";
-                        if (n > 120) return "Please enter a valid age.";
-                        return "";
-                    },
-                    location: function (v) {
-                        if (!v.trim()) return "Please enter your location.";
-                        return "";
-                    },
-                    id_type: function (v) {
-                        if (!v) return "Please select your ID type.";
-                        return "";
-                    },
-                    id_number: function (v) {
-                        if (!v.trim()) return "Please enter your ID number.";
-                        return "";
-                    },
-                };
+                if (!window.__rhNavbarLucide) {
+                    window.__rhNavbarLucide = true;
+                    var s = document.createElement("script");
+                    s.src = "https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js";
+                    s.addEventListener("load", renderRhIcons);
+                    document.head.appendChild(s);
+                }
 
-                var REQUIRED = [
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", renderRhIcons);
+                } else {
+                    renderRhIcons();
+                }
+                window.addEventListener("load", renderRhIcons);
+            })();
+        </script>
+
+        {# =========================================================
+           STEP 1 PAGE SCRIPTS
+           ⚠ RECONSTRUCTED — your original JS wasn't in the paste.
+           Built to match the CSS hooks already present:
+           #progressCount/#progressTotal/#progressFill, is-valid /
+           is-invalid, .shake, .is-loading, .drag-over, .has-image,
+           .upload-error.show, [hidden] toggles.
+
+           Preserved 1:1 — the only adjustment is the
+           `window.hiveRefreshIcons` reference now points at the
+           guarded loader above instead of the legacy plain-CDN
+           hiveRefreshIcons function (same contract: callable
+           from anywhere, idempotent, safe before lucide loads).
+        ========================================================= #}
+        <script>
+            (function () {
+                "use strict";
+
+                var refreshIcons = window.hiveRefreshIcons || function () {};
+
+                /* =========================================================
+                                                                   ELEMENTS
+                                                                ========================================================= */
+                var form = document.getElementById("hostForm");
+                var card = document.querySelector(".host-form-card");
+
+                var progressCount = document.getElementById("progressCount");
+                var progressTotal = document.getElementById("progressTotal");
+                var progressFill = document.getElementById("progressFill");
+
+                var uploadBox = document.getElementById("uploadBox");
+                var fileInput = document.getElementById("upload_id");
+                var removeBtn = document.getElementById("uploadRemove");
+                var overlay = document.getElementById("uploadOverlay");
+                var fileNameEl = document.getElementById("uploadFileName");
+                var uploadError = document.getElementById("uploadError");
+
+                var nextBtn = document.getElementById("nextBtn");
+
+                var MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+                var ALLOWED_MIME = ["image/jpeg", "image/png"];
+
+                /* 9 tracked fields: 8 inputs + the ID upload
+                                                                   (cont-43: single 'location' split into province + city) */
+                var FIELDS = [
                     "full_name",
                     "email",
                     "phone",
                     "age",
-                    "location",
+                    "province",
+                    "city",
                     "id_type",
                     "id_number",
+                    "upload_id",
                 ];
-                var TOTAL = REQUIRED.length + 1; /* + the ID upload = 8 */
 
-                var totalEl = document.getElementById("progressTotal");
-                if (totalEl) {
-                    totalEl.textContent = String(TOTAL);
+                if (progressTotal) progressTotal.textContent = String(FIELDS.length);
+
+                /* =========================================================
+                                                                   FIELD VALIDATION
+                                                                   Returns true when valid, or an error message string.
+                                                                ========================================================= */
+                var validators = {
+                    full_name: function (v) {
+                        return v.trim().length >= 2 ? true : "Please enter your full name.";
+                    },
+                    email: function (v) {
+                        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())
+                            ? true
+                            : "Please enter a valid email address.";
+                    },
+                    phone: function (v) {
+                        /* PH mobile numbers always start with 09
+                                                                           (e.g. 09171234567). 11 digits total: 09 + 9 more. */
+                        return /^09[0-9]{9}$/.test(v.trim())
+                            ? true
+                            : "Phone number must start with 09 and be 11 digits.";
+                    },
+                    age: function (v) {
+                        if (!/^[0-9]+$/.test(v.trim())) return "Please enter a valid age.";
+                        var n = parseInt(v, 10);
+                        if (n < 18)
+                            return "You must be at least 18 years old to become a host.";
+                        if (n > 120) return "Please enter a valid age.";
+                        return true;
+                    },
+                    province: function (v) {
+                        return v.trim() !== "" ? true : "Please enter your province.";
+                    },
+                    city: function (v) {
+                        return v.trim() !== ""
+                            ? true
+                            : "Please enter your city or municipality.";
+                    },
+                    id_type: function (v) {
+                        return v !== "" ? true : "Please select your ID type.";
+                    },
+                    id_number: function (v) {
+                        return v.trim() !== "" ? true : "Please enter your ID number.";
+                    },
+                };
+
+                function groupFor(name) {
+                    return form ? form.querySelector('[data-field="' + name + '"]') : null;
                 }
 
-                var uploadState = { name: "", valid: false };
+                function validateField(name, mark) {
+                    var el = form && form.elements[name];
+                    var group = groupFor(name);
+                    if (!el || !group) return true;
 
-                function groupEl(field) {
-                    return form.querySelector('.input-group[data-field="' + field + '"]');
-                }
+                    var result = validators[name](el.value);
+                    var hint = group.querySelector(".field-hint");
 
-                function hintEl(field) {
-                    return document.getElementById("hint_" + field);
-                }
-
-                function checkField(field) {
-                    var el = form.elements[field];
-                    var g = groupEl(field);
-                    var hint = hintEl(field);
-                    var msg = "";
-
-                    if (el && validators[field]) {
-                        msg = validators[field](el.value);
-                    }
-
-                    if (g) {
-                        g.classList.toggle("is-valid", msg === "");
-                        g.classList.toggle("is-invalid", msg !== "");
-                    }
-                    if (hint) {
-                        hint.textContent = msg;
-                    }
-                    return msg === "";
-                }
-
-                function updateProgress() {
-                    var done = 0;
-
-                    REQUIRED.forEach(function (f) {
-                        var el = form.elements[f];
-                        if (el && validators[f] && validators[f](el.value) === "") {
-                            done++;
+                    if (result === true) {
+                        group.classList.remove("is-invalid");
+                        group.classList.add("is-valid");
+                        if (hint) {
+                            if (!hint.dataset.default)
+                                hint.dataset.default = hint.textContent;
+                            hint.textContent = "Looks good";
                         }
-                    });
-
-                    if (uploadState.valid) {
-                        done++;
+                        return true;
                     }
 
-                    var count = document.getElementById("progressCount");
-                    var fill = document.getElementById("progressFill");
-
-                    if (count) {
-                        count.textContent = String(done);
-                    }
-                    if (fill) {
-                        fill.style.width = Math.round((done / TOTAL) * 100) + "%";
-                    }
-                }
-
-                REQUIRED.forEach(function (f) {
-                    var el = form.elements[f];
-                    if (!el) {
-                        return;
-                    }
-
-                    el.addEventListener("input", function () {
-                        checkField(f);
-                        updateProgress();
-                    });
-
-                    el.addEventListener("change", function () {
-                        checkField(f);
-                        updateProgress();
-                    });
-
-                    if (f === "phone") {
-                        el.addEventListener("input", function () {
-                            this.value = this.value.replace(/\D/g, "").slice(0, 11);
-                        });
-                    }
-                });
-
-                REQUIRED.forEach(function (f) {
-                    var el = form.elements[f];
-                    if (
-                        el &&
-                        el.value.trim() !== "" &&
-                        validators[f] &&
-                        validators[f](el.value) === ""
-                    ) {
-                        var g = groupEl(f);
-                        if (g) {
-                            g.classList.add("is-valid");
+                    group.classList.remove("is-valid");
+                    if (mark) {
+                        group.classList.add("is-invalid");
+                        if (hint) {
+                            if (!hint.dataset.default)
+                                hint.dataset.default = hint.textContent;
+                            hint.textContent = result;
                         }
+                    } else if (hint && hint.dataset.default) {
+                        hint.textContent = hint.dataset.default;
                     }
-                });
-                updateProgress();
+                    return false;
+                }
 
-                /* ---- ID UPLOAD ---- */
-                var uploadBox = document.getElementById("uploadBox");
-                var uploadInput = document.getElementById("upload_id_input");
-                var uploadOverlay = document.getElementById("uploadOverlay");
-                var uploadRemove = document.getElementById("uploadRemoveBtn");
-                var uploadErr = document.getElementById("uploadError");
+                /* =========================================================
+                                                                   UPLOAD STATE
+                                                                ========================================================= */
+                var uploadValid = false;
 
-                function setUploadError(msg) {
-                    if (uploadErr) {
-                        uploadErr.textContent = msg || "";
-                        uploadErr.classList.toggle("show", !!msg);
-                    }
-                    var g = groupEl("upload_id");
-                    if (g) {
-                        g.classList.toggle("is-invalid", !!msg);
-                        g.classList.toggle("is-valid", !msg && uploadState.valid);
+                function markUpload(valid) {
+                    uploadValid = valid;
+                    var group = groupFor("upload_id");
+                    if (group) {
+                        group.classList.toggle("is-valid", valid);
+                        group.classList.toggle("is-invalid", !valid);
                     }
                 }
 
-                function clearUpload() {
-                    uploadState = { name: "", valid: false };
-                    if (uploadInput) {
-                        uploadInput.value = "";
-                    }
+                function showUploadError(msg) {
+                    if (!uploadError) return;
+                    uploadError.textContent = msg;
+                    uploadError.classList.add("show");
+                }
+
+                function clearUploadError() {
+                    if (!uploadError) return;
+                    uploadError.textContent = "";
+                    uploadError.classList.remove("show");
+                }
+
+                function resetUpload() {
+                    uploadValid = false;
+                    if (fileInput) fileInput.value = "";
                     if (uploadBox) {
-                        uploadBox.classList.remove("has-image");
                         uploadBox.style.backgroundImage = "";
+                        uploadBox.classList.remove("has-image");
                     }
-                    if (uploadOverlay) {
-                        uploadOverlay.hidden = true;
-                    }
-                    if (uploadRemove) {
-                        uploadRemove.hidden = true;
-                    }
-                    setUploadError("");
+                    if (overlay) overlay.hidden = true;
+                    if (removeBtn) removeBtn.hidden = true;
+                    markUpload(false);
                     updateProgress();
                 }
 
-                function handleFile(file) {
-                    if (!file) {
-                        return;
-                    }
+                function handleFiles(fileList) {
+                    var file = fileList && fileList[0];
+                    if (!file) return;
 
-                    setUploadError("");
+                    clearUploadError();
 
-                    if (file.type !== "image/jpeg" && file.type !== "image/png") {
-                        uploadState = { name: "", valid: false };
-                        setUploadError("Only JPG and PNG files are allowed.");
+                    if (ALLOWED_MIME.indexOf(file.type) === -1) {
+                        showUploadError("Only JPG and PNG files are allowed.");
+                        markUpload(false);
                         updateProgress();
                         return;
                     }
 
-                    if (file.size > 5 * 1024 * 1024) {
-                        uploadState = { name: "", valid: false };
-                        setUploadError("ID file must not exceed 5MB.");
+                    if (file.size > MAX_UPLOAD_BYTES) {
+                        showUploadError("ID file must not exceed 5MB.");
+                        markUpload(false);
                         updateProgress();
                         return;
+                    }
+
+                    /* Sync the chosen file onto the real input so a
+                                                                       drag-and-drop selection is still submitted with the form */
+                    try {
+                        var dt = new DataTransfer();
+                        dt.items.add(file);
+                        if (fileInput) fileInput.files = dt.files;
+                    } catch (err) {
+                        /* older browsers: only click-selected files submit */
                     }
 
                     var reader = new FileReader();
                     reader.onload = function (e) {
                         if (uploadBox) {
-                            uploadBox.classList.add("has-image");
                             uploadBox.style.backgroundImage =
-                                "url('" + e.target.result + "')";
+                                "url(" + e.target.result + ")";
+                            uploadBox.classList.add("has-image");
                         }
-
-                        var fn = document.getElementById("uploadFileName");
-                        var fs = document.getElementById("uploadFileSize");
-
-                        if (fn) {
-                            fn.textContent = file.name;
-                        }
-                        if (fs) {
-                            fs.textContent = (file.size / (1024 * 1024)).toFixed(2) + " MB";
-                        }
-                        if (uploadOverlay) {
-                            uploadOverlay.hidden = false;
-                        }
-                        if (uploadRemove) {
-                            uploadRemove.hidden = false;
-                        }
-
-                        uploadState = { name: file.name, valid: true };
-
-                        if (typeof window.hiveRefreshIcons === "function") {
-                            window.hiveRefreshIcons();
-                        }
-
-                        updateProgress();
+                        if (fileNameEl) fileNameEl.textContent = file.name;
+                        if (overlay) overlay.hidden = false;
+                        if (removeBtn) removeBtn.hidden = false;
                     };
                     reader.readAsDataURL(file);
+
+                    markUpload(true);
+                    updateProgress();
                 }
 
-                if (uploadBox && uploadInput) {
+                if (uploadBox && fileInput) {
                     uploadBox.addEventListener("click", function (e) {
-                        if (e.target.closest && e.target.closest(".upload-remove-btn")) {
+                        /* let the remove button do its own thing */
+                        if (e.target.closest && e.target.closest(".upload-remove-btn"))
                             return;
-                        }
-                        uploadInput.click();
+                        fileInput.click();
                     });
 
                     uploadBox.addEventListener("keydown", function (e) {
                         if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            uploadInput.click();
+                            fileInput.click();
                         }
                     });
 
-                    uploadInput.addEventListener("change", function () {
-                        if (uploadInput.files && uploadInput.files[0]) {
-                            handleFile(uploadInput.files[0]);
-                        }
+                    fileInput.addEventListener("change", function () {
+                        handleFiles(fileInput.files);
                     });
 
-                    ["dragenter", "dragover"].forEach(function (ev) {
-                        uploadBox.addEventListener(ev, function (e) {
+                    ["dragenter", "dragover"].forEach(function (evt) {
+                        uploadBox.addEventListener(evt, function (e) {
                             e.preventDefault();
+                            e.stopPropagation();
                             uploadBox.classList.add("drag-over");
                         });
                     });
 
-                    ["dragleave", "drop"].forEach(function (ev) {
-                        uploadBox.addEventListener(ev, function (e) {
+                    ["dragleave", "drop"].forEach(function (evt) {
+                        uploadBox.addEventListener(evt, function (e) {
                             e.preventDefault();
+                            e.stopPropagation();
                             uploadBox.classList.remove("drag-over");
                         });
                     });
 
                     uploadBox.addEventListener("drop", function (e) {
-                        if (
-                            e.dataTransfer &&
-                            e.dataTransfer.files &&
-                            e.dataTransfer.files[0]
-                        ) {
-                            handleFile(e.dataTransfer.files[0]);
+                        if (e.dataTransfer && e.dataTransfer.files.length) {
+                            handleFiles(e.dataTransfer.files);
                         }
                     });
                 }
 
-                if (uploadRemove) {
-                    uploadRemove.addEventListener("click", function (e) {
+                if (removeBtn) {
+                    removeBtn.addEventListener("click", function (e) {
                         e.stopPropagation();
-                        clearUpload();
+                        resetUpload();
                     });
                 }
 
-                /* ---- SUBMIT ---- */
-                form.addEventListener("submit", function (e) {
-                    var firstBad = null;
+                /* =========================================================
+                                                                   PROGRESS BAR
+                                                                ========================================================= */
+                function countValid() {
+                    var count = 0;
+                    FIELDS.forEach(function (name) {
+                        if (name === "upload_id") {
+                            if (uploadValid) count++;
+                            return;
+                        }
+                        var el = form && form.elements[name];
+                        if (el && validators[name](el.value) === true) count++;
+                    });
+                    return count;
+                }
 
-                    REQUIRED.forEach(function (f) {
-                        var ok = checkField(f);
-                        if (!ok && !firstBad) {
-                            firstBad = form.elements[f];
+                function updateProgress() {
+                    var count = countValid();
+                    if (progressCount) progressCount.textContent = String(count);
+                    if (progressFill) {
+                        progressFill.style.width = (count / FIELDS.length) * 100 + "%";
+                    }
+                }
+
+                /* =========================================================
+                                                                   INPUT WIRING
+                                                                ========================================================= */
+                FIELDS.forEach(function (name) {
+                    if (name === "upload_id") return;
+                    var el = form && form.elements[name];
+                    if (!el) return;
+
+                    ["input", "change", "blur"].forEach(function (evt) {
+                        el.addEventListener(evt, function () {
+                            validateField(name, true);
+                            updateProgress();
+                        });
+                    });
+                });
+
+                /* =========================================================
+                                                                   HIDDEN location COMPOSER (cont-45)
+                                                                   The visible form posts province + city (cont-43), but
+                                                                   the controller may still validate/save the legacy
+                                                                   single `location` field. Keep the hidden
+                                                                   #rhLocationField in sync as "City, Province" so BOTH
+                                                                   controller versions accept the POST. Runs on every
+                                                                   province/city keystroke AND once at submit time (see
+                                                                   the submit handler — first line).
+                                                                ========================================================= */
+                var locationField = document.getElementById("rhLocationField");
+                var provinceField = form ? form.elements["province"] : null;
+                var cityField = form ? form.elements["city"] : null;
+
+                function syncLocationField() {
+                    if (!locationField || !provinceField || !cityField) return;
+                    var parts = [];
+                    if (cityField.value.trim() !== "") parts.push(cityField.value.trim());
+                    if (provinceField.value.trim() !== "")
+                        parts.push(provinceField.value.trim());
+                    locationField.value = parts.join(", ");
+                }
+
+                if (provinceField)
+                    provinceField.addEventListener("input", syncLocationField);
+                if (cityField) cityField.addEventListener("input", syncLocationField);
+
+                /* Phone: digits only, hard cap 11 */
+                var phoneEl = form && form.elements["phone"];
+                if (phoneEl) {
+                    phoneEl.addEventListener("input", function () {
+                        var cleaned = this.value.replace(/\D/g, "").slice(0, 11);
+                        if (cleaned !== this.value) this.value = cleaned;
+                    });
+                }
+
+                /* =========================================================
+                                                                   SUBMIT — validate everything, shake on failure,
+                                                                   spinner + disabled state while the PHP round-trips.
+                                                                ========================================================= */
+                if (form) {
+                    form.addEventListener("submit", function (e) {
+                        /* cont-45: compose the hidden legacy `location`
+                                                                           ("City, Province") right before anything reads
+                                                                           the form — belt and suspenders on top of the
+                                                                           per-keystroke sync. */
+                        syncLocationField();
+
+                        var allValid = true;
+
+                        FIELDS.forEach(function (name) {
+                            var ok;
+                            if (name === "upload_id") {
+                                ok = uploadValid;
+                                if (!ok) {
+                                    markUpload(false);
+                                    if (uploadError && !uploadError.textContent) {
+                                        showUploadError("Please upload your ID.");
+                                    }
+                                }
+                            } else {
+                                ok = validateField(name, true);
+                            }
+                            if (!ok) allValid = false;
+                        });
+
+                        updateProgress();
+
+                        if (!allValid) {
+                            e.preventDefault();
+
+                            if (card) {
+                                card.classList.remove("shake");
+                                void card.offsetWidth; /* restart the animation */
+                                card.classList.add("shake");
+                            }
+
+                            var firstInvalid = form.querySelector(
+                                ".input-group.is-invalid input, .input-group.is-invalid select",
+                            );
+                            if (firstInvalid) firstInvalid.focus();
+
+                            return;
+                        }
+
+                        if (nextBtn) {
+                            nextBtn.disabled = true;
+                            nextBtn.classList.add("is-loading");
+                            var label = nextBtn.querySelector(".next-label");
+                            if (label) label.textContent = "Submitting\u2026";
+                        }
+                    });
+                }
+
+                /* =========================================================
+                                                                   INIT
+                                                                   Compute progress without marking anything invalid —
+                                                                   a fresh page shouldn't greet the user with red borders.
+                                                                ========================================================= */
+                updateProgress();
+                refreshIcons();
+            })();
+        </script>
+
+        {# =========================================================
+           PH LOCATION DROPDOWN — two independent dropdowns (cont-43)
+           One under #province, one under #city. Each is a simple
+           single-panel dropdown (header + list) driven by a shared
+           factory. No API key, no external requests.
+
+           Province dropdown: all 81 PH provinces + Metro Manila.
+             Pick → fills #province with the province name.
+           City dropdown: ~150 major PH cities. Filters to the
+             selected province when #province has a value that
+             matches a known province (typing in the city field
+             then only surfaces that province's cities). Pick →
+             fills #city with just the city name (the province
+             goes in its own field — no comma needed anymore).
+
+           cont-46 TOUCH-TO-OPEN: clicking/tabbing into either box
+           immediately shows the FULL scrollable list (all 83
+           provinces; the city pool — province-filtered when one is
+           selected, else all 166 cities). Typing still narrows
+           live. A second click on an already-focused box reopens
+           the full list.
+           Keyboard per dropdown: ArrowDown/Up, Enter, Escape.
+           Outside click closes. Blur closes (150ms grace so
+           mousedown-based picks land first).
+        ========================================================= #}
+        <script>
+            (function () {
+                "use strict";
+
+                /* =====================================================
+                                                                   ALL 81 PH PROVINCES + Metro Manila (NCR)
+                                                                ===================================================== */
+                var PROVINCES = [
+                    "Abra",
+                    "Agusan del Norte",
+                    "Agusan del Sur",
+                    "Aklan",
+                    "Albay",
+                    "Antique",
+                    "Apayao",
+                    "Aurora",
+                    "Basilan",
+                    "Bataan",
+                    "Batanes",
+                    "Batangas",
+                    "Benguet",
+                    "Biliran",
+                    "Bohol",
+                    "Bukidnon",
+                    "Bulacan",
+                    "Cagayan",
+                    "Camarines Norte",
+                    "Camarines Sur",
+                    "Camiguin",
+                    "Capiz",
+                    "Catanduanes",
+                    "Cavite",
+                    "Cebu",
+                    "Cotabato",
+                    "Davao de Oro",
+                    "Davao del Norte",
+                    "Davao del Sur",
+                    "Davao Occidental",
+                    "Davao Oriental",
+                    "Dinagat Islands",
+                    "Eastern Samar",
+                    "Guimaras",
+                    "Ifugao",
+                    "Ilocos Norte",
+                    "Ilocos Sur",
+                    "Iloilo",
+                    "Isabela",
+                    "Kalinga",
+                    "Laguna",
+                    "Lanao del Norte",
+                    "Lanao del Sur",
+                    "La Union",
+                    "Leyte",
+                    "Maguindanao del Norte",
+                    "Maguindanao del Sur",
+                    "Marinduque",
+                    "Masbate",
+                    "Metro Manila",
+                    "Misamis Occidental",
+                    "Misamis Oriental",
+                    "Mountain Province",
+                    "Negros Occidental",
+                    "Negros Oriental",
+                    "Northern Samar",
+                    "Nueva Ecija",
+                    "Nueva Vizcaya",
+                    "Occidental Mindoro",
+                    "Oriental Mindoro",
+                    "Palawan",
+                    "Pampanga",
+                    "Pangasinan",
+                    "Quezon",
+                    "Quirino",
+                    "Rizal",
+                    "Romblon",
+                    "Samar",
+                    "Sarangani",
+                    "Siquijor",
+                    "Sorsogon",
+                    "South Cotabato",
+                    "Southern Leyte",
+                    "Sultan Kudarat",
+                    "Sulu",
+                    "Surigao del Norte",
+                    "Surigao del Sur",
+                    "Tarlac",
+                    "Tawi-Tawi",
+                    "Zambales",
+                    "Zamboanga del Norte",
+                    "Zamboanga del Sur",
+                    "Zamboanga Sibugay",
+                ];
+
+                /* =====================================================
+                                                                   MAJOR PH CITIES — { name, province } pairs.
+                                                                ===================================================== */
+                var CITIES = [
+                    /* Metro Manila (NCR) */
+                    { name: "Caloocan City", province: "Metro Manila" },
+                    { name: "Las Piñas City", province: "Metro Manila" },
+                    { name: "Makati City", province: "Metro Manila" },
+                    { name: "Malabon City", province: "Metro Manila" },
+                    { name: "Mandaluyong City", province: "Metro Manila" },
+                    { name: "Manila", province: "Metro Manila" },
+                    { name: "Marikina City", province: "Metro Manila" },
+                    { name: "Muntinlupa City", province: "Metro Manila" },
+                    { name: "Navotas City", province: "Metro Manila" },
+                    { name: "Parañaque City", province: "Metro Manila" },
+                    { name: "Pasay City", province: "Metro Manila" },
+                    { name: "Pasig City", province: "Metro Manila" },
+                    { name: "Pateros", province: "Metro Manila" },
+                    { name: "Quezon City", province: "Metro Manila" },
+                    { name: "San Juan City", province: "Metro Manila" },
+                    { name: "Taguig City", province: "Metro Manila" },
+                    { name: "Valenzuela City", province: "Metro Manila" },
+                    /* CAR */
+                    { name: "Baguio City", province: "Benguet" },
+                    { name: "Tabuk City", province: "Kalinga" },
+                    { name: "Bangued", province: "Abra" },
+                    { name: "Bontoc", province: "Mountain Province" },
+                    { name: "Lagawe", province: "Ifugao" },
+                    { name: "Luna", province: "Apayao" },
+                    /* Region I */
+                    { name: "San Fernando City", province: "La Union" },
+                    { name: "Vigan City", province: "Ilocos Sur" },
+                    { name: "Candon City", province: "Ilocos Sur" },
+                    { name: "Laoag City", province: "Ilocos Norte" },
+                    { name: "Batac City", province: "Ilocos Norte" },
+                    { name: "Alaminos City", province: "Pangasinan" },
+                    { name: "Dagupan City", province: "Pangasinan" },
+                    { name: "San Carlos City", province: "Pangasinan" },
+                    { name: "Urdaneta City", province: "Pangasinan" },
+                    /* Region II */
+                    { name: "Tuguegarao City", province: "Cagayan" },
+                    { name: "Santiago City", province: "Isabela" },
+                    { name: "Cauayan City", province: "Isabela" },
+                    { name: "Ilagan City", province: "Isabela" },
+                    { name: "Bayombong", province: "Nueva Vizcaya" },
+                    { name: "Cabarroguis", province: "Quirino" },
+                    { name: "Basco", province: "Batanes" },
+                    /* Region III */
+                    { name: "Angeles City", province: "Pampanga" },
+                    { name: "Mabalacat City", province: "Pampanga" },
+                    { name: "Malolos City", province: "Bulacan" },
+                    { name: "Meycauayan City", province: "Bulacan" },
+                    { name: "San Jose del Monte City", province: "Bulacan" },
+                    { name: "Balanga City", province: "Bataan" },
+                    { name: "Tarlac City", province: "Tarlac" },
+                    { name: "Cabanatuan City", province: "Nueva Ecija" },
+                    { name: "Gapan City", province: "Nueva Ecija" },
+                    { name: "Science City of Muñoz", province: "Nueva Ecija" },
+                    { name: "San Jose City", province: "Nueva Ecija" },
+                    { name: "Palayan City", province: "Nueva Ecija" },
+                    { name: "Olongapo City", province: "Zambales" },
+                    /* Region IV-A */
+                    { name: "Antipolo City", province: "Rizal" },
+                    { name: "Tagaytay City", province: "Cavite" },
+                    { name: "Bacoor City", province: "Cavite" },
+                    { name: "Cavite City", province: "Cavite" },
+                    { name: "Dasmariñas City", province: "Cavite" },
+                    { name: "General Trias City", province: "Cavite" },
+                    { name: "Imus City", province: "Cavite" },
+                    { name: "Trece Martires City", province: "Cavite" },
+                    { name: "Batangas City", province: "Batangas" },
+                    { name: "Lipa City", province: "Batangas" },
+                    { name: "Tanauan City", province: "Batangas" },
+                    { name: "Santo Tomas City", province: "Batangas" },
+                    { name: "Calamba City", province: "Laguna" },
+                    { name: "San Pablo City", province: "Laguna" },
+                    { name: "Santa Rosa City", province: "Laguna" },
+                    { name: "Biñan City", province: "Laguna" },
+                    { name: "Cabuyao City", province: "Laguna" },
+                    { name: "San Pedro City", province: "Laguna" },
+                    { name: "Lucena City", province: "Quezon" },
+                    { name: "Tayabas City", province: "Quezon" },
+                    /* MIMAROPA */
+                    { name: "Calapan City", province: "Oriental Mindoro" },
+                    { name: "Puerto Princesa City", province: "Palawan" },
+                    { name: "Mamburao", province: "Occidental Mindoro" },
+                    { name: "Boac", province: "Marinduque" },
+                    { name: "Romblon", province: "Romblon" },
+                    { name: "Coron", province: "Palawan" },
+                    { name: "El Nido", province: "Palawan" },
+                    /* Region V */
+                    { name: "Legazpi City", province: "Albay" },
+                    { name: "Ligao City", province: "Albay" },
+                    { name: "Tabaco City", province: "Albay" },
+                    { name: "Iriga City", province: "Camarines Sur" },
+                    { name: "Sorsogon City", province: "Sorsogon" },
+                    { name: "Masbate City", province: "Masbate" },
+                    { name: "Daet", province: "Camarines Norte" },
+                    { name: "Virac", province: "Catanduanes" },
+                    { name: "Pili", province: "Camarines Sur" },
+                    /* Region VI */
+                    { name: "Iloilo City", province: "Iloilo" },
+                    { name: "Passi City", province: "Iloilo" },
+                    { name: "Roxas City", province: "Capiz" },
+                    { name: "Bacolod City", province: "Negros Occidental" },
+                    { name: "Bago City", province: "Negros Occidental" },
+                    { name: "Bais City", province: "Negros Oriental" },
+                    { name: "Bayawan City", province: "Negros Oriental" },
+                    { name: "Cadiz City", province: "Negros Occidental" },
+                    { name: "Canlaon City", province: "Negros Oriental" },
+                    { name: "Dumaguete City", province: "Negros Oriental" },
+                    { name: "Escalante City", province: "Negros Occidental" },
+                    { name: "Himamaylan City", province: "Negros Occidental" },
+                    { name: "Kabankalan City", province: "Negros Occidental" },
+                    { name: "Sagay City", province: "Negros Occidental" },
+                    { name: "Silay City", province: "Negros Occidental" },
+                    { name: "Sipalay City", province: "Negros Occidental" },
+                    { name: "Talisay City", province: "Negros Occidental" },
+                    { name: "Tanjay City", province: "Negros Oriental" },
+                    { name: "Victorias City", province: "Negros Occidental" },
+                    { name: "San Jose", province: "Antique" },
+                    { name: "Jordan", province: "Guimaras" },
+                    { name: "Kalibo", province: "Aklan" },
+                    /* Region VII */
+                    { name: "Cebu City", province: "Cebu" },
+                    { name: "Mandaue City", province: "Cebu" },
+                    { name: "Lapu-Lapu City", province: "Cebu" },
+                    { name: "Toledo City", province: "Cebu" },
+                    { name: "Bogo City", province: "Cebu" },
+                    { name: "Carcar City", province: "Cebu" },
+                    { name: "Danao City", province: "Cebu" },
+                    { name: "Tagbilaran City", province: "Bohol" },
+                    { name: "Siquijor", province: "Siquijor" },
+                    /* Region VIII */
+                    { name: "Tacloban City", province: "Leyte" },
+                    { name: "Baybay City", province: "Leyte" },
+                    { name: "Ormoc City", province: "Leyte" },
+                    { name: "Catbalogan City", province: "Samar" },
+                    { name: "Calbayog City", province: "Samar" },
+                    { name: "Borongan City", province: "Eastern Samar" },
+                    { name: "Maasin City", province: "Southern Leyte" },
+                    { name: "Catarman", province: "Northern Samar" },
+                    /* Region IX */
+                    { name: "Zamboanga City", province: "Zamboanga del Sur" },
+                    { name: "Dapitan City", province: "Zamboanga del Norte" },
+                    { name: "Dipolog City", province: "Zamboanga del Norte" },
+                    { name: "Isabela City", province: "Basilan" },
+                    { name: "Pagadian City", province: "Zamboanga del Sur" },
+                    { name: "Ipil", province: "Zamboanga Sibugay" },
+                    /* Region X */
+                    { name: "Cagayan de Oro City", province: "Misamis Oriental" },
+                    { name: "El Salvador City", province: "Misamis Oriental" },
+                    { name: "Gingoog City", province: "Misamis Oriental" },
+                    { name: "Iligan City", province: "Lanao del Norte" },
+                    { name: "Malaybalay City", province: "Bukidnon" },
+                    { name: "Valencia City", province: "Bukidnon" },
+                    { name: "Oroquieta City", province: "Misamis Occidental" },
+                    { name: "Ozamiz City", province: "Misamis Occidental" },
+                    { name: "Tangub City", province: "Misamis Occidental" },
+                    { name: "Mambajao", province: "Camiguin" },
+                    /* Region XI */
+                    { name: "Davao City", province: "Davao del Sur" },
+                    { name: "Tagum City", province: "Davao del Norte" },
+                    { name: "Panabo City", province: "Davao del Norte" },
+                    { name: "Samal City", province: "Davao del Norte" },
+                    { name: "Mati City", province: "Davao Oriental" },
+                    { name: "Digos City", province: "Davao del Sur" },
+                    { name: "Nabunturan", province: "Davao de Oro" },
+                    { name: "Malita", province: "Davao Occidental" },
+                    /* Region XII */
+                    { name: "General Santos City", province: "South Cotabato" },
+                    { name: "Koronadal City", province: "South Cotabato" },
+                    { name: "Kidapawan City", province: "Cotabato" },
+                    { name: "Tacurong City", province: "Sultan Kudarat" },
+                    { name: "Alabel", province: "Sarangani" },
+                    /* Caraga */
+                    { name: "Butuan City", province: "Agusan del Norte" },
+                    { name: "Cabadbaran City", province: "Agusan del Norte" },
+                    { name: "Bayugan City", province: "Agusan del Sur" },
+                    { name: "Surigao City", province: "Surigao del Norte" },
+                    { name: "Bislig City", province: "Surigao del Sur" },
+                    { name: "Tandag City", province: "Surigao del Sur" },
+                    /* BARMM */
+                    { name: "Marawi City", province: "Lanao del Sur" },
+                    { name: "Lamitan City", province: "Basilan" },
+                    { name: "Jolo", province: "Sulu" },
+                    { name: "Bongao", province: "Tawi-Tawi" },
+                ];
+
+                /* =====================================================
+                                                                   SHARED DROPDOWN FACTORY
+                                                                   Creates one single-panel dropdown under the given
+                                                                   input. opts:
+                                                                     input        HTMLInputElement (required)
+                                                                     headerLabel  string shown in the sticky header
+                                                                     tag          pill text ("Province" / "City")
+                                                                     findMatches  function(query) → [{ name, sub? }]
+                                                                     applyPick    function(item) → sets input value
+                                                                ===================================================== */
+                function createRhDropdown(opts) {
+                    var input = opts.input;
+                    if (!input) return;
+
+                    var wrapper = input.closest(".input-with-icon") || input.parentElement;
+                    if (!wrapper) return;
+
+                    /* cont-44: the group + grid row around the input
+                                                                       get lifted (z-index 5000) while the dropdown is
+                                                                       open — see the STACKING LIFT CSS comment. */
+                    var group = input.closest(".input-group");
+                    var row = input.closest(".form-grid");
+
+                    var dropdown = document.createElement("div");
+                    dropdown.className = "rh-location-dropdown";
+                    dropdown.setAttribute("role", "listbox");
+                    dropdown.setAttribute("aria-label", opts.headerLabel);
+                    dropdown.id = "rhDd_" + input.id;
+
+                    var header = document.createElement("div");
+                    header.className = "rh-location-header";
+                    header.textContent = opts.headerLabel;
+
+                    var listEl = document.createElement("div");
+                    listEl.className = "rh-location-list";
+
+                    dropdown.appendChild(header);
+                    dropdown.appendChild(listEl);
+                    wrapper.appendChild(dropdown);
+
+                    var highlightedIndex = -1;
+                    var currentItems = [];
+
+                    function escapeHtml(s) {
+                        return String(s).replace(/[&<>"']/g, function (c) {
+                            return {
+                                "&": "&amp;",
+                                "<": "&lt;",
+                                ">": "&gt;",
+                                '"': "&quot;",
+                                "'": "&#39;",
+                            }[c];
+                        });
+                    }
+
+                    var MAP_PIN_SVG =
+                        '<span class="rh-location-icon">' +
+                        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ' +
+                        'fill="none" stroke="currentColor" stroke-width="2" ' +
+                        'stroke-linecap="round" stroke-linejoin="round">' +
+                        '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>' +
+                        '<circle cx="12" cy="10" r="3"/></svg></span>';
+
+                    function open() {
+                        dropdown.classList.add("is-open");
+                        /* cont-44: lift the host chain above sibling
+                                                                           groups/rows so later-in-DOM elements (Row 4's
+                                                                           ID Type label + select, etc.) can't paint
+                                                                           over the open dropdown and eat the clicks. */
+                        wrapper.classList.add("rh-dd-host");
+                        if (group) group.classList.add("rh-dd-host-group");
+                        if (row) row.classList.add("rh-dd-host-row");
+                    }
+
+                    function close() {
+                        dropdown.classList.remove("is-open");
+                        wrapper.classList.remove("rh-dd-host");
+                        if (group) group.classList.remove("rh-dd-host-group");
+                        if (row) row.classList.remove("rh-dd-host-row");
+                        highlightedIndex = -1;
+                    }
+
+                    function updateHighlight() {
+                        var items = listEl.querySelectorAll(".rh-location-item");
+                        items.forEach(function (el, i) {
+                            el.classList.toggle("is-highlighted", i === highlightedIndex);
+                        });
+                        if (highlightedIndex >= 0 && items[highlightedIndex]) {
+                            items[highlightedIndex].scrollIntoView({ block: "nearest" });
+                        }
+                    }
+
+                    function render(matches) {
+                        currentItems = matches;
+                        highlightedIndex = -1;
+                        listEl.innerHTML = "";
+
+                        if (matches.length === 0) {
+                            close();
+                            return;
+                        }
+
+                        matches.forEach(function (item) {
+                            var el = document.createElement("div");
+                            el.className = "rh-location-item";
+                            el.setAttribute("role", "option");
+                            el.setAttribute("tabindex", "-1");
+
+                            var nameHtml = escapeHtml(item.name);
+                            if (item.sub) {
+                                nameHtml +=
+                                    '<span class="rh-location-sub"> — ' +
+                                    escapeHtml(item.sub) +
+                                    "</span>";
+                            }
+
+                            el.innerHTML =
+                                MAP_PIN_SVG +
+                                '<span class="rh-location-name">' +
+                                nameHtml +
+                                "</span>" +
+                                '<span class="rh-location-tag">' +
+                                escapeHtml(opts.tag) +
+                                "</span>";
+
+                            /* mousedown (not click) so the input hasn't
+                                                                               lost focus yet when we fill it — prevents
+                                                                               the blur handler from racing the pick. */
+                            el.addEventListener("mousedown", function (e) {
+                                e.preventDefault();
+                                opts.applyPick(item);
+                                /* cont-45: programmatic value changes
+                                                                                   fire no events — dispatch `input` so
+                                                                                   the validation hints refresh AND the
+                                                                                   hidden location composer stays in
+                                                                                   sync. (The factory's own input
+                                                                                   listener re-renders + re-opens the
+                                                                                   list; close() below runs last, so
+                                                                                   the dropdown still ends closed.) */
+                                input.dispatchEvent(new Event("input", { bubbles: true }));
+                                close();
+                            });
+
+                            listEl.appendChild(el);
+                        });
+
+                        open();
+                    }
+
+                    /* cont-46: touch-to-open. opts.allMatches() (when
+                                                                       provided) returns the FULL list — province: all
+                                                                       83 provinces; city: the whole province-filtered
+                                                                       pool — so touching the box works like a native
+                                                                       select: the suggestions appear immediately,
+                                                                       scrollable, no typing needed. */
+                    function showAll() {
+                        if (typeof opts.allMatches === "function") {
+                            render(opts.allMatches());
+                        } else {
+                            render(opts.findMatches(""));
+                        }
+                    }
+
+                    input.addEventListener("input", function () {
+                        var q = this.value.trim().toLowerCase();
+                        if (q.length < 1) {
+                            /* clearing the text while the box is still
+                                                                               focused (backspace to empty) re-shows the
+                                                                               full list instead of closing — the box is
+                                                                               active, so the suggestions stay useful */
+                            if (document.activeElement === input) {
+                                showAll();
+                            } else {
+                                close();
+                            }
+                            return;
+                        }
+                        render(opts.findMatches(q));
+                    });
+
+                    /* focus = touching/clicking/tabbing into the box —
+                                                                       ALWAYS refresh to the full list. No is-open guard:
+                                                                       when switching between the two boxes the old
+                                                                       dropdown can still be "open" (its blur-close is
+                                                                       pending) and skipping here would show a STALE
+                                                                       list from before the switch (cont-46 fix). */
+                    input.addEventListener("focus", function () {
+                        showAll();
+                    });
+
+                    /* second click on an ALREADY-focused input fires no
+                                                                       focus event — mousedown reopens the full list in
+                                                                       that case. When the list is already open this is
+                                                                       a no-op (keeps the filtered results). */
+                    input.addEventListener("mousedown", function () {
+                        if (!dropdown.classList.contains("is-open")) showAll();
+                    });
+
+                    input.addEventListener("keydown", function (e) {
+                        if (e.key === "Escape") {
+                            close();
+                            return;
+                        }
+                        if (!dropdown.classList.contains("is-open")) return;
+
+                        if (e.key === "ArrowDown") {
+                            e.preventDefault();
+                            highlightedIndex = Math.min(
+                                highlightedIndex + 1,
+                                currentItems.length - 1,
+                            );
+                            updateHighlight();
+                        } else if (e.key === "ArrowUp") {
+                            e.preventDefault();
+                            highlightedIndex = Math.max(highlightedIndex - 1, 0);
+                            updateHighlight();
+                        } else if (e.key === "Enter" && highlightedIndex >= 0) {
+                            e.preventDefault();
+                            opts.applyPick(currentItems[highlightedIndex]);
+                            /* cont-45: same sync as the mousedown pick */
+                            input.dispatchEvent(new Event("input", { bubbles: true }));
+                            close();
                         }
                     });
 
-                    if (!uploadState.valid) {
-                        setUploadError("Please upload your ID (JPG or PNG, max 5MB).");
-                        if (!firstBad) {
-                            firstBad = uploadBox;
+                    input.addEventListener("blur", function () {
+                        /* cont-46: only close if focus did NOT come back
+                                                                           within the grace period — otherwise switching
+                                                                           between the two boxes (province → city within
+                                                                           150ms) would close the freshly opened list. */
+                        window.setTimeout(function () {
+                            if (document.activeElement !== input) close();
+                        }, 150);
+                    });
+
+                    document.addEventListener("click", function (e) {
+                        /* cont-46: also ignore clicks on the field's own
+                                                                           label — clicking it focuses the input (which
+                                                                           now opens the list) and must not instantly
+                                                                           close it again via this outside-click closer. */
+                        var group = input.closest(".input-group");
+                        var label = group ? group.querySelector("label") : null;
+                        if (
+                            !dropdown.contains(e.target) &&
+                            e.target !== input &&
+                            !(label && label.contains(e.target))
+                        ) {
+                            close();
                         }
+                    });
+                }
+
+                /* =====================================================
+                                                                   INSTANCE 1 — PROVINCE dropdown on #province
+                                                                ===================================================== */
+                createRhDropdown({
+                    input: document.getElementById("province"),
+                    headerLabel: "Provinces",
+                    tag: "Province",
+                    findMatches: function (q) {
+                        return PROVINCES.filter(function (p) {
+                            return p.toLowerCase().indexOf(q) !== -1;
+                        })
+                            .slice(0, 7)
+                            .map(function (p) {
+                                return { name: p };
+                            });
+                    },
+                    /* cont-46: touching the box shows ALL provinces,
+                                                                       scrollable — select-like, no typing needed */
+                    allMatches: function () {
+                        return PROVINCES.map(function (p) {
+                            return { name: p };
+                        });
+                    },
+                    applyPick: function (item) {
+                        /* cont-44 CRITICAL FIX: this MUST be `var input`.
+                                                                           applyPick is defined OUTSIDE createRhDropdown,
+                                                                           so it cannot see the factory's own `var input`;
+                                                                           the old bare assignment threw
+                                                                           "ReferenceError: input is not defined" (the
+                                                                           main IIFE is strict mode) on EVERY mousedown
+                                                                           pick — the suggestion visibly did nothing.
+                                                                           The city instance below already had `var`. */
+                        var input = document.getElementById("province");
+                        if (input) input.value = item.name;
+                    },
+                });
+
+                /* =====================================================
+                                                                   INSTANCE 2 — CITY dropdown on #city
+                                                                   Filters to the selected province when #province has
+                                                                   a value matching a known province — so after picking
+                                                                   "Negros Oriental", the city box only surfaces
+                                                                   Negros Oriental cities (both when typing AND when
+                                                                   the full touch-to-open list is shown).
+                                                                ===================================================== */
+                /* shared pool: narrows to the selected province's cities
+                                                                   when #province holds a known province name, else all
+                                                                   166 cities. Used by findMatches AND allMatches. */
+                function rhCityPool() {
+                    var provInput = document.getElementById("province");
+                    var provVal = provInput ? provInput.value.trim().toLowerCase() : "";
+                    var pool = CITIES;
+
+                    if (provVal !== "") {
+                        var inProv = CITIES.filter(function (c) {
+                            return c.province.toLowerCase() === provVal;
+                        });
+                        /* only narrow the pool when the province
+                                                                           value actually matches a known province
+                                                                           (free-typed text that matches nothing
+                                                                           keeps the full list usable) */
+                        if (inProv.length > 0) pool = inProv;
                     }
 
-                    if (firstBad) {
-                        e.preventDefault();
+                    return pool;
+                }
 
-                        if (card) {
-                            card.classList.remove("shake");
-                            void card.offsetWidth;
-                            card.classList.add("shake");
-                        }
-
-                        if (firstBad.focus) {
-                            firstBad.focus();
-                        }
-                        return;
-                    }
-
-                    var btn = document.getElementById("hostSubmitBtn");
-                    if (btn) {
-                        btn.classList.add("is-loading");
-                        btn.disabled = true;
-                    }
+                createRhDropdown({
+                    input: document.getElementById("city"),
+                    headerLabel: "Cities",
+                    tag: "City",
+                    findMatches: function (q) {
+                        return rhCityPool()
+                            .filter(function (c) {
+                                return c.name.toLowerCase().indexOf(q) !== -1;
+                            })
+                            .slice(0, 7)
+                            .map(function (c) {
+                                return { name: c.name, sub: c.province };
+                            });
+                    },
+                    /* cont-46: touching the box shows the FULL pool —
+                                                                       the province's cities when one is selected,
+                                                                       otherwise all 166 cities */
+                    allMatches: function () {
+                        return rhCityPool().map(function (c) {
+                            return { name: c.name, sub: c.province };
+                        });
+                    },
+                    applyPick: function (item) {
+                        var input = document.getElementById("city");
+                        if (input) input.value = item.name;
+                    },
                 });
             })();
         </script>
 
-        {# ============ LOCATION AUTOCOMPLETE ============
-           Requires (from the earlier Symfony setup):
-           - App\Service\LocationProvider registered as the
-             `rh_locations` twig global in config/packages/twig.yaml
-           - templates/partials/_location_search.html.twig
-           - public/css/location-search.css + public/js/location-search.js #}
-        {% include 'partials/_location_search.html.twig' %}
-
     </body>
-
 </html>

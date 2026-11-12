@@ -1,34 +1,66 @@
+{# =========================================================
+   ROOMHIVE (Symfony) — templates/base.html.twig
+   Site-wide shell. Pages extending this automatically get:
+   - /assets/style.css + /assets/myaccount.css (copied from the
+     original /webprogg/assets)
+   - /assets/javaScript.js + Lucide icons (loaded once here)
+   - Session flash messages (error / success)
+   Standalone full-HTML pages (like user/profile_edit.html.twig)
+   do NOT extend this — they link the same assets themselves.
+========================================================= #}
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
     <head>
         <meta charset="UTF-8">
-        <title>{% block title %}Welcome!{% endblock %}</title>
-        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 128 128%22><text y=%221.2em%22 font-size=%2296%22>⚫️</text><text y=%221.3em%22 x=%220.2em%22 font-size=%2276%22 fill=%22%23fff%22>sf</text></svg>">
-        {% block stylesheets %}
-        {% endblock %}
-
-        {% block javascripts %}
-        {% endblock %}
-
-        {% set frankenphp_hot_reload = app.request.server.get('FRANKENPHP_HOT_RELOAD') %}
-        {% if frankenphp_hot_reload %}
-            <meta name="frankenphp-hot-reload:url" content="{{ frankenphp_hot_reload }}">
-            <script src="https://cdn.jsdelivr.net/npm/idiomorph"></script>
-            <script src="https://cdn.jsdelivr.net/npm/frankenphp-hot-reload/+esm" type="module"></script>
-        {% endif %}
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{% block title %}RoomHive{% endblock %}</title>
+        <script>
+            try {
+                if (localStorage.getItem("rhTheme") === "dark") {
+                    document.documentElement.setAttribute("data-theme-preview", "1");
+                }
+            } catch (e) {}
+        </script>
+        <link rel="stylesheet" href="/assets/style.css">
+        <link rel="stylesheet" href="/assets/myaccount.css">
+        {% block stylesheets %}{% endblock %}
+        <script>
+            document.documentElement.classList.add("js");
+        </script>
     </head>
+
     <body>
+        {# ⚠️ Left commented by default: if your child templates already
+       include navbar/footer themselves, enabling these here would
+       double-render. Check one child template first, then uncomment.
+    {% include 'partials/navbar.html.twig' with { notification_count: notification_count|default(0) } %}
+    #}
+
+        {% for label in ['error', 'success'] %}
+            {% for flash in app.flashes(label) %}
+                <section class="up-alert up-alert-{{ label }}">
+                    <p><i data-lucide="{{ label == 'error' ? 'circle-x' : 'circle-check' }}"></i>{{ flash }}</p>
+                </section>
+            {% endfor %}
+        {% endfor %}
+
         {% block body %}{% endblock %}
 
-        {# BFCache killer — a back/forward cached page must never
-           survive a logout. If the page comes from memory cache,
-           force a real reload so the server re-checks the session. #}
+        {# {% include 'partials/footer.html.twig' %} #}
+
+        <script src="/assets/javaScript.js"></script>
+        <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
         <script>
-            window.addEventListener("pageshow", function (event) {
-                if (event.persisted) {
-                    window.location.reload();
+            function rhRefreshIcons() {
+                if (window.lucide && typeof lucide.createIcons === "function") {
+                    lucide.createIcons();
                 }
-            });
+            }
+            rhRefreshIcons();
+            document.addEventListener("DOMContentLoaded", rhRefreshIcons);
         </script>
+        {% block javascripts %}{% endblock %}
     </body>
+
 </html>

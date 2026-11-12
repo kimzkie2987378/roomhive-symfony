@@ -1,0 +1,493 @@
+{# roomhive/admin/reports.html.twig
+   Admin › Reports — extends admin/base.html.twig.
+   1:1 port of legacy admin/adminreports.php.
+
+   Platform performance over the last 6 months. Five lifetime
+   stat cards on top, then a 3-column grid: a 2-col panel with
+   3 native SVG/CSS charts (Revenue vbars, Bookings area/line,
+   New Users hbars) + a 1-col stack of Top Hosts + Top Listings.
+
+   Charts use NO JavaScript libraries — pure SVG + CSS. The .on
+   class (added by IntersectionObserver) just triggers CSS
+   transitions; charts render fully without JS and with
+   prefers-reduced-motion.
+
+   All chart geometry (x/y coords, percentages, short labels) is
+   pre-computed by the controller and passed as ready-to-render
+   arrays — the template stays declarative.
+#}
+{% extends 'admin/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'Reports' %}
+{% set page_heading = 'Reports' %}
+{% set page_subheading = 'Platform performance over the last 6 months.' %}
+
+{% block styles %}
+<style>
+    /* ---- Stat grid (5 cards) ---- */
+    .stat-grid {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 16px;
+        margin-bottom: 22px;
+    }
+    @media (max-width: 1100px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 600px)  { .stat-grid { grid-template-columns: 1fr; } }
+
+    .stat-card {
+        background: #fff;
+        border: 1px solid #EEF1F6;
+        border-radius: 14px;
+        padding: 16px;
+        display: flex; align-items: flex-start; gap: 12px;
+    }
+    .stat-icon {
+        width: 38px; height: 38px; border-radius: 10px;
+        background: #FFF4E0; color: #C77A00;
+        display: flex; align-items: center; justify-content: center;
+        flex-shrink: 0;
+    }
+    .stat-icon .icon { width: 18px; height: 18px; }
+    .stat-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .stat-label {
+        font-size: 10.5px; color: #8B93A6; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .stat-value-row { display: flex; align-items: baseline; gap: 6px; margin-top: 2px; }
+    .stat-value { font-size: 20px; font-weight: 800; color: #14142B; line-height: 1.2; }
+
+    /* ---- 3-col grid: big panel (2/3) + leaderboard stack (1/3) ---- */
+    .grid-3 {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 18px;
+        align-items: start;
+    }
+    @media (max-width: 1000px) { .grid-3 { grid-template-columns: 1fr; } }
+
+    .col-stack { display: flex; flex-direction: column; gap: 18px; }
+
+    .panel {
+        background: #fff;
+        border: 1px solid #EEF1F6;
+        border-radius: 14px;
+        padding: 18px;
+    }
+    .panel-header {
+        margin-bottom: 14px;
+    }
+    .panel-header h2 {
+        margin: 0; font-size: 16px; font-weight: 700; color: #14142B;
+    }
+
+    /* ---- Sub-section headings inside the big panel ---- */
+    .rp-subhead {
+        margin: 18px 0 6px;
+        font-size: 13px; font-weight: 700; color: #14142B;
+    }
+    .rp-subhead:first-child { margin-top: 0; }
+
+    /* =====================================================
+       NATIVE CHARTS — no libraries; numbers always visible
+    ====================================================== */
+
+    /* ---- shared animation gate ---- */
+    .js [data-anim-chart]:not(.on) .al-area { opacity: 0; }
+    .js [data-anim-chart]:not(.on) .al-line { stroke-dashoffset: 1; }
+    .js [data-anim-chart]:not(.on) .al-val  { opacity: 0; }
+    .js [data-anim-chart]:not(.on) .vbar    { height: 0 !important; }
+    .js [data-anim-chart]:not(.on) .hbar    { width: 0 !important; }
+
+    /* ---- SVG area/line (Bookings) ---- */
+    .rp-linechart { margin-top: 6px; }
+    .rp-linechart svg { width: 100%; height: auto; display: block; }
+    .al-line {
+        fill: none;
+        stroke: #2F7DE1;
+        stroke-width: 2.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-dasharray: 1;
+        stroke-dashoffset: 0;
+        transition: stroke-dashoffset 1.4s ease 0.1s;
+    }
+    .al-area {
+        fill: rgba(47, 125, 225, 0.12);
+        opacity: 1;
+        transition: opacity 0.8s ease 0.7s;
+    }
+    .al-dot {
+        fill: #fff;
+        stroke: #2F7DE1;
+        stroke-width: 2;
+        cursor: pointer;
+        transition: r 0.12s ease;
+    }
+    .al-dot:hover { r: 4.5; }
+    .al-grid { stroke: #EEF1F6; stroke-width: 1; }
+    .al-txt { font-size: 10px; fill: #8B93A6; font-family: "Inter", sans-serif; }
+    .al-val {
+        font-size: 10.5px;
+        font-weight: 800;
+        fill: #2F7DE1;
+        font-family: "Inter", sans-serif;
+        opacity: 1;
+        transition: opacity 0.6s ease 1s;
+        pointer-events: none;
+    }
+    .al-xlabels {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 6px;
+        font-size: 11px;
+        color: #8B93A6;
+    }
+
+    /* ---- Vertical bars (Revenue) ---- */
+    .rp-vbars {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        height: 190px;
+        padding-top: 22px;
+    }
+    .vbar-col {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        height: 100%;
+    }
+    .vbar-track {
+        flex: 1;
+        width: 100%;
+        max-width: 46px;
+        display: flex;
+        align-items: flex-end;
+        background: #F6F7FB;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .vbar {
+        width: 100%;
+        height: var(--h, 2%);
+        background: linear-gradient(180deg, #43bd67, #2FA84F);
+        border-radius: 8px 8px 0 0;
+        transition: height 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .vbar-val { font-size: 10.5px; font-weight: 700; color: #14142B; white-space: nowrap; }
+    .vbar-lbl { font-size: 11px; color: #8B93A6; white-space: nowrap; }
+
+    /* ---- Horizontal bars (New Users) ---- */
+    .rp-hbars {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 6px 0;
+    }
+    .hbar-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .hbar-label {
+        width: 70px;
+        flex-shrink: 0;
+        font-size: 11.5px;
+        font-weight: 600;
+        color: #5B6172;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .hbar-track {
+        flex: 1;
+        height: 16px;
+        background: #F6F7FB;
+        border-radius: 999px;
+        overflow: hidden;
+    }
+    .hbar {
+        height: 100%;
+        width: var(--w, 0%);
+        border-radius: 999px;
+        transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .hbar-purple { background: linear-gradient(90deg, #b08ae0, #9B6BC3); }
+    .hbar-val {
+        width: 34px;
+        flex-shrink: 0;
+        font-size: 12px;
+        font-weight: 700;
+        color: #14142B;
+        text-align: right;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .al-line,
+        .al-area,
+        .al-val,
+        .vbar,
+        .hbar {
+            transition: none !important;
+        }
+        .js [data-anim-chart]:not(.on) .al-area { opacity: 1; }
+        .js [data-anim-chart]:not(.on) .al-line { stroke-dashoffset: 0; }
+        .js [data-anim-chart]:not(.on) .al-val  { opacity: 1; }
+        .js [data-anim-chart]:not(.on) .vbar    { height: var(--h) !important; }
+        .js [data-anim-chart]:not(.on) .hbar    { width: var(--w) !important; }
+    }
+
+    /* ---- Leaderboard lists ---- */
+    .people-list, .listing-list {
+        list-style: none; padding: 0; margin: 0;
+    }
+    .people-list li, .listing-list li {
+        display: flex; align-items: center; gap: 12px;
+        padding: 10px 0;
+        border-bottom: 1px solid #F6F7FB;
+    }
+    .people-list li:last-child, .listing-list li:last-child { border-bottom: none; }
+    .rank {
+        width: 24px; height: 24px; border-radius: 6px;
+        background: #FFF4E0; color: #C77A00;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 12px; font-weight: 800;
+        flex-shrink: 0;
+    }
+    .people-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+    .people-name {
+        font-size: 13px; font-weight: 600; color: #14142B;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .people-sub { font-size: 11.5px; color: #8B93A6; }
+    .listing-figures { margin-left: auto; flex-shrink: 0; }
+    .listing-revenue {
+        font-size: 13px; font-weight: 700; color: #2FA84F;
+    }
+
+    /* ---- Empty state ---- */
+    .empty-state {
+        text-align: center; padding: 40px 16px; color: #8B93A6;
+    }
+    .empty-state .empty-icon { opacity: .5; margin-bottom: 12px; }
+    .empty-state .empty-icon .icon { width: 32px; height: 32px; }
+    .empty-state p { font-size: 13px; margin: 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# ============ LIFETIME STAT CARDS ============ #}
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="stat-icon">{{ ui.icon('wallet') }}</div>
+        <div class="stat-body">
+            <span class="stat-label">Lifetime Volume</span>
+            <div class="stat-value-row"><span class="stat-value">₱{{ life_revenue|number_format(0, '.', ',') }}</span></div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">{{ ui.icon('calendar') }}</div>
+        <div class="stat-body">
+            <span class="stat-label">Lifetime Bookings</span>
+            <div class="stat-value-row"><span class="stat-value">{{ life_bookings|number_format(0, '.', ',') }}</span></div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">{{ ui.icon('users') }}</div>
+        <div class="stat-body">
+            <span class="stat-label">Total Users</span>
+            <div class="stat-value-row"><span class="stat-value">{{ life_users|number_format(0, '.', ',') }}</span></div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">{{ ui.icon('listing') }}</div>
+        <div class="stat-body">
+            <span class="stat-label">Approved Listings</span>
+            <div class="stat-value-row"><span class="stat-value">{{ life_listings|number_format(0, '.', ',') }}</span></div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">{{ ui.icon('bar-chart') }}</div>
+        <div class="stat-body">
+            <span class="stat-label">6-Month Users</span>
+            <div class="stat-value-row"><span class="stat-value">{{ six_month_users|number_format(0, '.', ',') }}</span></div>
+        </div>
+    </div>
+</div>
+
+{# ============ MAIN GRID: charts + leaderboards ============ #}
+<div class="grid-3">
+
+    {# LEFT (2/3): Big panel with 3 charts #}
+    <div class="panel">
+        <div class="panel-header"><h2>Last 6 Months</h2></div>
+
+        {# ---- 1) REVENUE — vertical bars, ₱ value above each ---- #}
+        <p class="rp-subhead">Revenue (₱)</p>
+        <div class="rp-vbars" data-anim-chart>
+            {% for b in rev_bars %}
+                <div class="vbar-col" title="{{ b.full }}: ₱{{ b.v|number_format(2, '.', ',') }}">
+                    <span class="vbar-val">{{ b.short }}</span>
+                    <div class="vbar-track">
+                        <div class="vbar" style="--h: {{ b.pct }}%;"></div>
+                    </div>
+                    <span class="vbar-lbl">{{ b.label }}</span>
+                </div>
+            {% endfor %}
+        </div>
+
+        {# ---- 2) BOOKINGS — SVG area/line, count above each dot ---- #}
+        <p class="rp-subhead">Bookings</p>
+        <div class="rp-linechart" data-anim-chart>
+            <svg viewBox="0 0 600 160" role="img" aria-label="Bookings for the last 6 months">
+                <line class="al-grid" x1="8" y1="18"  x2="592" y2="18"></line>
+                <line class="al-grid" x1="8" y1="84"  x2="592" y2="84"></line>
+                <line class="al-grid" x1="8" y1="150" x2="592" y2="150"></line>
+
+                <text class="al-txt" x="2" y="13">{{ book_max }}</text>
+                <text class="al-txt" x="2" y="88">{{ book_mid }}</text>
+                <text class="al-txt" x="2" y="147">0</text>
+
+                <path class="al-area" d="{{ book_area_path }}"></path>
+
+                <polyline
+                    class="al-line"
+                    pathLength="1"
+                    points="{{ book_points_str }}"
+                ></polyline>
+
+                {% for d in book_dots %}
+                    <text
+                        class="al-val"
+                        x="{{ d.x }}"
+                        y="{{ d.ly }}"
+                        text-anchor="middle"
+                    >{{ d.v }}</text>
+
+                    <circle class="al-dot" cx="{{ d.x }}" cy="{{ d.y }}" r="3">
+                        <title>{{ d.v }} booking{{ d.v == 1 ? '' : 's' }} — {{ d.label }}</title>
+                    </circle>
+                {% endfor %}
+            </svg>
+
+            <div class="al-xlabels">
+                {% for lbl in chart_labels %}
+                    <span>{{ lbl }}</span>
+                {% endfor %}
+            </div>
+        </div>
+
+        {# ---- 3) NEW USERS — horizontal bars ---- #}
+        <p class="rp-subhead">New Users</p>
+        <div class="rp-hbars" data-anim-chart>
+            {% for ub in user_bars %}
+                <div class="hbar-row" title="{{ ub.label }}: {{ ub.v }} new user{{ ub.v == 1 ? '' : 's' }}">
+                    <span class="hbar-label">{{ ub.label }}</span>
+                    <div class="hbar-track">
+                        <div class="hbar hbar-purple" style="--w: {{ ub.pct }}%;"></div>
+                    </div>
+                    <span class="hbar-val">{{ ub.v }}</span>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    {# RIGHT (1/3): Top Hosts + Top Listings leaderboards #}
+    <div class="col-stack">
+
+        <div class="panel">
+            <div class="panel-header"><h2>Top Hosts</h2></div>
+            {% if top_hosts is empty %}
+                <div class="empty-state">
+                    <div class="empty-icon">{{ ui.icon('inbox') }}</div>
+                    <p>No confirmed bookings yet.</p>
+                </div>
+            {% else %}
+                <ul class="people-list">
+                    {% for t in top_hosts %}
+                        <li>
+                            <span class="rank">{{ loop.index }}</span>
+                            <div class="people-info">
+                                <span class="people-name">{{ t.name }}</span>
+                                <span class="people-sub">{{ t.bookings }} booking(s)</span>
+                            </div>
+                            <div class="listing-figures">
+                                <span class="listing-revenue">₱{{ t.earned|number_format(0, '.', ',') }}</span>
+                            </div>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h2>Top Listings</h2></div>
+            {% if top_listings is empty %}
+                <div class="empty-state">
+                    <div class="empty-icon">{{ ui.icon('inbox') }}</div>
+                    <p>No confirmed bookings yet.</p>
+                </div>
+            {% else %}
+                <ul class="listing-list">
+                    {% for t in top_listings %}
+                        <li>
+                            <span class="rank">{{ loop.index }}</span>
+                            <div class="people-info">
+                                <span class="people-name">{{ t.title }}</span>
+                                <span class="people-sub">{{ t.bookings }} booking(s)</span>
+                            </div>
+                            <div class="listing-figures">
+                                <span class="listing-revenue">₱{{ t.volume|number_format(0, '.', ',') }}</span>
+                            </div>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{# =====================================================
+   NATIVE CHART ANIMATIONS — one observer, staggered.
+   Charts are fully rendered in the markup; .on just
+   triggers their CSS transitions.
+====================================================== #}
+<script>
+(function () {
+    "use strict";
+
+    var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    var charts = document.querySelectorAll("[data-anim-chart]");
+
+    if (!charts.length) { return; }
+
+    if (reduced || !("IntersectionObserver" in window)) {
+        charts.forEach(function (c) { c.classList.add("on"); });
+        return;
+    }
+
+    var cIO = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+            if (!entry.isIntersecting) { return; }
+            cIO.unobserve(entry.target);
+
+            entry.target.querySelectorAll(".vbar, .hbar").forEach(function (seg, i) {
+                seg.style.transitionDelay = (i * 50) + "ms";
+            });
+
+            entry.target.classList.add("on");
+        });
+    }, { threshold: 0.3 });
+
+    charts.forEach(function (c) { cIO.observe(c); });
+})();
+</script>
+{% endblock %}

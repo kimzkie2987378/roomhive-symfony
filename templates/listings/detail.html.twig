@@ -1,15 +1,123 @@
 {# =========================================================
-   ROOMHIVE — LISTING DETAIL (full legacy port)
+   ROOMHIVE — LISTING DETAIL (matched to the approved design)
    templates/listings/detail.html.twig
 
-   CSS: public/assets/listing-detail.css = legacy base file
-   + the override layer appended at the end (step 2). The
-   ?v=2 cache-buster makes browsers pick up the new CSS.
+   CSS: public/assets/listing-detail.css (REWRITE — load with
+   ?v=3 so browsers drop the old cached file):
 
-   MARKUP ANCHOR (this version): the --rd-* design tokens and
-   all .rd-* rules bind to .listing-detail-page — the legacy
-   markup put that class on <main>, so this port does too
-   (it was wrongly on <body> in the first port).
+       <link rel="stylesheet" href="{{ asset('assets/listing-detail.css') }}?v=3">
+
+   === WHAT CHANGED VS THE PREVIOUS VERSION (design shot) ===
+   1. HEAD: Fraunces added to the Google Fonts link (section
+      headings / listing title are serif in the design).
+   2. Application-status pill MOVED OUT of the booking card —
+      it now renders in the LEFT column, right under the
+      location/reviews subline.
+   3. Amenities: no card, no "What this place offers" heading —
+      a flat gold-icon strip between two hairlines.
+   4. House Rules MOVED from the sidebar to the LEFT column,
+      directly under About (flat heading + text).
+   5. Host: heading sits above a white card; card gains a
+      "View Host Profile" outline button and a "No reviews yet"
+      fallback line + response-time line.
+   6. Booking card: 3 summary lines (Monthly price / Rental
+      duration / Total rent); duration picker shows the number over the unit
+      word (JS splits the label into #rd-dur-num / #rd-dur-word);
+      charge note text matches the shot; "Capacity:" note
+      removed from the card (capacity lives in Space Details).
+   7. Space Details: heading is "Space details" with a gold bar
+      to its right; rows show pluralized Bedroom/Bathroom,
+      "sqm", "No" parking.
+   8. Map note reads "Exact location shown on this map".
+   9. The old CSS bound the sidebar styles to .rd-sidebar while
+      this markup uses .rd-side — the new CSS targets BOTH, so
+      no rename was needed here.
+   10. "View Host Profile" now opens the host's PUBLIC profile
+      — route app_host_public_profile → GET /listings/host/{id}
+      (HostPublicProfileController renders listings/
+      host_public_profile.html.twig) — instead of the old
+      listings-grid placeholder. ListingsController already
+      passes host.id, so no controller change was needed.
+   11. BUGFIX — move-in date was being silently dropped. The
+      #rd-movein input had id but no name, so the form
+      (method=GET → /listings/{id}/payment) never carried
+      ?checkin_date; PaymentController read empty, and
+      ProcessPaymentController's `$checkin === ''` guard
+      redirected back to app_listing_detail?incompletedates=1,
+      showing "Please choose your move-in date before
+      continuing" even though the user HAD picked a date. Fix:
+      added name="checkin_date" to the #rd-movein input —
+      flatpickr's onChange already kept its .value in sync, so
+      no JS change is needed.
+   12. WISHLIST HEART — the corner heart on the gallery photo and
+       the topbar Save button are ONE wishlist toggle now: click
+       either → red fill + pulsing glow (= saved, POSTs listing_id
+       to the same /wishlist/toggle endpoint the My Wishlist page
+       uses — {ok, added} and {ok, saved} response shapes both
+       accepted) · click again → glow off (= removed). Initial
+       state comes from the `wished` variable ListingsController
+       feeds (SELECT on the legacy `wishlist` table). The old Save
+       button only flipped a CSS class locally — nothing was ever
+       saved; both controls persist for real now and stay in sync.
+       Heart styles are page-local (the <style> block below) —
+       listing-detail.css is untouched.
+   13. ENQUIRY DATE GUARD — the Send Enquiry button could still
+       be clicked with an empty Move-in date: the empty
+       checkin_date travelled to the payment step and came back
+       as the "Please choose your move-in date" redirect. The
+       booking form now refuses to submit until a date is picked
+       (long-term stays need one too — only the END date stays
+       open). An empty submit is prevented, the date field
+       flashes red + shakes, an inline message appears under it
+       and the flatpickr calendar auto-opens; everything clears
+       the moment a date is chosen. Error styles are page-local
+       (the <style> block below) — listing-detail.css is
+       untouched.
+   14. VERIFICATION GATE — an unverified account can no longer
+       send enquiries at all. "Verified" follows the legacy
+       is_user_verified() rule: at least one 'verified' row in
+       user_id_documents (Profile Settings promotes a pending ID
+       upload to verified once the profile is complete). In the
+       booking card the "Send Enquiry" submit button is REPLACED
+       by a "Verify to Send Enquiry" button that goes to Profile
+       Settings, with a lock note under it explaining why; a JS
+       guard kills the only leftover submit path (Enter-key
+       implicit submission) and shakes the verify nudge instead.
+       Server side: PaymentController::choose bounces unverified
+       renters (non-hosts, new-enquiry mode) back here with
+       ?needverify=1 — the notice at the top of this page already
+       renders it — and ProcessPaymentController does the same on
+       the POST, so the UI lock cannot be walked around. Paying
+       the REMAINING balance of an existing booking stays open,
+       and hosts are exempt. Lock styles are page-local (the
+       <style> block below) — listing-detail.css is untouched.
+   15. RATINGS OVERLAY — the ★ "4.8 (12 reviews)" chip in the
+       title subline is a real button now: clicking it opens a
+       two-panel reviews modal (screenshot-matched). LEFT: the
+       "How was your stay?" write panel — green "Stay completed"
+       tag (amber-red "Stay cancelled" for a cancelled stay),
+       listing · dates · host subline, big 5-star picker ("4 out
+       of 5 — Good"), comment box, amber "Submit review" — shown
+       ONLY when the viewer is logged in, not the host, holds a
+       completed/cancelled booking on this listing and has not
+       reviewed it yet (otherwise the reviews panel takes the
+       full width; a viewer who already reviewed sees a "You
+       rated this stay" box). RIGHT: the big average + count,
+       5→1 star distribution bars, and every review card (avatar,
+       name, date, stars, comment), newest first. Data comes
+       from the new GET /listings/{id}/reviews-data endpoint
+       (ListingReviewsController — install the new
+       src/Controller/ListingReviewsController.php); submit POSTs
+       the EXISTING /reviews/submit (booking_id · rating ·
+       comment) with the same server-side guards (completed or
+       cancelled only, one review per guest per listing — a
+       double submit lands as a friendly 409 and the panel
+       refreshes instead of erroring). The chip text stays in
+       sync (#rd-rating-text): after a successful submit the
+       average/count are refetched and the chip updates itself.
+       All overlay styles + JS are page-local (below) —
+       listing-detail.css is untouched. Dark mode, reduced
+       motion and ≤760px stacking are handled.
 ========================================================= #}
 
 <!DOCTYPE html>
@@ -20,9 +128,680 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>RoomHive - {{ listing.title }}</title>
 
-        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
-        <link rel="stylesheet" href="{{ asset('assets/listing-detail.css') }}?v=2">
+        <link rel="stylesheet" href="{{ asset('assets/listing-detail.css') }}?v=3">
+
+        <style>
+            /* ============ wishlist heart — corner of the gallery
+                                                   photo · red fill + pulsing glow when saved (.is-active)
+                                                   · one-shot pop on every click (.is-popping).
+                                                   Page-local on purpose: listing-detail.css stays as-is. */
+            .rd-heart-btn {
+                position: absolute;
+                top: 14px;
+                right: 14px;
+                z-index: 4;
+                width: 40px;
+                height: 40px;
+                border: 0;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                background: rgba(17, 24, 39, 0.45);
+                -webkit-backdrop-filter: blur(6px);
+                backdrop-filter: blur(6px);
+                color: #ffffff;
+                box-shadow: 0 2px 10px rgba(28, 42, 56, 0.3);
+                transition:
+                    transform 0.18s ease,
+                    background 0.2s ease;
+            }
+            .rd-heart-btn svg {
+                width: 20px;
+                height: 20px;
+            }
+            .rd-heart-btn:hover {
+                transform: scale(1.1);
+            }
+            .rd-heart-btn:active {
+                transform: scale(0.9);
+            }
+
+            /* GLowing (saved) state — fill: currentColor overrides
+                                                   lucide's fill="none" so the heart paints solid white. */
+            .rd-heart-btn.is-active {
+                background: #e5484d;
+                animation: rd-heart-glow 1.6s ease-in-out infinite;
+            }
+            .rd-heart-btn.is-active svg {
+                fill: currentColor;
+            }
+
+            @keyframes rd-heart-glow {
+                0%,
+                100% {
+                    box-shadow:
+                        0 0 0 0 rgba(229, 72, 77, 0.3),
+                        0 0 10px 2px rgba(229, 72, 77, 0.45);
+                }
+                50% {
+                    box-shadow:
+                        0 0 0 6px rgba(229, 72, 77, 0.12),
+                        0 0 26px 8px rgba(229, 72, 77, 0.65);
+                }
+            }
+
+            /* one-shot pop on every click (the svg animates so the
+                                                   glow loop on the button never restarts) */
+            .rd-heart-btn.is-popping svg {
+                animation: rd-heart-pop 0.38s cubic-bezier(0.2, 1.6, 0.4, 1);
+            }
+            @keyframes rd-heart-pop {
+                0% {
+                    transform: scale(0.4);
+                }
+                55% {
+                    transform: scale(1.35);
+                }
+                100% {
+                    transform: scale(1);
+                }
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .rd-heart-btn,
+                .rd-heart-btn svg {
+                    transition: none;
+                    animation: none;
+                }
+                .rd-heart-btn.is-active {
+                    box-shadow: 0 0 16px 4px rgba(229, 72, 77, 0.55);
+                }
+            }
+
+            /* ============ ENQUIRY DATE GUARD — the Send Enquiry
+                                                   form refuses to submit until a move-in date is
+                                                   picked. Error styles are page-local on purpose so
+                                                   listing-detail.css stays untouched: the date input
+                                                   flashes red + shakes, an inline message shows under
+                                                   it, and both clear the moment a date is chosen. */
+            .rd-movein-input.rd-date-invalid {
+                border-color: #e5484d;
+                background: #fff5f5;
+            }
+            .rd-movein-input.rd-date-shake {
+                animation: rd-date-shake 0.4s ease;
+            }
+            @keyframes rd-date-shake {
+                0%,
+                100% {
+                    transform: translateX(0);
+                }
+                25% {
+                    transform: translateX(-5px);
+                }
+                75% {
+                    transform: translateX(5px);
+                }
+            }
+            .rd-date-error {
+                display: flex;
+                align-items: flex-start;
+                gap: 8px;
+                margin: 8px 0 0;
+                color: #c5343a;
+                font-size: 13px;
+                font-weight: 600;
+                line-height: 1.45;
+            }
+            .rd-date-error svg {
+                width: 16px;
+                height: 16px;
+                flex: 0 0 auto;
+                margin-top: 1px;
+            }
+            .rd-date-error[hidden] {
+                display: none;
+            }
+
+            /* ============ VERIFICATION LOCK — when the account
+                                                   is unverified the Send Enquiry CTA is replaced
+                                                   by a "Verify to Send Enquiry" link with a lock
+                                                   note under it, and the verify nudge can be
+                                                   shaken by the JS guard. Page-local on purpose:
+                                                   listing-detail.css stays untouched. */
+            .rd-verify-lock-note {
+                display: flex;
+                align-items: flex-start;
+                gap: 8px;
+                margin: 10px 0 0;
+                color: #6b7280;
+                font-size: 13px;
+                font-weight: 500;
+                line-height: 1.5;
+            }
+            .rd-verify-lock-note svg {
+                width: 15px;
+                height: 15px;
+                flex: 0 0 auto;
+                margin-top: 2px;
+            }
+            .rd-verify-lock-note a {
+                color: #8a5a10;
+                font-weight: 800;
+                text-decoration: none;
+            }
+            .rd-verify-lock-note a:hover {
+                text-decoration: underline;
+            }
+            .rd-verify-nudge.rd-verify-shake {
+                animation: rd-date-shake 0.4s ease;
+            }
+
+            /* ============ RATINGS OVERLAY — the ★ chip in the title
+                                                   subline opens this modal: LEFT = "How was your
+                                                   stay?" write panel (only for a completed /
+                                                   cancelled stay of the viewer that is not yet
+                                                   reviewed), RIGHT = big average + star
+                                                   distribution bars + every review card. Data:
+                                                   GET /listings/{id}/reviews-data · Submit: POST
+                                                   /reviews/submit. Page-local on purpose:
+                                                   listing-detail.css stays untouched. */
+            .rd-rating-btn {
+                background: none;
+                border: 0;
+                padding: 0;
+                font: inherit;
+                color: inherit;
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                cursor: pointer;
+                border-radius: 6px;
+            }
+            .rd-rating-btn:hover #rd-rating-text {
+                text-decoration: underline;
+            }
+            .rd-rating-btn:focus-visible {
+                outline: 2px solid #eda423;
+                outline-offset: 2px;
+            }
+
+            .rd-review-overlay {
+                position: fixed;
+                inset: 0;
+                z-index: 3000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 24px;
+                background: rgba(15, 23, 42, 0.55);
+                -webkit-backdrop-filter: blur(4px);
+                backdrop-filter: blur(4px);
+                opacity: 0;
+                visibility: hidden;
+                transition: opacity 0.22s ease, visibility 0.22s ease;
+            }
+            .rd-review-overlay.is-open {
+                opacity: 1;
+                visibility: visible;
+            }
+            .rd-review-modal {
+                position: relative;
+                width: 100%;
+                max-width: 940px;
+                max-height: calc(100vh - 48px);
+                overflow-y: auto;
+                background: #fff;
+                border: 1px solid #EEF1F6;
+                border-radius: 18px;
+                box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+                transform: translateY(14px) scale(0.97);
+                transition: transform 0.26s cubic-bezier(0.2, 1.2, 0.4, 1);
+            }
+            .rd-review-overlay.is-open .rd-review-modal {
+                transform: translateY(0) scale(1);
+            }
+            .rd-review-close {
+                position: absolute;
+                top: 14px;
+                right: 14px;
+                width: 32px;
+                height: 32px;
+                border: 0;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                background: transparent;
+                color: #8B93A6;
+                transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+            }
+            .rd-review-close svg {
+                width: 18px;
+                height: 18px;
+            }
+            .rd-review-close:hover {
+                background: rgba(28, 42, 56, 0.08);
+                color: #14142B;
+                transform: rotate(90deg);
+            }
+
+            .rd-review-cols {
+                display: grid;
+                grid-template-columns: 340px 1fr;
+            }
+            .rd-review-modal.no-write .rd-review-cols {
+                grid-template-columns: 1fr;
+            }
+            /* hidden state — class-based so the markup never needs
+               bracket selectors; JS toggles setHidden(el, v) which
+               flips both the attribute and this class. */
+            .is-rh-hidden {
+                display: none !important;
+            }
+
+            /* ---- LEFT: write panel ("How was your stay?") ---- */
+            .rd-review-write {
+                padding: 26px 24px 24px;
+                border-right: 1px solid #EEF1F6;
+                background: #FBFCFE;
+                border-radius: 18px 0 0 18px;
+            }
+            .rd-review-donebox {
+                padding: 26px 24px 24px;
+                border-right: 1px solid #EEF1F6;
+                background: #FBFCFE;
+                border-radius: 18px 0 0 18px;
+                text-align: center;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+            }
+            .rd-review-tag {
+                display: inline-block;
+                padding: 4px 10px;
+                border-radius: 999px;
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 0.3px;
+                margin-bottom: 12px;
+                background: #E5F6EB;
+                color: #1E7A3D;
+            }
+            .rd-review-tag.is-cancelled {
+                background: #FCEAEA;
+                color: #B44343;
+            }
+            .rd-review-wtitle {
+                font-family: "Fraunces", serif;
+                font-size: 22px;
+                font-weight: 700;
+                color: #14142B;
+                margin: 0 0 6px;
+            }
+            .rd-review-wsub {
+                font-size: 13px;
+                color: #8B93A6;
+                line-height: 1.55;
+                margin: 0 0 16px;
+            }
+            .rd-review-stars {
+                display: flex;
+                gap: 6px;
+                margin-bottom: 8px;
+            }
+            .rd-star {
+                width: 42px;
+                height: 42px;
+                padding: 0;
+                border: 0;
+                background: none;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .rd-star svg {
+                width: 34px;
+                height: 34px;
+                fill: #EEF1F6;
+                stroke: #C9CFDB;
+                stroke-width: 1.6;
+                transition: fill 0.12s ease, stroke 0.12s ease, transform 0.12s ease;
+            }
+            .rd-star:hover svg {
+                transform: scale(1.08);
+            }
+            .rd-star.is-lit svg {
+                fill: #eda423;
+                stroke: #d78f12;
+            }
+            .rd-review-star-label {
+                font-size: 13px;
+                font-weight: 600;
+                color: #8B93A6;
+                margin: 0 0 14px;
+            }
+            .rd-review-star-label.has-value {
+                color: #b97f0e;
+            }
+            .rd-review-comment {
+                width: 100%;
+                min-height: 110px;
+                resize: vertical;
+                border: 1px solid #E3E6EE;
+                border-radius: 10px;
+                background: #fff;
+                padding: 10px 12px;
+                font: inherit;
+                font-size: 13.5px;
+                color: #14142B;
+                outline: none;
+                margin-bottom: 12px;
+            }
+            .rd-review-comment:focus {
+                border-color: #eda423;
+                box-shadow: 0 0 0 3px rgba(237, 164, 35, 0.15);
+            }
+            .rd-review-submit {
+                width: 100%;
+                padding: 11px 16px;
+                border: 0;
+                border-radius: 10px;
+                cursor: pointer;
+                background: linear-gradient(180deg, #f6c04e, #eda423);
+                color: #1c2a38;
+                font: inherit;
+                font-size: 14px;
+                font-weight: 700;
+                transition: filter 0.15s ease, transform 0.05s ease, opacity 0.15s ease;
+            }
+            .rd-review-submit:hover {
+                filter: brightness(1.05);
+            }
+            .rd-review-submit:active {
+                transform: translateY(1px);
+            }
+            .rd-review-submit:disabled {
+                opacity: 0.45;
+                cursor: not-allowed;
+            }
+            .rd-review-error {
+                color: #E14B4B;
+                font-size: 12.5px;
+                font-weight: 600;
+                margin: 10px 0 0;
+            }
+            .rd-review-donebox svg {
+                width: 34px;
+                height: 34px;
+                color: #1E7A3D;
+            }
+            .rd-review-donebox h4 {
+                font-family: "Fraunces", serif;
+                font-size: 18px;
+                color: #14142B;
+                margin: 0;
+            }
+            .rd-review-donebox p {
+                font-size: 13px;
+                color: #8B93A6;
+                margin: 0;
+                line-height: 1.5;
+            }
+
+            /* ---- RIGHT: read panel (summary + cards) ---- */
+            .rd-review-read {
+                padding: 26px 26px 24px;
+                min-width: 0;
+            }
+            .rd-review-loading {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                padding: 60px 20px;
+                color: #8B93A6;
+                font-size: 13.5px;
+                font-weight: 600;
+            }
+            .rd-review-spinner {
+                width: 18px;
+                height: 18px;
+                border-radius: 50%;
+                border: 2.5px solid #EEF1F6;
+                border-top-color: #eda423;
+                animation: rd-review-spin 0.8s linear infinite;
+            }
+            @keyframes rd-review-spin {
+                to { transform: rotate(360deg); }
+            }
+            .rd-review-score {
+                display: flex;
+                align-items: flex-start;
+                gap: 14px;
+                margin-bottom: 14px;
+            }
+            .rd-review-avg {
+                font-family: "Fraunces", serif;
+                font-size: 44px;
+                font-weight: 700;
+                color: #14142B;
+                line-height: 1;
+            }
+            .rd-review-score-side {
+                flex: 1;
+                min-width: 0;
+            }
+            .rd-review-count {
+                font-size: 13px;
+                font-weight: 700;
+                color: #14142B;
+                margin: 4px 0 8px;
+            }
+            .rd-review-dist {
+                display: grid;
+                gap: 4px;
+            }
+            .rd-review-dist-row {
+                display: grid;
+                grid-template-columns: 34px 1fr 22px;
+                align-items: center;
+                gap: 8px;
+                font-size: 11.5px;
+                color: #5d6875;
+            }
+            .rd-review-bar {
+                height: 7px;
+                border-radius: 999px;
+                background: #F1F3F7;
+                overflow: hidden;
+            }
+            .rd-review-bar span {
+                display: block;
+                height: 100%;
+                border-radius: 999px;
+                background: #eda423;
+                transition: width 0.4s ease;
+            }
+            .rd-review-bar-num {
+                text-align: right;
+                font-weight: 700;
+                color: #14142B;
+            }
+            .rd-review-list {
+                display: grid;
+            }
+            .rd-review-card {
+                padding: 14px 0;
+                border-top: 1px solid #EEF1F6;
+                display: grid;
+                grid-template-columns: 40px 1fr;
+                gap: 12px;
+            }
+            .rd-review-card:first-child {
+                border-top: 0;
+            }
+            .rd-review-avatar {
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                object-fit: cover;
+                background: #F1F3F7;
+            }
+            .rd-review-who {
+                display: flex;
+                align-items: baseline;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+            .rd-review-name {
+                font-size: 14px;
+                font-weight: 700;
+                color: #14142B;
+            }
+            .rd-review-date {
+                font-size: 12px;
+                color: #9AA2B1;
+            }
+            .rd-review-mini {
+                display: inline-flex;
+                gap: 2px;
+                margin: 6px 0 4px;
+            }
+            .rd-review-mini svg {
+                width: 14px;
+                height: 14px;
+                fill: #EEF1F6;
+                stroke: #C9CFDB;
+                stroke-width: 1.6;
+            }
+            .rd-review-mini span.is-lit svg {
+                fill: #eda423;
+                stroke: #d78f12;
+            }
+            .rd-review-text {
+                font-size: 13.5px;
+                color: #3d4653;
+                line-height: 1.6;
+                margin: 0;
+            }
+            .rd-review-empty {
+                padding: 40px 10px;
+                text-align: center;
+                color: #8B93A6;
+                font-size: 13.5px;
+            }
+
+            /* ---- dark mode (same tokens the booking page uses) ---- */
+            html.dark .rd-review-overlay {
+                background: rgba(4, 8, 14, 0.66);
+            }
+            html.dark .rd-review-modal {
+                background: #1a222b;
+                border-color: rgba(255, 255, 255, 0.08);
+            }
+            html.dark .rd-review-write,
+            html.dark .rd-review-donebox {
+                background: #161d24;
+                border-right-color: rgba(255, 255, 255, 0.08);
+            }
+            html.dark .rd-review-wtitle,
+            html.dark .rd-review-avg,
+            html.dark .rd-review-name,
+            html.dark .rd-review-count,
+            html.dark .rd-review-bar-num,
+            html.dark .rd-review-donebox h4 {
+                color: #e8eef5;
+            }
+            html.dark .rd-review-wsub,
+            html.dark .rd-review-date,
+            html.dark .rd-review-star-label,
+            html.dark .rd-review-donebox p,
+            html.dark .rd-review-empty,
+            html.dark .rd-review-loading {
+                color: #a9b8c8;
+            }
+            html.dark .rd-review-star-label.has-value {
+                color: #f0c368;
+            }
+            html.dark .rd-star svg,
+            html.dark .rd-review-mini svg {
+                fill: rgba(255, 255, 255, 0.10);
+                stroke: rgba(255, 255, 255, 0.28);
+            }
+            html.dark .rd-star.is-lit svg,
+            html.dark .rd-review-mini span.is-lit svg {
+                fill: #eda423;
+                stroke: #f0c368;
+            }
+            html.dark .rd-review-comment {
+                background: #12181f;
+                border-color: rgba(255, 255, 255, 0.10);
+                color: #e8eef5;
+            }
+            html.dark .rd-review-card {
+                border-top-color: rgba(255, 255, 255, 0.08);
+            }
+            html.dark .rd-review-avatar {
+                background: #12181f;
+            }
+            html.dark .rd-review-text {
+                color: #c8d3df;
+            }
+            html.dark .rd-review-bar {
+                background: rgba(255, 255, 255, 0.08);
+            }
+            html.dark .rd-review-close {
+                color: #a9b8c8;
+            }
+            html.dark .rd-review-close:hover {
+                background: rgba(255, 255, 255, 0.08);
+                color: #e8eef5;
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .rd-review-overlay,
+                .rd-review-modal,
+                .rd-star svg,
+                .rd-review-bar span {
+                    transition: none;
+                }
+                .rd-review-spinner {
+                    animation-duration: 1.6s;
+                }
+            }
+
+            @media (max-width: 760px) {
+                .rd-review-overlay {
+                    padding: 10px;
+                }
+                .rd-review-modal {
+                    max-height: calc(100vh - 20px);
+                }
+                .rd-review-cols,
+                .rd-review-modal.no-write .rd-review-cols {
+                    grid-template-columns: 1fr;
+                }
+                .rd-review-write,
+                .rd-review-donebox {
+                    border-right: 0;
+                    border-bottom: 1px solid #EEF1F6;
+                    border-radius: 18px 18px 0 0;
+                }
+                .rd-review-read {
+                    padding: 20px 18px;
+                }
+            }
+        </style>
+
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
@@ -33,25 +812,23 @@
 
     <body>
 
-        {% include 'partials/navbar.html.twig' with {
-        is_logged_in:       is_logged_in,
-        nav_avatar:         nav_avatar,
-        notification_count: notification_count,
-        current_page:       current_page,
-    } %}
-
         <main class="listing-detail-page">
 
-            <div class="rd-topbar rd-reveal" style="--d: .05s;">
+            <div class="rd-topbar">
                 <a href="{{ path('app_listings') }}" class="rd-back-link">
                     <i data-lucide="arrow-left" aria-hidden="true"></i> Back to Listings
                 </a>
                 <div class="rd-topbar-actions">
-                    <button type="button" class="rd-action-btn" id="rd-save-btn">
-                        <i data-lucide="heart" class="rd-heart-icon" aria-hidden="true"></i> Save
+                    <button
+                        type="button"
+                        class="rd-action-btn{{ wished ? ' active' : '' }}"
+                        id="rd-save-btn"
+                    >
+                        <i data-lucide="heart" aria-hidden="true"></i>
+                        <span class="rd-save-label">{{ wished ? 'Saved' : 'Save' }}</span>
                     </button>
                     <button type="button" class="rd-action-btn" id="rd-share-btn">
-                        <i data-lucide="share-2" class="rd-share-icon" aria-hidden="true"></i>
+                        <i data-lucide="share-2" aria-hidden="true"></i>
                         <span class="rd-share-label">Share</span>
                     </button>
                 </div>
@@ -62,7 +839,7 @@
                 <div class="rd-notice">
                     <i data-lucide="lock" aria-hidden="true"></i>
                     <span>Your enquiry wasn't sent — verify your identity in your
-                        <a href="{{ path('app_settings') }}" style="font-weight:800; color:#8a5a10; text-decoration:none;">Profile Settings</a> first.
+                        <a href="{{ path('app_profile_edit') }}#verify-card" style="font-weight:800; color:#8a5a10; text-decoration:none;">Edit Profile</a> page first.
                     </span>
                 </div>
             {% elseif flags.unavailable %}
@@ -85,6 +862,13 @@
                     <i data-lucide="triangle-alert" aria-hidden="true"></i>
                     <span>Please choose your move-in date before continuing.</span>
                 </div>
+            {% elseif flags.oneactive %}
+                <div class="rd-notice">
+                    <i data-lucide="info" aria-hidden="true"></i>
+                    <span>Your enquiry wasn't sent: you already have an active booking request. You can only have one at a time; wait for the host's decision or cancel it from
+                        <a href="{{ path('app_payments') }}" style="font-weight:800; color:#8a5a10; text-decoration:none;">My Bookings</a> first.
+                    </span>
+                </div>
             {% endif %}
 
             <div class="rd-layout">
@@ -105,6 +889,16 @@
                                 </button>
                             {% endif %}
                             <span class="rd-gallery-count" id="rd-gallery-count">1 / {{ listing.gallery|length }}</span>
+                            <button
+                                type="button"
+                                id="rd-heart-btn"
+                                class="rd-heart-btn{{ wished ? ' is-active' : '' }}"
+                                aria-pressed="{{ wished ? 'true' : 'false' }}"
+                                aria-label="{{ wished ? 'Remove from wishlist' : 'Save to wishlist' }}"
+                                title="{{ wished ? 'Remove from wishlist' : 'Save to wishlist' }}"
+                            >
+                                <i data-lucide="heart" aria-hidden="true"></i>
+                            </button>
                         </div>
 
                         {% if listing.gallery|length > 1 %}
@@ -137,38 +931,29 @@
                             <i data-lucide="map-pin" aria-hidden="true"></i>
                             {{ listing.location_full }}
                         </span>
-                        {% if listing.reviews > 0 %}
-                            <span class="rd-rating">
-                                <i data-lucide="star" class="rd-star-icon" aria-hidden="true"></i>
-                                {{ listing.rating|number_format(1) }} ({{ listing.reviews }} reviews)
-                            </span>
-                        {% else %}
-                            <span class="rd-rating">No reviews yet</span>
-                        {% endif %}
+                        {# RATINGS OVERLAY OPENER — the chip is a real button now:
+                           click opens the two-panel reviews modal (styles + JS at
+                           the bottom of this file). #rd-rating-text keeps the
+                           label so the JS can sync it after a fresh review. #}
+                        <button type="button" class="rd-rating rd-rating-btn" id="rd-rating-open" aria-haspopup="dialog" title="{% if listing.reviews > 0 %}See all reviews{% else %}Be the first to review{% endif %}">
+                            <i data-lucide="star" class="rd-star-icon" aria-hidden="true"></i>
+                            <span id="rd-rating-text">{% if listing.reviews > 0 %}{{ listing.rating|number_format(1) }} ({{ listing.reviews }} reviews){% else %}Be the first to review{% endif %}</span>
+                        </button>
                         {% if listing.is_new %}
                             <span class="rd-badge rd-badge-new">New</span>
                         {% endif %}
                     </div>
 
-                    {# ---------- ABOUT ---------- #}
-                    <div class="rd-about rd-card rd-reveal" style="--d: .22s;">
-                        <h2>About this space</h2>
-                        {% if listing.description %}
-                            <p class="rd-about-text" id="rd-about-text">{{ listing.description }}</p>
-                            {% if listing.description|length > 220 %}
-                                <button type="button" class="rd-show-more" id="rd-show-more">
-                                    Show more <i data-lucide="chevron-down" class="rd-show-more-icon" aria-hidden="true"></i>
-                                </button>
-                            {% endif %}
-                        {% else %}
-                            <p class="rd-about-text">The host hasn't added a description yet — check the details and photos below.</p>
-                        {% endif %}
-                    </div>
+                    {# ---------- APPLICATION STATUS (left column, under the subline) ---------- #}
+                    {% if my_application_status %}
+                        <span class="rd-application-status rd-application-status-{{ my_application_status }} rd-reveal" style="--d: .2s;">
+                            Application {{ my_application_status|title }}
+                        </span>
+                    {% endif %}
 
-                    {# ---------- AMENITIES ---------- #}
+                    {# ---------- AMENITIES (flat strip — no card, no heading) ---------- #}
                     {% if listing.amenities|length > 0 or listing.has_parking %}
-                        <div class="rd-amenities rd-card rd-reveal" style="--d: .26s;">
-                            <h2>What this place offers</h2>
+                        <div class="rd-amenities rd-reveal" style="--d: .26s;">
                             <div class="rd-amenity-grid">
                                 {% for key in listing.amenities %}
                                     <div class="rd-amenity">
@@ -186,32 +971,61 @@
                         </div>
                     {% endif %}
 
+                    {# ---------- ABOUT ---------- #}
+                    <div class="rd-section rd-about rd-reveal" style="--d: .3s;">
+                        <h2 class="rd-section-title">About this space</h2>
+                        {% if listing.description %}
+                            <p class="rd-about-text" id="rd-about-text">{{ listing.description }}</p>
+                            {% if listing.description|length > 220 %}
+                                <button type="button" class="rd-show-more" id="rd-show-more">
+                                    Show more <i data-lucide="chevron-down" class="rd-show-more-icon" aria-hidden="true"></i>
+                                </button>
+                            {% endif %}
+                        {% else %}
+                            <p class="rd-about-text">The host hasn't added a description yet — check the details and photos below.</p>
+                        {% endif %}
+                    </div>
+
+                    {# ---------- HOUSE RULES (left column, under About) ---------- #}
+                    {% if listing.house_rules %}
+                        <div class="rd-section rd-rules rd-reveal" style="--d: .32s;">
+                            <h2 class="rd-section-title">House Rules</h2>
+                            <p class="rd-rules-text">{{ listing.house_rules }}</p>
+                        </div>
+                    {% endif %}
+
                     {# ---------- HOST ---------- #}
-                    <div class="rd-host rd-card rd-host-card rd-reveal" style="--d: .3s;">
-                        <h2>Meet your host</h2>
-                        <div class="rd-host-row">
-                            <img class="rd-host-avatar" src="{{ asset(host.avatar) }}" alt="{{ host.name }}">
-                            <div class="rd-host-info">
-                                <strong>{{ host.name }}</strong>
-                                {% if host.reviews > 0 %}
-                                    <span class="rd-rating">
-                                        <i data-lucide="star" class="rd-star-icon" aria-hidden="true"></i>
-                                        {{ host.rating|number_format(1) }} ({{ host.reviews }} reviews)
-                                    </span>
-                                {% endif %}
-                                <span>Hosting since {{ host.member_since }}</span>
+                    <div class="rd-section rd-host rd-reveal" style="--d: .34s;">
+                        <h2 class="rd-section-title">Meet your host</h2>
+                        <div class="rd-host-card">
+                            <div class="rd-host-row">
+                                <img class="rd-host-avatar" src="{{ asset(host.avatar) }}" alt="{{ host.name }}">
+                                <div class="rd-host-info">
+                                    <strong>{{ host.name }}</strong>
+                                    {% if host.reviews > 0 %}
+                                        <span class="rd-rating">
+                                            <i data-lucide="star" class="rd-star-icon" aria-hidden="true"></i>
+                                            {{ host.rating|number_format(1) }} ({{ host.reviews }} reviews)
+                                        </span>
+                                    {% else %}
+                                        <span>No reviews yet</span>
+                                    {% endif %}
+                                    <span>Member since {{ host.member_since }}</span>
+                                    <span>Response time: within a day</span>
+                                </div>
                             </div>
+                            <a href="{{ path('app_host_public_profile', { id: host.id }) }}" class="rd-host-profile-btn">View Host Profile</a>
                         </div>
                     </div>
 
                     {# ---------- MAP / WHERE YOU'LL BE ---------- #}
-                    <div class="rd-location-card rd-card rd-reveal" style="--d: .34s;">
-                        <h3>Where you'll be</h3>
+                    <div class="rd-section rd-location-card rd-reveal" style="--d: .38s;">
+                        <h2 class="rd-section-title">Where you'll be</h2>
                         <p class="rd-where-address">{{ listing.location_full }}</p>
                         <div class="rd-map-embed" id="rd-map"></div>
                         {% if has_pin %}
                             <p class="rd-map-exact-note">
-                                <i data-lucide="circle-check" aria-hidden="true"></i> Exact location shown
+                                <i data-lucide="circle-check" aria-hidden="true"></i> Exact location shown on this map
                             </p>
                         {% endif %}
                         <a class="rd-btn rd-btn-outline" href="{{ maps_url }}" target="_blank" rel="noopener">
@@ -225,13 +1039,11 @@
                 <aside class="rd-side">
 
                     {# ---------- BOOKING CARD ---------- #}
-                    <div class="rd-booking-card rd-card rd-reveal" style="--d: .2s;">
+                    <div class="rd-booking-card rd-card rd-reveal" style="--d: .22s;">
 
                         <div class="rd-price-row">
-                            <span class="rd-price">
-                                <i data-lucide="philippine-peso" class="rd-peso-icon" aria-hidden="true"></i>
-                                <span class="rd-peso" id="rd-price-display">{{ listing.price|number_format(0) }}</span>
-                            </span>
+                            <i data-lucide="philippine-peso" class="rd-peso-icon" aria-hidden="true"></i>
+                            <span class="rd-price"><span class="rd-peso" id="rd-price-display">{{ listing.price|number_format(0) }}</span></span>
                             <span class="rd-per">/ month</span>
                         </div>
 
@@ -248,19 +1060,12 @@
                             </div>
                         {% endif %}
 
-                        {% if my_application_status %}
-                            <span class="rd-application-status rd-application-status-{{ my_application_status }}">
-                                <i data-lucide="{{ my_application_status == 'confirmed' ? 'circle-check' : (my_application_status == 'pending' ? 'clock' : 'circle-x') }}" aria-hidden="true"></i>
-                                Your application: {{ my_application_status|title }}
-                            </span>
-                        {% endif %}
-
                         {% if show_verify_nudge %}
                             <div class="rd-verify-nudge">
                                 <i data-lucide="shield-alert" aria-hidden="true"></i>
                                 <span>
                                     Verify your identity to send enquiries —
-                                    <a href="{{ path('app_settings') }}">verify now</a>.
+                                    <a href="{{ path('app_profile_edit') }}#verify-card">verify now</a>.
                                 </span>
                             </div>
                         {% endif %}
@@ -270,6 +1075,24 @@
                                 <i data-lucide="info" aria-hidden="true"></i>
                                 <span>This is your listing — you can't book your own space.</span>
                             </div>
+                        {% elseif is_logged_in and my_application_status in ['pending', 'confirmed'] %}
+                            {# THE RENTER'S OWN BOOKING CARD - the listing
+                               disappears for the tenant who booked it: no
+                               form here, just their status + a link to My
+                               Bookings. Everyone else still sees the normal
+                               form with the booked dates disabled. #}
+                            <div class="rd-unavailable-note">
+                                <i data-lucide="{{ my_application_status == 'confirmed' ? 'circle-check' : 'clock' }}" aria-hidden="true"></i>
+                                <span>
+                                    {% if my_application_status == 'confirmed' %}
+                                        You've booked this space - your stay is confirmed. Manage it from
+                                        <a href="{{ path('app_payments') }}" style="font-weight:800; color:#8a5a10; text-decoration:none;">My Bookings</a>.
+                                    {% else %}
+                                        Your booking request is waiting for the host's decision. Track it from
+                                        <a href="{{ path('app_payments') }}" style="font-weight:800; color:#8a5a10; text-decoration:none;">My Bookings</a>.
+                                    {% endif %}
+                                </span>
+                            </div>
                         {% elseif is_bookable and is_logged_in %}
 
                             <form
@@ -277,6 +1100,7 @@
                                 id="rd-booking-form"
                                 method="GET"
                                 action="{{ path('app_listing_payment', { id: listing.id }) }}"
+                                data-verify-required="{{ show_verify_nudge ? '1' : '0' }}"
                             >
 
                                 <input type="hidden" name="listing_id" value="{{ listing.id }}">
@@ -285,6 +1109,26 @@
                                 <input type="hidden" name="months" id="rd-months-hidden" value="{{ listing.duration_months }}">
                                 <input type="hidden" name="long_term" id="rd-longterm-hidden" value="0">
 
+                                {# ---- SUMMARY LINES ---- #}
+                                <div class="rd-price-rows">
+                                    <div class="rd-price-line">
+                                        <span>Monthly price</span>
+                                        <strong>&#8369; <span id="rd-row-monthly">{{ listing.price|number_format(2, '.', ',') }}</span></strong>
+                                    </div>
+                                    <div class="rd-price-line">
+                                        <span>Rental duration</span>
+                                        <strong id="rd-row-dur">{{ listing.duration_label }}</strong>
+                                    </div>
+                                    <div class="rd-price-line rd-line-total">
+                                        <span>Total rent (<span id="rd-row-duration">{{ listing.duration_label }}</span>)</span>
+                                        <strong>&#8369; <span id="rd-row-total">{{ listing.total_rent|number_format(2, '.', ',') }}</span></strong>
+                                    </div>
+                                    <div class="rd-price-line">
+                                        <span>Due today</span>
+                                        <strong>&#8369; <span id="rd-row-due">{{ listing.total_rent|number_format(2, '.', ',') }}</span></strong>
+                                    </div>
+                                </div>
+
                                 <label class="rd-field-label" for="rd-movein">
                                     <i data-lucide="calendar" aria-hidden="true"></i> Move-in date
                                 </label>
@@ -292,21 +1136,29 @@
                                     type="text"
                                     class="rd-movein-input"
                                     id="rd-movein"
+                                    name="checkin_date"
                                     placeholder="Select your move-in date"
+                                    aria-describedby="rd-date-error"
+                                    aria-required="true"
                                     readonly
                                 >
+
+                                <p class="rd-date-error" id="rd-date-error" hidden>
+                                    <i data-lucide="triangle-alert" aria-hidden="true"></i>
+                                    <span>Please choose your move-in date before sending your enquiry.</span>
+                                </p>
 
                                 <div id="rd-duration-wrap">
                                     <label class="rd-field-label">
                                         <i data-lucide="calendar-range" aria-hidden="true"></i> Rental duration
                                     </label>
                                     <div class="rd-duration-picker">
-                                        <button type="button" class="rd-dur-btn" id="rd-dur-minus" aria-label="Shorter duration">&minus;</button>
+                                        <button type="button" class="rd-dur-btn rd-dur-minus" id="rd-dur-minus" aria-label="Shorter duration">&minus;</button>
                                         <div class="rd-dur-value">
-                                            <strong id="rd-dur-label">{{ listing.duration_label }}</strong>
-                                            <span id="rd-dur-total">Total: &#8369;{{ listing.total_rent|number_format(2) }}</span>
+                                            <strong id="rd-dur-num">{{ listing.duration_months }}</strong>
+                                            <span id="rd-dur-word">{{ listing.duration_months == 1 ? 'Month' : 'Months' }}</span>
                                         </div>
-                                        <button type="button" class="rd-dur-btn" id="rd-dur-plus" aria-label="Longer duration">+</button>
+                                        <button type="button" class="rd-dur-btn rd-dur-plus" id="rd-dur-plus" aria-label="Longer duration">+</button>
                                     </div>
                                 </div>
 
@@ -314,63 +1166,81 @@
                                     <label class="rd-long-term-label">
                                         <input type="checkbox" id="rd-long-term">
                                         <i data-lucide="infinity" aria-hidden="true"></i>
-                                        Long Term — open-ended, month-to-month
+                                        <span>Long term stay (open-ended, month-to-month)</span>
                                     </label>
                                 </div>
 
-                                <div class="rd-reserve-rows">
-                                    <div class="rd-reserve-row">
-                                        <span>Total rent (<span id="rd-row-duration">{{ listing.duration_label }}</span>)</span>
-                                        <strong>&#8369;<span id="rd-row-total">{{ listing.total_rent|number_format(2, '.', ',') }}</span></strong>
-                                    </div>
-                                    <div class="rd-reserve-row rd-reserve-now">
-                                        <span>Reserve now (50%)</span>
-                                        <strong>&#8369;<span id="rd-row-reserve">{{ listing.reserve_fee|number_format(2, '.', ',') }}</span></strong>
-                                    </div>
-                                    <div class="rd-reserve-row">
-                                        <span>Balance after accept</span>
-                                        <strong>&#8369;<span id="rd-row-balance">{{ listing.reserve_balance|number_format(2, '.', ',') }}</span></strong>
-                                    </div>
-                                </div>
+                                {% if show_verify_nudge %}
+                                    {# VERIFICATION LOCK — no submit button is
+                                       rendered at all while the account is
+                                       unverified: this link replaces the CTA and
+                                       takes the renter to Profile Settings, and
+                                       the JS guard below kills the Enter-key
+                                       submit path. The server gates (needverify)
+                                       back the page up. #}
+                                    <a
+                                        href="{{ path('app_profile_edit') }}#verify-card"
+                                        class="rd-btn rd-btn-primary rd-enquiry-locked"
+                                        id="rd-enquiry-locked-btn"
+                                        style="margin-top:16px;"
+                                    >
+                                        <i data-lucide="shield-alert" aria-hidden="true"></i>
+                                        Verify to Send Enquiry
+                                    </a>
 
-                                <button type="submit" class="rd-btn rd-btn-primary" id="rd-enquiry-btn">
-                                    <i data-lucide="send" aria-hidden="true"></i> Send Enquiry
-                                </button>
+                                    <p class="rd-verify-lock-note">
+                                        <i data-lucide="lock" aria-hidden="true"></i>
+                                        <span>
+                                            Sending enquiries needs a verified account.
+                                            Verify your identity on the
+                                            <a href="{{ path('app_profile_edit') }}#verify-card">Edit Profile page</a>,
+                                            then come back and book this space.
+                                        </span>
+                                    </p>
+                                {% else %}
+                                    <button type="submit" class="rd-btn rd-btn-primary" id="rd-enquiry-btn">
+                                        <i data-lucide="send" aria-hidden="true"></i> Send Enquiry
+                                    </button>
 
-                                <p class="rd-charge-note">
-                                    <i data-lucide="shield-check" aria-hidden="true"></i>
-                                    The 50% reserve locks your dates for 24 hours while the host reviews.
-                                    If declined, it's refunded to your wallet.
-                                </p>
+                                    <p class="rd-charge-note">
+                                        <i data-lucide="lock" aria-hidden="true"></i>
+                                        <span>You won't be charged yet — pay the full amount on the next page to confirm your booking.</span>
+                                    </p>
+                                {% endif %}
                             </form>
 
                         {% elseif is_bookable and not is_logged_in %}
-                            <a href="{{ path('app_login') }}" class="rd-btn rd-btn-primary" style="display:block; text-align:center;">
+                            <a href="{{ path('app_login') }}" class="rd-btn rd-btn-primary" style="margin-top:16px;">
                                 <i data-lucide="log-in" aria-hidden="true"></i> Log in to book
                             </a>
                         {% endif %}
-
-                        <p class="rd-listed-note">Capacity: {{ listing.capacity_label }}</p>
                     </div>
 
                     {# ---------- SPACE DETAILS ---------- #}
-                    <div class="rd-details-card rd-card rd-reveal" style="--d: .24s;">
-                        <h3><i data-lucide="clipboard-list" aria-hidden="true"></i> Space Details</h3>
+                    <div class="rd-details-card rd-card rd-reveal" style="--d: .26s;">
+                        <h3><i data-lucide="info" aria-hidden="true"></i> Space details</h3>
 
+                        {% if listing.category_label ?? true %}
+                            <div class="rd-detail-row">
+                                <i data-lucide="home" aria-hidden="true"></i>
+                                <span>Space type</span>
+                                <strong>{{ (listing.category_label ?? 'entire-house')|replace({'-': ' '}) }}</strong>
+                            </div>
+                        {% endif %}
                         <div class="rd-detail-row">
                             <i data-lucide="bed-double" aria-hidden="true"></i>
                             <span>Bedrooms</span>
-                            <strong>{{ listing.bedrooms }}</strong>
+                            <strong>{{ listing.bedrooms }} Bedroom{{ listing.bedrooms == 1 ? '' : 's' }}</strong>
                         </div>
                         <div class="rd-detail-row">
                             <i data-lucide="bath" aria-hidden="true"></i>
                             <span>Bathrooms</span>
-                            <strong>{{ listing.bathrooms }}</strong>
+                            <strong>{{ listing.bathrooms }} Bathroom{{ listing.bathrooms == 1 ? '' : 's' }}</strong>
                         </div>
                         <div class="rd-detail-row">
                             <i data-lucide="ruler" aria-hidden="true"></i>
                             <span>Size</span>
-                            <strong>{{ listing.size_sqm ? listing.size_sqm|number_format(0) ~ ' m²' : '—' }}</strong>
+                            <strong>{{ listing.size_sqm ? listing.size_sqm|number_format(0) ~ ' sqm' : '—' }}</strong>
                         </div>
                         <div class="rd-detail-row">
                             <i data-lucide="building-2" aria-hidden="true"></i>
@@ -378,34 +1248,16 @@
                             <strong>{{ listing.floor ?: '—' }}</strong>
                         </div>
                         <div class="rd-detail-row">
-                            <i data-lucide="square-parking" aria-hidden="true"></i>
+                            <i data-lucide="car-front" aria-hidden="true"></i>
                             <span>Parking</span>
-                            <strong>{{ listing.has_parking ? listing.parking : 'None' }}</strong>
+                            <strong>{{ listing.has_parking ? listing.parking : 'No' }}</strong>
                         </div>
                         <div class="rd-detail-row">
                             <i data-lucide="users" aria-hidden="true"></i>
                             <span>Capacity</span>
                             <strong>{{ listing.capacity_label }}</strong>
                         </div>
-                        {% if listing.category_label %}
-                            <div class="rd-detail-row">
-                                <i data-lucide="tag" aria-hidden="true"></i>
-                                <span>Type</span>
-                                <strong>{{ listing.category_label|replace({'-': ' '})|title }}</strong>
-                            </div>
-                        {% endif %}
                     </div>
-
-                    {# ---------- HOUSE RULES ---------- #}
-                    {% if listing.house_rules %}
-                        <div class="rd-card rd-reveal" style="--d: .28s;">
-                            <h3 style="display:flex;align-items:center;gap:7px;margin:0 0 10px;font-size:15px;">
-                                <i data-lucide="scroll-text" aria-hidden="true" style="width:17px;height:17px;color:#d99218;"></i>
-                                House Rules
-                            </h3>
-                            <p style="margin:0;font-size:13.5px;line-height:1.65;color:#5d6875;">{{ listing.house_rules }}</p>
-                        </div>
-                    {% endif %}
 
                 </aside>
 
@@ -414,6 +1266,72 @@
         </main>
 
         {% include 'partials/footer.html.twig' ignore missing %}
+
+        <!-- ==============================================
+             RATINGS OVERLAY — opens from the ★ chip in the
+             title subline. LEFT: "How was your stay?" write
+             panel (only when the viewer completed/cancelled a
+             stay here and has not reviewed it yet). RIGHT:
+             average + star distribution + all review cards.
+             Data: GET /listings/{id}/reviews-data ·
+             Submit: POST /reviews/submit (booking_id · rating
+             · comment). X / backdrop / ESC all close it.
+        =============================================== -->
+        <div class="rd-review-overlay" id="rdReviewOverlay" role="dialog" aria-modal="true" aria-labelledby="rdRevTitle"
+             data-listing-id="{{ listing.id }}"
+             data-host="{{ host.name|e('html_attr') }}"
+             data-title="{{ listing.title|e('html_attr') }}">
+            <div class="rd-review-modal no-write" id="rdReviewModal">
+                <button type="button" class="rd-review-close" id="rdReviewClose" aria-label="Close reviews" title="Close">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+
+                <div class="rd-review-loading" id="rdReviewLoading">
+                    <span class="rd-review-spinner" aria-hidden="true"></span> Loading reviews…
+                </div>
+
+                <div class="rd-review-cols is-rh-hidden" id="rdReviewCols" hidden>
+                    <section class="rd-review-write is-rh-hidden" id="rdReviewWrite" hidden>
+                        <span class="rd-review-tag" id="rdReviewTag">Stay completed</span>
+                        <h3 class="rd-review-wtitle" id="rdRevTitle">How was your stay?</h3>
+                        <p class="rd-review-wsub" id="rdReviewWSub"></p>
+
+                        <div class="rd-review-stars" id="rdReviewStars">
+                            {% for i in 1..5 %}
+                                <button type="button" class="rd-star" data-value="{{ i }}" aria-label="Rate {{ i }} star{{ i > 1 ? 's' : '' }}" title="{{ i }} star{{ i > 1 ? 's' : '' }}">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                                </button>
+                            {% endfor %}
+                        </div>
+                        <p class="rd-review-star-label" id="rdReviewStarLabel">Tap a star to rate</p>
+
+                        <textarea class="rd-review-comment" id="rdReviewComment" maxlength="1000"
+                                  placeholder="Tell others about your stay — what made it great, what could be better (optional)"></textarea>
+
+                        <button type="button" class="rd-review-submit" id="rdReviewSubmit" disabled>Submit review</button>
+                        <p class="rd-review-error" id="rdReviewError" hidden></p>
+                    </section>
+
+                    <section class="rd-review-donebox is-rh-hidden" id="rdReviewDoneBox" hidden>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        <h4 id="rdRevDoneTitle">Thanks for your review!</h4>
+                        <p id="rdRevDoneMsg">Your rating is now on this listing and your Reviews page.</p>
+                    </section>
+
+                    <section class="rd-review-read">
+                        <div class="rd-review-score">
+                            <div class="rd-review-avg" id="rdReviewAvg">—</div>
+                            <div class="rd-review-score-side">
+                                <div class="rd-review-count" id="rdReviewCount">Reviews</div>
+                                <div class="rd-review-dist is-rh-hidden" id="rdReviewDist" hidden></div>
+                            </div>
+                        </div>
+                        <div class="rd-review-list" id="rdReviewList"></div>
+                        <div class="rd-review-empty is-rh-hidden" id="rdReviewEmpty" hidden>No reviews yet — be the first to share how it went.</div>
+                    </section>
+                </div>
+            </div>
+        </div>
 
         {# ---------- PAGE DATA FOR JS ---------- #}
         <script type="application/json" id="rd-data">
@@ -430,7 +1348,7 @@
         )|raw }}
     </script>
 
-        <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+        <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
         <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -498,36 +1416,36 @@
             }
 
             function updatePricing() {
-                var durLabel = document.getElementById("rd-dur-label");
-                var durTotal = document.getElementById("rd-dur-total");
+                var durNum = document.getElementById("rd-dur-num");
+                var durWord = document.getElementById("rd-dur-word");
                 var rowDuration = document.getElementById("rd-row-duration");
+                var rowDur = document.getElementById("rd-row-dur");
+                var rowMonthly = document.getElementById("rd-row-monthly");
                 var rowTotal = document.getElementById("rd-row-total");
-                var rowReserve = document.getElementById("rd-row-reserve");
-                var rowBalance = document.getElementById("rd-row-balance");
+                var rowDue = document.getElementById("rd-row-due");
                 var monthsHidden = document.getElementById("rd-months-hidden");
                 var longHidden = document.getElementById("rd-longterm-hidden");
                 var checkoutHidden = document.getElementById("rd-checkout-hidden");
 
-                var total = BASE_PRICE * duration;
-                var reserve = total * 0.5;
-                var balance = total - reserve;
+                var total = longTerm ? BASE_PRICE : BASE_PRICE * duration;
 
                 var label = longTerm ? "Long Term" : (duration === 1 ? "1 Month" : duration + " Months");
+                var num = longTerm ? "\u221E" : String(duration);
+                var word = longTerm ? "Long Term" : (duration === 1 ? "Month" : "Months");
 
-                if (durLabel) durLabel.textContent = label;
+                if (durNum) durNum.textContent = num;
+                if (durWord) durWord.textContent = word;
                 if (rowDuration) rowDuration.textContent = label;
-                if (durTotal) durTotal.textContent = longTerm
-                    ? "First month: \u20B1" + peso(total)
-                    : "Total: \u20B1" + peso(total);
+                if (rowDur) rowDur.textContent = label;
+                if (rowMonthly) rowMonthly.textContent = peso(BASE_PRICE);
                 if (rowTotal) rowTotal.textContent = peso(total);
-                if (rowReserve) rowReserve.textContent = peso(reserve);
-                if (rowBalance) rowBalance.textContent = peso(balance);
+                if (rowDue) rowDue.textContent = peso(total);
                 if (monthsHidden) monthsHidden.value = String(longTerm ? 1 : duration);
                 if (longHidden) longHidden.value = longTerm ? "1" : "0";
 
-                var moveIn = document.getElementById("rd-movein").value;
+                var moveIn = document.getElementById("rd-movein");
                 if (checkoutHidden) {
-                    checkoutHidden.value = longTerm ? "" : computeCheckout(moveIn, duration);
+                    checkoutHidden.value = (longTerm || !moveIn) ? "" : computeCheckout(moveIn.value, duration);
                 }
             }
 
@@ -545,13 +1463,17 @@
             if (ltCheckbox) {
                 ltCheckbox.addEventListener("change", function () {
                     longTerm = ltCheckbox.checked;
-                    if (durationWrap) durationWrap.style.display = longTerm ? "none" : "";
+                    if (durationWrap) {
+                        durationWrap.classList.toggle("rd-date-hidden", longTerm);
+                        durationWrap.style.display = ""; /* CSS owns the hidden state */
+                    }
                     updatePricing();
                 });
             }
 
             /* ============ MOVE-IN CALENDAR (flatpickr) ============ */
             var movein = document.getElementById("rd-movein");
+            var fpCalendar = null;
             if (movein && window.flatpickr) {
 
                 /* Booked ranges -> disabled dates. A range with no
@@ -562,11 +1484,82 @@
                     return null;
                 }).filter(Boolean);
 
-                flatpickr(movein, {
+                fpCalendar = flatpickr(movein, {
                     minDate: "today",
                     dateFormat: "Y-m-d",
                     disable: disabled,
-                    onChange: function () { updatePricing(); }
+                    onChange: function () { clearDateError(); updatePricing(); }
+                });
+            }
+
+            /* ============ ENQUIRY DATE GUARD — the Send Enquiry
+               form refuses to submit until a move-in date is
+               picked (long-term stays need one too — only the END
+               date stays open). Without this the empty
+               checkin_date travelled to the payment step and came
+               back as the "Please choose your move-in date"
+               redirect. On an empty submit: submission is
+               prevented, the field flashes red + shakes, the
+               inline message shows and the calendar auto-opens.
+               Everything clears the moment a date is chosen. */
+            var bookingForm = document.getElementById("rd-booking-form");
+            var dateError = document.getElementById("rd-date-error");
+
+            function showDateError() {
+                if (movein) {
+                    movein.classList.add("rd-date-invalid");
+                    movein.setAttribute("aria-invalid", "true");
+                    movein.classList.remove("rd-date-shake");
+                    void movein.offsetWidth; /* restart the shake */
+                    movein.classList.add("rd-date-shake");
+                }
+                if (dateError) {
+                    dateError.hidden = false;
+                }
+                if (fpCalendar && typeof fpCalendar.open === "function") {
+                    fpCalendar.open();
+                }
+            }
+
+            function clearDateError() {
+                if (movein) {
+                    movein.classList.remove("rd-date-invalid", "rd-date-shake");
+                    movein.removeAttribute("aria-invalid");
+                }
+                if (dateError) {
+                    dateError.hidden = true;
+                }
+            }
+
+            if (bookingForm) {
+                bookingForm.addEventListener("submit", function (e) {
+                    var mv = document.getElementById("rd-movein");
+                    if (mv && !mv.value) {
+                        e.preventDefault();
+                        showDateError();
+                    }
+                });
+            }
+
+            /* ============ VERIFICATION GUARD — an unverified
+               account cannot send enquiries. When the controller
+               flags the viewer unverified, the submit button is
+               already REPLACED by a "Verify to Send Enquiry" link
+               (Profile Settings) in the markup above; this listener
+               kills the one leftover path -- implicit submission
+               via the Enter key -- and shakes the verify nudge so
+               the reason is on screen. The server gates bounce any
+               crafted request back with ?needverify=1. */
+            if (bookingForm && bookingForm.getAttribute("data-verify-required") === "1") {
+                bookingForm.addEventListener("submit", function (e) {
+                    e.preventDefault();
+                    var nudge = document.querySelector(".rd-verify-nudge");
+                    if (nudge) {
+                        nudge.classList.remove("rd-verify-shake");
+                        void nudge.offsetWidth; /* restart the shake */
+                        nudge.classList.add("rd-verify-shake");
+                        nudge.scrollIntoView({ behavior: "smooth", block: "center" });
+                    }
                 });
             }
 
@@ -585,12 +1578,98 @@
                 });
             }
 
-            /* ============ SAVE (heart) — visual only for now ============ */
-            var saveBtn = document.getElementById("rd-save-btn");
+            /* ============ SAVE / WISHLIST HEART — one toggle, two
+               controls. The corner heart (#rd-heart-btn) and the
+               topbar Save button (#rd-save-btn) flip the SAME
+               wishlist entry through the same /wishlist/toggle
+               endpoint the My Wishlist page uses. Glow (red fill +
+               halo) = saved, plain = not saved. Initial state comes
+               from the `wished` variable the controller feeds.
+               Optimistic UI: the glow flips instantly on click, then
+               snaps to the server's answer (or reverts if not ok). */
+            var heartBtn  = document.getElementById("rd-heart-btn");
+            var saveBtn   = document.getElementById("rd-save-btn");
+            var saveLabel = saveBtn ? saveBtn.querySelector(".rd-save-label") : null;
+            var wishBusy  = false;
+
+            function setWishUI(on) {
+                if (heartBtn) {
+                    heartBtn.classList.toggle("is-active", !!on);
+                    heartBtn.setAttribute("aria-pressed", on ? "true" : "false");
+                    heartBtn.setAttribute(
+                        "aria-label",
+                        on ? "Remove from wishlist" : "Save to wishlist"
+                    );
+                    heartBtn.title = on ? "Remove from wishlist" : "Save to wishlist";
+                }
+                if (saveBtn) {
+                    saveBtn.classList.toggle("active", !!on);
+                    if (saveLabel) {
+                        saveLabel.textContent = on ? "Saved" : "Save";
+                    }
+                }
+            }
+
+            function heartPop() {
+                if (!heartBtn) {
+                    return;
+                }
+                heartBtn.classList.remove("is-popping");
+                void heartBtn.offsetWidth; /* restart the pop animation */
+                heartBtn.classList.add("is-popping");
+                setTimeout(function () {
+                    heartBtn.classList.remove("is-popping");
+                }, 450);
+            }
+
+            function toggleWishlist() {
+                if (wishBusy) {
+                    return;
+                }
+                wishBusy = true;
+
+                var wasOn = heartBtn
+                    ? heartBtn.classList.contains("is-active")
+                    : (saveBtn ? saveBtn.classList.contains("active") : false);
+
+                /* optimistic glow first — the click must feel instant */
+                setWishUI(!wasOn);
+                heartPop();
+
+                fetch("/wishlist/toggle", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    body: "listing_id=" + encodeURIComponent("{{ listing.id }}"),
+                })
+                    .then(function (r) {
+                        return r.json();
+                    })
+                    .then(function (d) {
+                        if (!d || !d.ok) {
+                            /* guest (not logged in) / bad request — fall
+                               back to the pre-click state */
+                            setWishUI(wasOn);
+                            return;
+                        }
+                        /* both controller shapes: {ok, added} and {ok, saved} */
+                        var on = d.added !== undefined ? !!d.added : !!d.saved;
+                        setWishUI(on);
+                    })
+                    .catch(function () {
+                        /* network error — keep the visual toggle */
+                    })
+                    .then(function () {
+                        wishBusy = false;
+                    });
+            }
+
+            if (heartBtn) {
+                heartBtn.addEventListener("click", toggleWishlist);
+            }
             if (saveBtn) {
-                saveBtn.addEventListener("click", function () {
-                    saveBtn.classList.toggle("active");
-                });
+                saveBtn.addEventListener("click", toggleWishlist);
             }
 
             /* ============ SHARE ============ */
@@ -633,6 +1712,304 @@
                     '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#5d6875;font-size:13px;">Approximate area — see address above</div>';
             }
             {% endif %}
+        })();
+    </script>
+
+    <script>
+        /* ============ RATINGS OVERLAY ============
+           Click the ★ chip in the title subline → this modal.
+           Fetches GET /listings/{id}/reviews-data once and
+           renders the summary + cards; if the viewer may rate,
+           the write panel lights up (booking_id comes from the
+           payload). Submit POSTs the EXISTING /reviews/submit
+           (booking_id · rating · comment) — the same endpoint
+           the booking page's review box uses — then refetches
+           so the average, count, distribution and the ★ chip
+           itself all update without a page reload. */
+        (function () {
+            "use strict";
+
+            var overlay = document.getElementById("rdReviewOverlay");
+            var openBtn = document.getElementById("rd-rating-open");
+            if (!overlay || !openBtn) return;
+
+            var modal    = document.getElementById("rdReviewModal");
+            var closeX   = document.getElementById("rdReviewClose");
+            var loadEl   = document.getElementById("rdReviewLoading");
+            var cols     = document.getElementById("rdReviewCols");
+
+            var writeP   = document.getElementById("rdReviewWrite");
+            var doneP    = document.getElementById("rdReviewDoneBox");
+            var doneTtl  = document.getElementById("rdRevDoneTitle");
+            var doneMsg  = document.getElementById("rdRevDoneMsg");
+            var tagEl    = document.getElementById("rdReviewTag");
+            var subEl    = document.getElementById("rdReviewWSub");
+            var starWrap = document.getElementById("rdReviewStars");
+            var starLbl  = document.getElementById("rdReviewStarLabel");
+            var ta       = document.getElementById("rdReviewComment");
+            var sendBtn  = document.getElementById("rdReviewSubmit");
+            var errEl    = document.getElementById("rdReviewError");
+
+            var avgEl   = document.getElementById("rdReviewAvg");
+            var cntEl   = document.getElementById("rdReviewCount");
+            var distEl  = document.getElementById("rdReviewDist");
+            var listEl  = document.getElementById("rdReviewList");
+            var emptyEl = document.getElementById("rdReviewEmpty");
+            var chipTxt = document.getElementById("rd-rating-text");
+
+            var HOST_NAME  = overlay.getAttribute("data-host")  || "your host";
+            var LIST_TITLE = overlay.getAttribute("data-title") || "this listing";
+            var ENDPOINT   = "/listings/" + overlay.getAttribute("data-listing-id") + "/reviews-data";
+
+            var LABELS = { 1: "Poor", 2: "Fair", 3: "Okay", 4: "Good", 5: "Excellent" };
+            var STAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+
+            var picked = 0, bookingId = 0, busy = false, loaded = false, isLoading = false;
+
+            /* hidden state = attribute + class (the class does the
+               display:none for the grid/flex panels) */
+            function setHidden(el, v) {
+                if (!el) { return; }
+                el.hidden = !!v;
+                el.classList.toggle("is-rh-hidden", !!v);
+            }
+
+            function esc(s) {
+                return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+                    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+                });
+            }
+
+            function miniStars(n) {
+                var out = '<span class="rd-review-mini">';
+                for (var i = 1; i <= 5; i++) {
+                    out += '<span class="' + (i <= n ? "is-lit" : "") + '">' + STAR + "</span>";
+                }
+                return out + "</span>";
+            }
+
+            function openModal() {
+                overlay.classList.add("is-open");
+                document.body.style.overflow = "hidden";
+                if (!loaded && !isLoading) { load(); }
+            }
+            function closeModal() {
+                overlay.classList.remove("is-open");
+                document.body.style.overflow = "";
+            }
+
+            overlay.addEventListener("click", function (e) {
+                if (e.target === overlay) { closeModal(); }
+            });
+            if (closeX) { closeX.addEventListener("click", closeModal); }
+            document.addEventListener("keydown", function (e) {
+                if (e.key === "Escape" && overlay.classList.contains("is-open")) { closeModal(); }
+            });
+            openBtn.addEventListener("click", openModal);
+
+            function load() {
+                isLoading = true;
+                setHidden(cols, true);
+                setHidden(loadEl, false);
+
+                fetch(ENDPOINT, { headers: { "Accept": "application/json" } })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        isLoading = false;
+                        loaded = true;
+                        if (!d || !d.ok) { throw new Error("bad payload"); }
+                        render(d);
+                    })
+                    .catch(function () {
+                        isLoading = false;
+                        setHidden(loadEl, true);
+                        setHidden(cols, false);
+                        listEl.innerHTML = "";
+                        setHidden(distEl, true);
+                        avgEl.textContent = "—";
+                        cntEl.textContent = "Reviews";
+                        emptyEl.textContent = "Could not load the reviews right now — please try again.";
+                        setHidden(emptyEl, false);
+                        setHidden(writeP, true);
+                        setHidden(doneP, true);
+                        modal.classList.add("no-write");
+                    });
+            }
+
+            function render(d) {
+                setHidden(loadEl, true);
+                setHidden(cols, false);
+
+                var n = d.listing.reviews | 0;
+                avgEl.textContent = n > 0 ? Number(d.listing.rating).toFixed(1) : "—";
+                cntEl.textContent = n > 0 ? n + (n === 1 ? " review" : " reviews") : "No reviews yet";
+
+                /* distribution bars, 5 → 1 */
+                if (n > 0) {
+                    var distHtml = "";
+                    for (var s = 5; s >= 1; s--) {
+                        var c = (d.distribution && d.distribution[s]) | 0;
+                        var pct = Math.round((c * 100) / n);
+                        distHtml +=
+                            '<div class="rd-review-dist-row">' +
+                                '<span class="rd-review-bar-label">' + s + ' ★</span>' +
+                                '<span class="rd-review-bar"><span style="width:' + pct + '%"></span></span>' +
+                                '<span class="rd-review-bar-num">' + c + "</span>" +
+                            "</div>";
+                    }
+                    distEl.innerHTML = distHtml;
+                    setHidden(distEl, false);
+                } else {
+                    distEl.innerHTML = "";
+                    setHidden(distEl, true);
+                }
+
+                /* review cards */
+                if (n > 0 && d.reviews && d.reviews.length) {
+                    var cards = "";
+                    for (var i = 0; i < d.reviews.length; i++) {
+                        var rv = d.reviews[i];
+                        cards +=
+                            '<div class="rd-review-card">' +
+                                '<img class="rd-review-avatar" src="' + esc(rv.avatar) + '" alt="" ' +
+                                    'onerror="this.onerror=null;this.src=\'/images/default-avatar.png\'">' +
+                                '<div>' +
+                                    '<div class="rd-review-who">' +
+                                        '<span class="rd-review-name">' + esc(rv.name) + "</span>" +
+                                        '<span class="rd-review-date">' + esc(rv.date) + "</span>" +
+                                    "</div>" +
+                                    miniStars(rv.rating | 0) +
+                                    (rv.comment ? '<p class="rd-review-text">' + esc(rv.comment) + "</p>" : "") +
+                                "</div>" +
+                            "</div>";
+                    }
+                    listEl.innerHTML = cards;
+                    setHidden(emptyEl, true);
+                } else {
+                    listEl.innerHTML = "";
+                    emptyEl.textContent = "No reviews yet — be the first to share how it went.";
+                    setHidden(emptyEl, false);
+                }
+
+                /* keep the ★ chip in sync */
+                if (chipTxt) {
+                    chipTxt.textContent = n > 0
+                        ? Number(d.listing.rating).toFixed(1) + " (" + n + (n === 1 ? " review" : " reviews") + ")"
+                        : "Be the first to review";
+                }
+
+                /* write panel eligibility */
+                setHidden(doneP, true);
+                if (d.can_review && d.booking) {
+                    bookingId = d.booking.id;
+                    modal.classList.remove("no-write");
+                    setHidden(writeP, false);
+                    var isDone = d.booking.status === "completed";
+                    tagEl.textContent = isDone ? "Stay completed" : "Stay cancelled";
+                    tagEl.classList.toggle("is-cancelled", !isDone);
+                    var span = d.booking.checkin
+                        ? d.booking.checkin + (d.booking.checkout ? " – " + d.booking.checkout : "")
+                        : "";
+                    subEl.textContent =
+                        LIST_TITLE + (span ? " · " + span : "") + " · Hosted by " + HOST_NAME;
+                    doneTtl.textContent = "Thanks for your review!";
+                    doneMsg.textContent = "Your rating is now on this listing and your Reviews page.";
+                } else if (d.already_reviewed) {
+                    bookingId = 0;
+                    modal.classList.remove("no-write");
+                    setHidden(writeP, true);
+                    setHidden(doneP, false);
+                    doneTtl.textContent = "You rated this stay";
+                    doneMsg.textContent = "Thanks — your review is on this listing and your Reviews page.";
+                } else {
+                    bookingId = 0;
+                    modal.classList.add("no-write");
+                    setHidden(writeP, true);
+                }
+
+                /* fresh picker state for this open */
+                picked = 0;
+                paint(0);
+                starLbl.textContent = "Tap a star to rate";
+                starLbl.classList.remove("has-value");
+                sendBtn.disabled = true;
+                setHidden(errEl, true);
+                ta.value = "";
+            }
+
+            function paint(v) {
+                if (!starWrap) return;
+                var btns = starWrap.querySelectorAll(".rd-star");
+                for (var i = 0; i < btns.length; i++) {
+                    var val = Number(btns[i].getAttribute("data-value")) | 0;
+                    btns[i].classList.toggle("is-lit", v > 0 && val <= v);
+                }
+            }
+
+            if (starWrap) {
+                starWrap.addEventListener("click", function (e) {
+                    var btn = e.target.closest ? e.target.closest(".rd-star") : null;
+                    if (!btn) { return; }
+                    picked = Number(btn.getAttribute("data-value")) | 0;
+                    paint(picked);
+                    starLbl.textContent = picked + " out of 5 — " + (LABELS[picked] || "");
+                    starLbl.classList.add("has-value");
+                    sendBtn.disabled = picked < 1;
+                    setHidden(errEl, true);
+                });
+            }
+
+            if (sendBtn) {
+                sendBtn.addEventListener("click", function () {
+                    if (busy || picked < 1 || bookingId <= 0) { return; }
+                    busy = true;
+                    sendBtn.disabled = true;
+                    setHidden(errEl, true);
+
+                    var body = "booking_id=" + encodeURIComponent(bookingId) +
+                               "&rating=" + encodeURIComponent(picked) +
+                               "&comment=" + encodeURIComponent(ta.value);
+
+                    fetch("/reviews/submit", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                        body: body
+                    })
+                        .then(function (r) {
+                            return r.json().then(function (d) { return { status: r.status, d: d }; });
+                        })
+                        .then(function (res) {
+                            busy = false;
+                            var d = res.d || {};
+                            if (d.success) {
+                                setHidden(writeP, true);
+                                setHidden(doneP, false);
+                                doneTtl.textContent = "Thanks for your review!";
+                                doneMsg.textContent = d.message ||
+                                    "Your rating is now on this listing and your Reviews page.";
+                                /* fresh summary + cards — avg, count,
+                                   distribution and the chip all update */
+                                loaded = false;
+                                load();
+                            } else if (res.status === 409) {
+                                /* already reviewed (double-click or a stale
+                                   box) — refresh so the panels match reality */
+                                loaded = false;
+                                load();
+                            } else {
+                                sendBtn.disabled = false;
+                                errEl.textContent = d.message || "Could not save your review. Please try again.";
+                                setHidden(errEl, false);
+                            }
+                        })
+                        .catch(function () {
+                            busy = false;
+                            sendBtn.disabled = false;
+                            errEl.textContent = "Network error — please try again.";
+                            setHidden(errEl, false);
+                        });
+                });
+            }
         })();
     </script>
 

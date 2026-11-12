@@ -1,0 +1,649 @@
+{# roomhive/admin/messages.html.twig
+   Admin › Messages — extends admin/base.html.twig.
+   1:1 port of legacy admin/adminmessages.php.
+
+   Three tabs:
+     1. Contact Questions — contact_messages from the Contacts page.
+        Two-pane (list left + detail right) with status buttons.
+        Status update POSTs ticket_id + status (open|in_progress|
+        resolved|closed). Reply via mailto: or Open Chat link.
+     2. Support Chats — admin ↔ user chats. Single-column list.
+        Each row links to /admin/chat?c=<id> (separate page).
+     3. Conversations — original tenant ↔ host reader. Two-pane
+        (list left + thread view right). Admin can read but not
+        send (read-only oversight).
+
+   The support account (RoomHive Admin / support@roomhive.local)
+   is auto-created on first run by the controller so admin-side
+   chats have a stable sender identity.
+
+   CSS classes prefixed with `adm-`, `inq-`, `st-`, `bubble` etc.
+   mirror the legacy <style> block. The status-badge styles
+   (st-open / st-progress / st-resolved / st-closed) are the
+   inquiry ticket statuses — NOT the booking-status badge-pending
+   etc. classes from base.html.twig.
+#}
+{% extends 'admin/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'Messages' %}
+{% set page_heading = 'Messages' %}
+{% set page_subheading = 'Contact questions from the Contacts page, support chats, and tenant ↔ host oversight.' %}
+
+{% block styles %}
+    <style>
+        /* ---- Tab switcher ---- */
+        .adm-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .adm-tab {
+            padding: 9px 18px;
+            border-radius: 999px;
+            border: 1px solid #eef1f6;
+            background: #fff;
+            color: #14142b;
+            font-size: 12.5px;
+            font-weight: 700;
+            text-decoration: none;
+            transition: 0.15s ease;
+        }
+        .adm-tab:hover {
+            border-color: #eda423;
+            color: #b07708;
+        }
+        .adm-tab.active {
+            background: #fff4e0;
+            border-color: #eda423;
+            color: #b07708;
+        }
+
+        /* ---- Two-pane layout (inquiries + conversations) ---- */
+        .msg-layout {
+            display: grid;
+            grid-template-columns: 1fr 1.4fr;
+            gap: 18px;
+            align-items: start;
+        }
+        @media (max-width: 1000px) {
+            .msg-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel {
+            background: #fff;
+            border: 1px solid #eef1f6;
+            border-radius: 14px;
+            overflow: hidden;
+        }
+        .panel-header {
+            padding: 16px 18px;
+            border-bottom: 1px solid #eef1f6;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .panel-header h2 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 700;
+            color: #14142b;
+        }
+        .stat-caption {
+            font-size: 12px;
+            color: #8b93a6;
+        }
+
+        .convo-item,
+        .inq-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            border-bottom: 1px solid #eef1f6;
+            text-decoration: none;
+            color: inherit;
+            transition: background 0.12s ease;
+        }
+        .convo-item:hover,
+        .convo-item.active,
+        .inq-item:hover,
+        .inq-item.active {
+            background: #fff4e0;
+        }
+        .convo-item strong,
+        .inq-item strong {
+            display: block;
+            font-size: 13px;
+            color: #14142b;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .convo-item span,
+        .inq-item span {
+            display: block;
+            font-size: 11.5px;
+            color: #8b93a6;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .convo-item .icon,
+        .inq-item .icon {
+            width: 16px;
+            height: 16px;
+            color: #8b93a6;
+            flex-shrink: 0;
+        }
+
+        /* ---- Status badges (inquiry ticket statuses — NOT booking-status badges) ---- */
+        .st-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-size: 10.5px;
+            font-weight: 800;
+            letter-spacing: 0.03em;
+            white-space: nowrap;
+        }
+        .st-open {
+            background: #fff1dc;
+            color: #b07708;
+            border: 1px solid rgba(237, 164, 35, 0.5);
+        }
+        .st-progress {
+            background: #e7f0ff;
+            color: #2563eb;
+            border: 1px solid rgba(37, 99, 235, 0.35);
+        }
+        .st-resolved {
+            background: #e8f8f1;
+            color: #178a50;
+            border: 1px solid rgba(23, 138, 80, 0.35);
+        }
+        .st-closed {
+            background: #f0f1f6;
+            color: #6b7684;
+            border: 1px solid #eef1f6;
+        }
+
+        /* ---- Inquiry detail panel ---- */
+        .inq-detail {
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+        .inq-subject {
+            margin: 0;
+            font-size: 17px;
+            font-weight: 800;
+            color: #14142b;
+        }
+
+        .inq-meta {
+            display: grid;
+            gap: 6px;
+            padding: 12px 14px;
+            border: 1px solid #eef1f6;
+            border-radius: 10px;
+            background: #fafafa;
+        }
+        .inq-meta div {
+            display: flex;
+            gap: 8px;
+            font-size: 12.5px;
+        }
+        .inq-meta b {
+            min-width: 80px;
+            color: #8b93a6;
+            font-weight: 700;
+        }
+        .inq-meta a {
+            color: #b07708;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .inq-meta a:hover {
+            text-decoration: underline;
+        }
+
+        .inq-body {
+            padding: 14px 16px;
+            border: 1px solid #eef1f6;
+            border-left: 4px solid #eda423;
+            border-radius: 10px;
+            font-size: 13.5px;
+            line-height: 1.65;
+            color: #14142b;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .inq-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .st-btn {
+            padding: 8px 14px;
+            border-radius: 999px;
+            border: 1px solid #eef1f6;
+            background: #fff;
+            color: #14142b;
+            font-family: inherit;
+            font-size: 11.5px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.15s ease;
+        }
+        .st-btn:hover {
+            border-color: #eda423;
+            color: #b07708;
+            background: #fff8ec;
+        }
+
+        .reply-btn,
+        .chat-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 9px 18px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 800;
+            text-decoration: none;
+        }
+        .reply-btn {
+            background: linear-gradient(135deg, #f6b93b, #eda423);
+            color: #1c2a38;
+            box-shadow: 0 6px 14px rgba(237, 164, 35, 0.3);
+        }
+        .reply-btn:hover {
+            transform: translateY(-1px);
+        }
+        .chat-btn {
+            background: #1c2a38;
+            color: #fff;
+        }
+        .chat-btn:hover {
+            background: #eda423;
+            color: #1c2a38;
+        }
+        .guest-note {
+            font-size: 11.5px;
+            color: #8b93a6;
+            font-style: italic;
+        }
+
+        .cnt-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            margin-right: 8px;
+            font-size: 11.5px;
+            color: #8b93a6;
+            font-weight: 600;
+        }
+        .unread-badge {
+            background: #eda423;
+            color: #fff;
+            font-size: 10px;
+            font-weight: 800;
+            border-radius: 999px;
+            padding: 2px 8px;
+        }
+
+        /* ---- Conversation thread ---- */
+        .thread-box {
+            max-height: 480px;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .bubble {
+            max-width: 72%;
+            padding: 10px 14px;
+            border-radius: 14px;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+        .bubble b {
+            display: block;
+            font-size: 11px;
+            opacity: 0.75;
+            margin-bottom: 3px;
+            font-weight: 600;
+        }
+        .bubble.host-b {
+            align-self: flex-start;
+            background: #f3f4f6;
+            color: #14142b;
+            border-bottom-left-radius: 4px;
+        }
+        .bubble.tenant-b {
+            align-self: flex-end;
+            background: #fff4e0;
+            color: #14142b;
+            border-bottom-right-radius: 4px;
+        }
+
+        /* ---- Empty state ---- */
+        .detail-empty {
+            padding: 80px 20px;
+            text-align: center;
+            color: #8b93a6;
+        }
+        .detail-empty .empty-icon {
+            opacity: 0.5;
+            margin-bottom: 12px;
+        }
+        .detail-empty .empty-icon .icon {
+            width: 36px;
+            height: 36px;
+        }
+        .detail-empty p {
+            font-size: 13.5px;
+            margin: 0;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 50px 16px;
+            color: #8b93a6;
+        }
+        .empty-state .empty-icon {
+            opacity: 0.5;
+            margin-bottom: 12px;
+        }
+        .empty-state .empty-icon .icon {
+            width: 36px;
+            height: 36px;
+        }
+        .empty-state p {
+            font-size: 13.5px;
+            margin: 0;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+
+    {# ---- Tab switcher ---- #}
+    <div class="adm-tabs">
+        <a
+            class="adm-tab {{ tab == 'inquiries' ? 'active' : '' }}"
+            href="?{{ {tab: 'inquiries'}|url_encode }}"
+        >
+            Contact Questions ({{ inquiries|length }})
+        </a>
+        <a
+            class="adm-tab {{ tab == 'chats' ? 'active' : '' }}"
+            href="?{{ {tab: 'chats'}|url_encode }}"
+        >
+            Support Chats ({{ chats|length }})
+        </a>
+        <a
+            class="adm-tab {{ tab == 'conversations' ? 'active' : '' }}"
+            href="?{{ {tab: 'conversations'}|url_encode }}"
+        >
+            User Conversations ({{ conversations|length }})
+        </a>
+    </div>
+
+    {# ============================================================
+   TAB 1 — CONTACT QUESTIONS
+============================================================ #}
+    {% if tab == 'inquiries' %}
+
+        <div class="msg-layout">
+
+            {# LEFT: list + counts #}
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>Inquiries</h2>
+                    <div>
+                        <span class="cnt-chip"><span class="st-badge st-open">Open</span> {{ inq_counts.open }}</span>
+                        <span class="cnt-chip"><span class="st-badge st-progress">In Prog.</span> {{ inq_counts.in_progress }}</span>
+                        <span class="cnt-chip"><span class="st-badge st-resolved">Done</span> {{ inq_counts.resolved }}</span>
+                    </div>
+                </div>
+
+                {% if inquiries is empty %}
+                    <div class="empty-state">
+                        <div class="empty-icon">{{ ui.icon('inbox') }}</div>
+                        <p>No contact questions yet. Submissions from the Contacts page will appear here.</p>
+                    </div>
+                {% else %}
+                    {% for q in inquiries %}
+                        {% set full_name = (q.first_name ~ ' ' ~ q.last_name)|trim %}
+                        <a
+                            class="inq-item {{ selected_inquiry and selected_inquiry.id == q.id ? 'active' : '' }}"
+                            href="?{{ {tab: 'inquiries', v: q.id}|url_encode }}"
+                        >
+                            <div style="flex:1; min-width:0;">
+                                <strong>{{ full_name }}</strong>
+                                <span>{{ q.subject }}</span>
+                                <span>{{ q.created_at|date('M j, g:i A') }} · {{ q.email }}</span>
+                            </div>
+                            {% set badge = ticket_badge_map[q.status] ?? ticket_badge_map['open'] %}
+                            <span class="st-badge {{ badge[1] }}">{{ badge[0] }}</span>
+                        </a>
+                    {% endfor %}
+                {% endif %}
+            </div>
+
+            {# RIGHT: detail #}
+            <div class="panel">
+                {% if selected_inquiry %}
+                    {% set badge = ticket_badge_map[selected_inquiry.status] ?? ticket_badge_map['open'] %}
+                    {% set full_name = (selected_inquiry.first_name ~ ' ' ~ selected_inquiry.last_name)|trim %}
+
+                    <div class="panel-header">
+                        <h2>Contact Question #{{ selected_inquiry.id }}</h2>
+                        <span class="st-badge {{ badge[1] }}">{{ badge[0] }}</span>
+                    </div>
+
+                    <div class="inq-detail">
+
+                        <h3 class="inq-subject">{{ selected_inquiry.subject }}</h3>
+
+                        <div class="inq-meta">
+                            <div>
+                                <b>From</b>
+                                <span>{{ full_name }}</span>
+                            </div>
+                            <div>
+                                <b>Email</b>
+                                <a href="mailto:{{ selected_inquiry.email }}">{{ selected_inquiry.email }}</a>
+                            </div>
+                            <div>
+                                <b>Account</b>
+                                <span>
+                                    {% if selected_inquiry.account_name %}
+                                        {{ selected_inquiry.account_name }} (user #{{ selected_inquiry.user_id }})
+                                    {% else %}
+                                        Guest (not logged in)
+                                    {% endif %}
+                                </span>
+                            </div>
+                            <div>
+                                <b>Received</b>
+                                <span>{{ selected_inquiry.created_at|date('M j, Y — g:i A') }}</span>
+                            </div>
+                        </div>
+
+                        <div class="inq-body">{{ selected_inquiry.message }}</div>
+
+                        {# CHAT + REPLY-BY-EMAIL #}
+                        <div class="inq-actions">
+                            {% if selected_inquiry.user_id and support_id > 0 %}
+                                <a
+                                    class="chat-btn"
+                                    href="{{ path('app_admin_messages')|replace({'/admin/messages': '/admin/chat'}) }}?from_inquiry={{ selected_inquiry.id }}"
+                                >
+                                    💬 Open Chat
+                                </a>
+                            {% else %}
+                                <span class="guest-note">Guest submission — chat unavailable, reply by email.</span>
+                            {% endif %}
+
+                            <a
+                                class="reply-btn"
+                                href="mailto:{{ selected_inquiry.email }}?subject={{ ('Re: ' ~ selected_inquiry.subject)|url_encode }}"
+                            >
+                                ✉ Reply by email
+                            </a>
+                        </div>
+
+                        {# STATUS BUTTONS #}
+                        <div class="inq-actions">
+                            <form
+                                method="post"
+                                action="?{{ {tab: 'inquiries', v: selected_inquiry.id}|url_encode }}"
+                                style="display:flex; gap:8px; flex-wrap:wrap;"
+                            >
+                                <button class="st-btn" name="status" value="open">Mark Open</button>
+                                <button class="st-btn" name="status" value="in_progress">Mark In&nbsp;Progress</button>
+                                <button class="st-btn" name="status" value="resolved">Mark Resolved</button>
+                                <button class="st-btn" name="status" value="closed">Mark Closed</button>
+                            </form>
+                        </div>
+
+                    </div>
+                {% else %}
+                    <div class="detail-empty">
+                        <div class="empty-icon">{{ ui.icon('message') }}</div>
+                        <p>Select a contact question to read it. Submissions arrive from the Contacts page.</p>
+                    </div>
+                {% endif %}
+            </div>
+
+        </div>
+
+        {# ============================================================
+   TAB 2 — SUPPORT CHATS
+============================================================ #}
+    {% elseif tab == 'chats' %}
+
+        <div class="panel">
+            <div class="panel-header">
+                <h2>Support Chats ({{ chats|length }})</h2>
+            </div>
+
+            {% if support_id == 0 %}
+                <div class="empty-state">
+                    <div class="empty-icon">{{ ui.icon('alert-triangle') }}</div>
+                    <p>The support account could not be prepared — check the PHP error log.</p>
+                </div>
+            {% elseif chats is empty %}
+                <div class="empty-state">
+                    <div class="empty-icon">{{ ui.icon('inbox') }}</div>
+                    <p>No support chats yet. Open one from a Contact Question.</p>
+                </div>
+            {% else %}
+                {% for c in chats %}
+                    <a
+                        class="inq-item"
+                        href="{{ path('app_admin_messages')|replace({'/admin/messages': '/admin/chat'}) }}?c={{ c.id }}"
+                    >
+                        <div style="flex:1; min-width:0;">
+                            <strong>{{ c.user_name }}</strong>
+                            <span>
+                                {% if c.last_body is not null %}
+                                    {{ c.last_body|slice(0, 70) }}{{ c.last_body|length > 70 ? '…' : '' }}
+                                {% else %}
+                                    No messages yet
+                                {% endif %}
+                            </span>
+                            <span>
+                                {{ c.last_message_at ? c.last_message_at|date('M j, g:i A') : c.created_at|date('M j, Y') }}
+                                · {{ c.email }}
+                            </span>
+                        </div>
+                        {% if c.unread_count > 0 %}
+                            <span class="unread-badge">{{ c.unread_count }}</span>
+                        {% endif %}
+                        {{ ui.icon('chevron-right') }}
+                    </a>
+                {% endfor %}
+            {% endif %}
+        </div>
+
+        {# ============================================================
+   TAB 3 — CONVERSATIONS (read-only tenant ↔ host reader)
+============================================================ #}
+    {% else %}
+
+        <div class="msg-layout">
+
+            {# LEFT: list #}
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>Conversations ({{ conversations|length }})</h2>
+                </div>
+                {% if conversations is empty %}
+                    <div class="empty-state">
+                        <div class="empty-icon">{{ ui.icon('inbox') }}</div>
+                        <p>No conversations yet.</p>
+                    </div>
+                {% else %}
+                    {% for c in conversations %}
+                        <a
+                            class="convo-item {{ selected_convo and selected_convo.id == c.id ? 'active' : '' }}"
+                            href="?{{ {tab: 'conversations', c: c.id}|url_encode }}"
+                        >
+                            <div style="flex:1; min-width:0;">
+                                <strong>{{ c.tenant_name }} ↔ {{ c.host_name }}</strong>
+                                <span>{{ c.listing_title }}</span>
+                                <span>{{ c.msg_count }} message(s) · {{ c.last_message_at ? c.last_message_at|date('M j, g:i A') : 'no messages yet' }}</span>
+                            </div>
+                            {{ ui.icon('chevron-right') }}
+                        </a>
+                    {% endfor %}
+                {% endif %}
+            </div>
+
+            {# RIGHT: thread #}
+            <div class="panel">
+                {% if selected_convo %}
+                    <div class="panel-header">
+                        <h2>{{ selected_convo.tenant_name }} ↔ {{ selected_convo.host_name }}</h2>
+                        <span class="stat-caption">{{ selected_convo.listing_title }}</span>
+                    </div>
+                    <div class="thread-box">
+                        {% if thread is empty %}
+                            <p class="stat-caption" style="margin:auto;">No messages in this conversation yet.</p>
+                        {% else %}
+                            {% for m in thread %}
+                                <div class="bubble {{ m.sender_id == thread_host_id ? 'host-b' : 'tenant-b' }}">
+                                    <b>{{ m.sender_name }} · {{ m.msg_time|date('M j, g:i A') }}</b>
+                                    {{ m.body }}
+                                </div>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                {% else %}
+                    <div class="detail-empty">
+                        <div class="empty-icon">{{ ui.icon('message') }}</div>
+                        <p>Select a conversation to read it. Admins can read but not send messages.</p>
+                    </div>
+                {% endif %}
+            </div>
+
+        </div>
+
+    {% endif %}
+{% endblock %}

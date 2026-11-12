@@ -1,0 +1,427 @@
+{# roomhive/admin/listings.html.twig
+   Admin › Listings — extends admin/base.html.twig.
+
+   Inherits: sidebar (Listings highlighted), topbar, nav-alignment JS.
+
+   Provides: page-specific CSS (filter tabs, app-table, action
+   buttons, pagination), the content (filter tabs + table OR
+   empty state + pagination), and no page-specific JS (per-row
+   forms submit normally with a confirm() guard).
+
+   Actions: approve / reject / unlist (toggle visibility) /
+   delete (permanently — cascades photos/bookings/reviews/
+   wishlist; conversations are DETACHED not destroyed).
+#}
+{% extends 'admin/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'Listings' %}
+{% set page_heading = 'Listings' %}
+{% set page_subheading = 'All properties on the platform — approve, unlist, or remove them.' %}
+
+{% block styles %}
+    <style>
+        /* ---- Filter tabs ---- */
+        .filter-tabs {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+        }
+        .filter-tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border-radius: 10px;
+            background: #f6f7fb;
+            color: #5b6172;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            transition:
+                background 0.15s ease,
+                color 0.15s ease;
+        }
+        .filter-tab:hover {
+            background: #eef1f6;
+            color: #14142b;
+        }
+        .filter-tab.active {
+            background: #14142b;
+            color: #fff;
+        }
+        .filter-tab .icon {
+            width: 14px;
+            height: 14px;
+        }
+
+        /* ---- Table ---- */
+        .table-scroll {
+            overflow-x: auto;
+        }
+        table.app-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        table.app-table th {
+            text-align: left;
+            color: #8b93a6;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            padding: 10px 12px;
+            border-bottom: 1px solid #eef1f6;
+            white-space: nowrap;
+        }
+        table.app-table td {
+            padding: 12px;
+            border-bottom: 1px solid #f6f7fb;
+            vertical-align: middle;
+        }
+        table.app-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* ---- Listing cell (cover photo + title + location) ---- */
+        .applicant-cell {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 220px;
+        }
+        .applicant-cell img {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            object-fit: cover;
+            background: #f0eee6;
+            flex-shrink: 0;
+        }
+        .people-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+        .people-name {
+            font-weight: 600;
+            color: #14142b;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .people-sub {
+            font-size: 12px;
+            color: #8b93a6;
+        }
+
+        /* ---- Status badge ---- */
+        .badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 9px;
+            border-radius: 999px;
+            display: inline-block;
+        }
+
+        /* ---- Action buttons ---- */
+        .action-buttons {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+        .action-divider {
+            display: inline-block;
+            width: 1px;
+            height: 22px;
+            background: #eef1f6;
+        }
+        .btn-view {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            border: 1px solid #eef1f6;
+            background: #f6f7fb;
+            color: #5b6172;
+            text-decoration: none;
+            transition:
+                background 0.15s ease,
+                color 0.15s ease,
+                border-color 0.15s ease;
+        }
+        .btn-view:hover {
+            background: #eaf2fe;
+            color: #2f7de1;
+            border-color: #2f7de1;
+        }
+        .btn-view .icon {
+            width: 14px;
+            height: 14px;
+        }
+
+        .btn-action {
+            border: 1px solid #eef1f6;
+            background: #f6f7fb;
+            color: #14142b;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 6px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-family: inherit;
+            transition:
+                background 0.15s ease,
+                color 0.15s ease,
+                border-color 0.15s ease;
+        }
+        .btn-action:hover {
+            background: #eef1f6;
+        }
+        .btn-action.btn-approve:hover {
+            background: #e7f7ec;
+            color: #2fa84f;
+            border-color: #2fa84f;
+        }
+        .btn-action.btn-unlist:hover {
+            background: #fff4e0;
+            color: #c77a00;
+            border-color: #c77a00;
+        }
+        .btn-action.btn-delete {
+            border-color: #fceaea;
+            color: #e14b4b;
+            background: #fceaea;
+        }
+        .btn-action.btn-delete:hover {
+            background: #e14b4b;
+            color: #fff;
+            border-color: #e14b4b;
+        }
+
+        /* ---- Pagination ---- */
+        .pagination {
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            padding: 18px 0 4px;
+            flex-wrap: wrap;
+        }
+        .page-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 34px;
+            height: 34px;
+            padding: 0 10px;
+            border: 1px solid #eef1f6;
+            background: #fff;
+            color: #14142b;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            transition:
+                background 0.15s ease,
+                border-color 0.15s ease;
+        }
+        .page-btn:hover {
+            background: #f6f7fb;
+            border-color: #d0d4dd;
+        }
+        .page-btn.active {
+            background: #14142b;
+            color: #fff;
+            border-color: #14142b;
+        }
+        .page-btn .icon {
+            width: 14px;
+            height: 14px;
+        }
+
+        /* ---- Flash banner ---- */
+        .flash-banner {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 16px;
+        }
+        .flash-banner.success {
+            background: #e7f7ec;
+            color: #2fa84f;
+        }
+        .flash-banner.error {
+            background: #fceaea;
+            color: #e14b4b;
+        }
+        .flash-banner .icon {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    {% if flash %}
+        <div class="flash-banner {{ flash.type }}">
+            {{ ui.icon(flash.type == 'success' ? 'check-circle' : 'alert-triangle') }}
+            <span>{{ flash.text }}</span>
+        </div>
+    {% endif %}
+
+    <div class="panel">
+        {# ---- Filter tabs ---- #}
+        <div class="filter-tabs">
+            <a class="filter-tab {{ status == 'all' ? 'active' : '' }}" href="?status=all">
+                {{ ui.icon('tag') }} All ({{ cnt_all }})
+            </a>
+            <a class="filter-tab {{ status == 'pending' ? 'active' : '' }}" href="?status=pending">
+                {{ ui.icon('clock') }} Pending ({{ cnt_pending }})
+            </a>
+            <a class="filter-tab {{ status == 'approved' ? 'active' : '' }}" href="?status=approved">
+                {{ ui.icon('check-circle') }} Approved ({{ cnt_approved }})
+            </a>
+            <a class="filter-tab {{ status == 'rejected' ? 'active' : '' }}" href="?status=rejected">
+                {{ ui.icon('x-circle') }} Rejected ({{ cnt_rejected }})
+            </a>
+            <a class="filter-tab {{ status == 'unlisted' ? 'active' : '' }}" href="?status=unlisted">
+                {{ ui.icon('eye') }} Unlisted ({{ cnt_unlisted }})
+            </a>
+        </div>
+
+        {% if listings is empty %}
+            {{ ui.empty_state('No listings match this filter.') }}
+        {% else %}
+            <div class="table-scroll">
+                <table class="app-table">
+                    <thead>
+                        <tr>
+                            <th>Listing</th>
+                            <th>Host</th>
+                            <th>Price</th>
+                            <th>Activity</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for l in listings %}
+                            <tr>
+                                <td>
+                                    <div class="applicant-cell">
+                                        {{ ui.list_image(l.cover_photo ?: '/images/ListingPlaceholder.png', l.title) }}
+                                        <div class="people-info">
+                                            <span class="people-name">{{ l.title }}</span>
+                                            <span class="people-sub">{{ l.location }} · {{ l.photo_count }} photo(s)</span>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>{{ l.host_name }}</td>
+                                <td>
+                                    <strong>₱{{ l.price|number_format }}</strong>
+                                    <span class="people-sub">/mo</span>
+                                </td>
+                                <td>
+                                    {{ l.booking_count }} booking(s)<br>
+                                    <span class="people-sub">{{ l.created_at|date('M j, Y') }}</span>
+                                </td>
+                                <td>
+                                    <span class="badge {{ badge_class_map[l.status|capitalize] ?? '' }}">
+                                        {{ l.status|capitalize }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="action-buttons">
+                                        {# View (placeholder link — adjust to your listings detail page if you have one) #}
+                                        <a class="btn-view" href="/listings/{{ l.id }}" aria-label="View" title="View listing">
+                                            {{ ui.icon('eye') }}
+                                        </a>
+                                        <span class="action-divider"></span>
+
+                                        {# Approve OR Unlist (toggle based on current status) #}
+                                        <form method="post" action="{{ path('app_admin_listings') }}" style="display:inline;">
+                                            <input type="hidden" name="csrf_token" value="{{ admin_csrf }}">
+                                            <input type="hidden" name="listing_id" value="{{ l.id }}">
+                                            <input type="hidden" name="ret_status" value="{{ status }}">
+                                            <input type="hidden" name="ret_page" value="{{ page }}">
+                                            {% if l.status != 'approved' %}
+                                                <input type="hidden" name="action" value="approve">
+                                                <button
+                                                    type="submit"
+                                                    class="btn-action btn-approve"
+                                                    onclick="return confirm('Approve this listing?');"
+                                                >
+                                                    Approve
+                                                </button>
+                                            {% else %}
+                                                <input type="hidden" name="action" value="unlist">
+                                                <button
+                                                    type="submit"
+                                                    class="btn-action btn-unlist"
+                                                    onclick="return confirm('Unlist this listing? It will be hidden from search.');"
+                                                >
+                                                    Unlist
+                                                </button>
+                                            {% endif %}
+                                        </form>
+
+                                        {# Delete — cascading, conversations DETACHED not destroyed #}
+                                        <form method="post" action="{{ path('app_admin_listings') }}" style="display:inline;">
+                                            <input type="hidden" name="csrf_token" value="{{ admin_csrf }}">
+                                            <input type="hidden" name="listing_id" value="{{ l.id }}">
+                                            <input type="hidden" name="ret_status" value="{{ status }}">
+                                            <input type="hidden" name="ret_page" value="{{ page }}">
+                                            <input type="hidden" name="action" value="delete">
+                                            <button
+                                                type="submit"
+                                                class="btn-action btn-delete"
+                                                onclick="return confirm('Permanently delete this listing, its photos, bookings and reviews? Conversations are kept but detached.');"
+                                            >
+                                                Delete
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {# ---- Pagination ---- #}
+            {% if total_pages > 1 %}
+                <div class="pagination">
+                    {% if page > 1 %}
+                        <a class="page-btn" href="?{{ {status: status, page: page - 1}|filter(v => v)|url_encode }}">
+                            {{ ui.icon('chevron-left') }}
+                        </a>
+                    {% endif %}
+                    {% for p in 1..total_pages %}
+                        <a
+                            class="page-btn {{ p == page ? 'active' : '' }}"
+                            href="?{{ {status: status, page: p}|filter(v => v)|url_encode }}"
+                        >
+                            {{ p }}
+                        </a>
+                    {% endfor %}
+                    {% if page < total_pages %}
+                        <a class="page-btn" href="?{{ {status: status, page: page + 1}|filter(v => v)|url_encode }}">
+                            {{ ui.icon('chevron-right') }}
+                        </a>
+                    {% endif %}
+                </div>
+            {% endif %}
+        {% endif %}
+    </div>
+{% endblock %}

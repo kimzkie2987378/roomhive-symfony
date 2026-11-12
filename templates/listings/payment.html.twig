@@ -1,0 +1,535 @@
+{# =========================================================
+   ROOMHIVE — LISTING PAYMENT (Inquiry Step 2: Payment)
+   templates/listings/payment.html.twig
+   1:1 port of legacy listingpayment.php.
+
+   Controller: PaymentController::choose()
+     GET /listings/{id}/payment  (route app_listing_payment)
+     — the Reserve form on listings/detail.html.twig submits
+       here (GET listing_id/guests/checkout_date/months/
+       long_term), and the payments history page links
+       /listings/{id}/payment?pay_balance={bookingId} for
+       the balance mode.
+
+   CSS: public/assets/payment.css (the legacy page carried a
+   big inline <style> block — like listing-detail.css it now
+   lives in its own file, loaded AFTER style.css and
+   myaccount.css so the cascade order is unchanged):
+
+       <link rel="stylesheet" href="{{ asset('assets/payment.css') }}?v=1">
+
+   === 1:1 NOTES ===
+   - 50% RESERVE REMOVED (product change): guests now pay the
+     FULL total up front — the "Reserve (50%)" option, the
+     "Pay Full Price" second button, the payment_purpose_full
+     hidden flag and the reserve summary rows are gone. The
+     24h host review + auto-refund promise is unchanged.
+   - Wallet option first (inline SVG glyph), GCash keeps the
+     Recommended badge and the default selection — wallet
+     being first does not change the default.
+   - Insufficient wallet → red description + "Top up your
+     wallet" link → route app_wallet.
+   - Balance mode (?pay_balance=N): Pay Remaining Balance
+     heading, Booking Total / Already Paid / progress bar in
+     the sidebar, no steps indicator, hidden booking_id +
+     payment_purpose=balance.
+   - TODO URLs (same convention HostBookingsController
+     documents — plain strings, 404s until the legacy file is
+     ported, never a render-time 500):
+       * form action  → /booking/process-payment
+         (legacy booking/process-payment.php; it must
+         understand payment_method='wallet' per the legacy
+         docblock note)
+       * back-to-booking links → /booking/details/{id}
+         (legacy booking/booking-details.php)
+   - Redirect targets the controller maps:
+       * bad balance access → app_payments (legacy
+         booking/userbookings.php — not ported yet)
+       * already fully paid → /booking/details/{id}
+   - javaScript.js NOT included — dropped on every ported
+     page (legacy-only hook); the page's own behaviour script
+     (method highlight, wallet guard, double-submit lock)
+     stays inline like the legacy one.
+   - FIXED QUIRK (was a known legacy bug): this page reads
+     ?checkin_date, but the ported detail form's move-in input
+     (rd-movein) originally had no name attribute, so checkin_date
+     arrived empty and the Move-in spec row was hidden — and worse,
+     ProcessPaymentController's `$checkin === ''` guard bounced
+     the user back to app_listing_detail?incompletedates=1 ("Please
+     choose your move-in date before continuing") even though they
+     HAD picked a date. Fixed on detail.html.twig by adding
+     name="checkin_date" to the rd-movein input.
+========================================================= #}
+
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{{ balance_mode ? 'Pay Balance' : 'Payment Method' }} — RoomHive</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/myaccount.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/payment.css') }}?v=1">
+    </head>
+
+    <body>
+
+        <main class="bp-page">
+
+            {% if balance_mode %}
+                <a href="/booking/details/{{ pay_balance_id }}" class="bp-back-link">
+                    &#8592; Back to Booking
+                </a>
+            {% else %}
+                <a href="{{ path('app_listing_detail', { id: listing_id }) }}" class="bp-back-link">
+                    &#8592; Back to Listing
+                </a>
+            {% endif %}
+
+            {% if not balance_mode %}
+                <div class="bp-steps">
+                    <div class="bp-step bp-step-done">
+                        <span class="bp-step-circle">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="m5 12.5 4.5 4.5L19 7.5" />
+                            </svg>
+                        </span>
+                        <span class="bp-step-label">Details</span>
+                    </div>
+                    <span class="bp-step-line bp-step-line-done"></span>
+                    <div class="bp-step bp-step-active">
+                        <span class="bp-step-circle">2</span>
+                        <span class="bp-step-label">Payment</span>
+                    </div>
+                    <span class="bp-step-line"></span>
+                    <div class="bp-step">
+                        <span class="bp-step-circle">3</span>
+                        <span class="bp-step-label">Confirmation</span>
+                    </div>
+                </div>
+            {% endif %}
+
+            <div class="bp-layout">
+
+                <!-- =====================================================
+                     MAIN: PAYMENT METHOD SELECTION
+                ====================================================== -->
+                <div class="bp-main">
+
+                    <div class="bp-card">
+
+                        {% if balance_mode %}
+                            <h1>Pay Remaining Balance</h1>
+                            <p class="bp-subtext">
+                                Settle the remaining &#8369;{{ total_due_today|number_format(2, '.', ',') }}
+                                owed on this booking. Once paid, the booking is fully paid and you can enjoy your stay.
+                            </p>
+                        {% else %}
+                            <h1>Payment Method</h1>
+                            <p class="bp-subtext">Choose your preferred payment method to reserve your rental period.</p>
+                        {% endif %}
+
+                        <div class="bp-secure-banner">
+                            <span class="bp-secure-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+                                    <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
+                                </svg>
+                            </span>
+                            <div>
+                                <strong>Your payment is secure and encrypted</strong>
+                                <p>We use trusted payment providers to keep your information safe.</p>
+                            </div>
+                        </div>
+
+                        {% if not balance_mode %}
+                            <div class="bp-reserve-note">
+                                <span class="bp-secure-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <path d="M12 6v6l4 2" />
+                                    </svg>
+                                </span>
+                                <div>
+                                    <strong>24-hour reservation</strong>
+                                    <p>
+                                        This &#8369;{{ total_due_today|number_format(2, '.', ',') }} payment
+                                        {% if long_term %}(your full first month){% else %}(the full {{ duration_label }} total){% endif %} locks your dates for <b>24 hours</b>
+                                        while the host reviews your application. If the host doesn't accept within 24 hours,
+                                        the booking is automatically declined and your payment is refunded to your RoomHive
+                                        wallet{% if long_term %} — subsequent months are arranged with your host{% endif %}.
+                                    </p>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <form id="bp-payment-form" method="POST" action="/booking/process-payment">
+
+                            <input type="hidden" name="listing_id" value="{{ listing_id }}">
+                            <input type="hidden" name="checkin_date" value="{{ checkin }}">
+                            <input type="hidden" name="checkout_date" value="{{ checkout }}">
+                            <input type="hidden" name="guests" value="{{ guests }}">
+                            <input type="hidden" name="long_term" value="{{ long_term ? '1' : '0' }}">
+                            <input type="hidden" name="months" value="{{ months }}">
+
+                            {% if balance_mode %}
+                                <input type="hidden" name="booking_id" value="{{ pay_balance_id }}">
+                                <input type="hidden" name="payment_purpose" value="balance">
+                            {% else %}
+                                <input type="hidden" name="payment_purpose" value="reservation">
+                            {% endif %}
+
+                            <p class="bp-methods-label">Select a payment method</p>
+
+                            <div class="bp-methods">
+                                {% for method in methods %}
+                                    {% set is_wallet = method.id == 'wallet' %}
+                                    <label class="bp-method {{ method.recommended ? 'bp-method-selected' : '' }}">
+                                        <input
+                                            type="radio"
+                                            name="payment_method"
+                                            value="{{ method.id }}"
+                                            {% if method.recommended %}checked{% endif %}>
+                                        <span class="bp-method-icon">
+                                            {% if method.svg %}
+                                                <svg class="bp-method-svg" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2"
+                                                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                    <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" />
+                                                    <path d="M3 5v14a2 2 0 0 0 2 2h16v-5" />
+                                                    <path d="M18 12a2 2 0 0 0 0 4h4v-4Z" />
+                                                </svg>
+                                            {% else %}
+                                                <img src="{{ method.icon }}" alt="{{ method.label }}"
+                                                    onerror="this.onerror=null;this.style.display='none';">
+                                            {% endif %}
+                                        </span>
+                                        <span class="bp-method-text">
+                                            <span class="bp-method-name">
+                                                {{ method.label }}
+                                                {% if method.recommended %}
+                                                    <span class="bp-badge-recommended">Recommended</span>
+                                                {% endif %}
+                                            </span>
+                                            <span class="bp-method-desc {{ (is_wallet and wallet_short) ? 'bp-desc-warn' : '' }}">
+                                                {{ method.description }}
+                                                {% if is_wallet and wallet_short %}
+                                                    — <a class="bp-wallet-topup" href="{{ path('app_wallet') }}">Top up your wallet</a>
+                                                {% endif %}
+                                            </span>
+                                        </span>
+                                        <span class="bp-method-radio"></span>
+                                    </label>
+                                {% endfor %}
+                            </div>
+
+                            {% if not balance_mode %}
+                                <div class="bp-howitworks">
+                                    <div class="bp-howitworks-title">
+                                        <span class="bp-howitworks-icon">i</span>
+                                        How it works
+                                    </div>
+                                    <div class="bp-howitworks-steps">
+                                        <div class="bp-hiw-step">
+                                            <span class="bp-hiw-num">1</span>
+                                            <strong>Pay in Full</strong>
+                                            <p>{% if long_term %}Long Term: pay the full first month to lock the space.{% else %}Pay the full {{ months }}-month total to lock your dates.{% endif %}</p>
+                                        </div>
+                                        <span class="bp-hiw-arrow">&#8594;</span>
+                                        <div class="bp-hiw-step">
+                                            <span class="bp-hiw-num">2</span>
+                                            <strong>Host Reviews (24h)</strong>
+                                            <p>The host has 24 hours to accept. Otherwise it's auto-declined and refunded.</p>
+                                        </div>
+                                        <span class="bp-hiw-arrow">&#8594;</span>
+                                        <div class="bp-hiw-step">
+                                            <span class="bp-hiw-num">3</span>
+                                            <strong>Enjoy Your Stay</strong>
+                                            <p>{% if long_term %}After acceptance, move in and settle each month with your host.{% else %}After acceptance you're all set — just move in.{% endif %}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endif %}
+
+                            <button type="submit" class="bp-btn-pay">
+                                {{ balance_mode ? 'Pay Balance' : 'Pay Now' }}
+                                &#8369; {{ total_due_today|number_format(2, '.', ',') }}
+                            </button>
+
+                            <p class="bp-secure-note">
+                                {% if balance_mode %}
+                                    This payment will be added to booking #{{ pay_balance_id }}.
+                                {% else %}
+                                    Your payment holds your dates for 24 hours while the host reviews.
+                                    If declined, it is automatically refunded to your RoomHive wallet.
+                                {% endif %}
+                            </p>
+
+                            {% if balance_mode %}
+                                <a href="/booking/details/{{ pay_balance_id }}"
+                                    class="bp-back-inquiry">
+                                    &#8592; Back to Booking
+                                </a>
+                            {% else %}
+                                <a href="{{ path('app_listing_detail', { id: listing_id }) }}{{ back_query }}"
+                                    class="bp-back-inquiry">
+                                    &#8592; Back to Listing
+                                </a>
+                            {% endif %}
+
+                        </form>
+
+                    </div>
+
+                </div>
+
+                <!-- =====================================================
+                     SIDEBAR: LISTING / SUMMARY / HOST / LOCATION
+                     (Hive Club member chip + upsell chip REMOVED)
+                ====================================================== -->
+                <aside class="bp-sidebar">
+
+                    <div class="bp-card">
+
+                        <img
+                            class="bp-listing-photo"
+                            src="{{ cover_photo }}"
+                            alt="{{ listing.title }}"
+                            onerror="this.onerror=null;this.src='/images/ListingPlaceholder.png';">
+
+                        <h3 class="bp-listing-title">{{ listing.title }}</h3>
+                        <p class="bp-listing-location">
+                            <img src="/images/GPSIcon.png" alt="">
+                            {{ listing.location }}
+                        </p>
+                        <p class="bp-listing-rating">
+                            <span class="bp-star">&#9733;</span> {{ listing_rating_avg }}
+                            <span>({{ listing_rating_count }} reviews)</span>
+                        </p>
+
+                        {% if checkin %}
+                            <div class="bp-specs">
+                                <div class="bp-spec-row">
+                                    <span>Move-in</span>
+                                    <strong>{{ checkin|date('M j, Y') }}</strong>
+                                </div>
+                                {% if checkout %}
+                                    <div class="bp-spec-row">
+                                        <span>Move-out</span>
+                                        <strong>{{ checkout|date('M j, Y') }}</strong>
+                                    </div>
+                                {% elseif long_term %}
+                                    <div class="bp-spec-row">
+                                        <span>Move-out</span>
+                                        <strong>Open-ended</strong>
+                                    </div>
+                                {% endif %}
+                                <div class="bp-spec-row">
+                                    <span>Rental Duration</span>
+                                    <strong>{{ long_term ? 'Long Term' : duration_label }}</strong>
+                                </div>
+                                <div class="bp-spec-row">
+                                    <span>Guests</span>
+                                    <strong>{{ guests }}</strong>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <div class="bp-specs">
+                            <div class="bp-spec-row">
+                                <span>Property Type</span>
+                                <strong>{{ listing.property_type ?: 'Not specified' }}</strong>
+                            </div>
+                            <div class="bp-spec-row">
+                                <span>Bedrooms</span>
+                                <strong>{{ listing.bedrooms ?? 'Not specified' }}</strong>
+                            </div>
+                            <div class="bp-spec-row">
+                                <span>Bathrooms</span>
+                                <strong>{{ listing.bathrooms ?? 'Not specified' }}</strong>
+                            </div>
+                            <div class="bp-spec-row">
+                                <span>Size</span>
+                                <strong>{% if listing.size_sqm is not null %}{{ listing.size_sqm }} m&sup2;{% else %}Not specified{% endif %}</strong>
+                            </div>
+                            <div class="bp-spec-row">
+                                <span>Floor</span>
+                                <strong>{{ listing.floor ?? 'Not specified' }}</strong>
+                            </div>
+                            <div class="bp-spec-row">
+                                <span>Parking</span>
+                                <strong>{{ listing.parking ?: 'Not specified' }}</strong>
+                            </div>
+                        </div>
+
+                        <div class="bp-booking-summary">
+                            <h4>{{ balance_mode ? 'Payment Summary' : 'Booking Summary' }}</h4>
+
+                            {% if balance_mode %}
+                                <div class="bp-summary-row">
+                                    <span>Booking Total</span>
+                                    <strong>&#8369; {{ booking_total|number_format(2, '.', ',') }}</strong>
+                                </div>
+                                <div class="bp-summary-row">
+                                    <span>Already Paid</span>
+                                    <strong>&#8369; {{ amount_paid_so_far|number_format(2, '.', ',') }}</strong>
+                                </div>
+
+                                <div class="bp-progress" role="progressbar"
+                                    aria-valuenow="{{ paid_pct }}" aria-valuemin="0" aria-valuemax="100">
+                                    <div class="bp-progress-fill" style="width: {{ paid_pct }}%;"></div>
+                                </div>
+                                <p class="bp-progress-caption"><b>{{ paid_pct }}%</b> of the booking is already paid</p>
+
+                                <div class="bp-summary-row-total">
+                                    <span>Due Today</span>
+                                    <strong>&#8369; {{ total_due_today|number_format(2, '.', ',') }}</strong>
+                                </div>
+                            {% else %}
+                                <div class="bp-summary-row">
+                                    <span>Monthly Rent</span>
+                                    <strong>&#8369; {{ monthly_rent|number_format(2, '.', ',') }}</strong>
+                                </div>
+
+                                <div class="bp-summary-row">
+                                    <span>Rental Duration</span>
+                                    <strong>{{ long_term ? 'Long Term (month-to-month)' : duration_label }}</strong>
+                                </div>
+                                <div class="bp-summary-row rd-total-rent">
+                                    <span>{{ long_term ? 'First Month Rent' : 'Total Rent (' ~ months ~ ' month' ~ (months == 1 ? '' : 's') ~ ')' }}</span>
+                                    <strong>&#8369; {{ discounted_total|number_format(2, '.', ',') }}</strong>
+                                </div>
+
+                                <div class="bp-summary-row-total">
+                                    <span>Due Today</span>
+                                    <strong>&#8369; {{ total_due_today|number_format(2, '.', ',') }}</strong>
+                                </div>
+                            {% endif %}
+                        </div>
+
+                    </div>
+
+                    <!-- HOST CARD -->
+                    <div class="bp-card bp-host-card">
+                        <h3>Meet Your Host</h3>
+                        <div class="bp-host-row">
+                            <img
+                                class="bp-host-avatar"
+                                src="{{ host_avatar }}"
+                                alt="{{ host_name }}">
+                            <div style="flex:1; min-width:0;">
+                                <p class="bp-host-name">
+                                    {{ host_name }}
+                                    {% if is_superhost %}
+                                        <span class="bp-badge-superhost">Superhost</span>
+                                    {% endif %}
+                                </p>
+                                <p class="bp-host-since">Hosting since {{ host_since_label }}</p>
+                                {% if host_rating_count > 0 %}
+                                    <p class="bp-host-rating">
+                                        <span class="bp-star">&#9733;</span> {{ host_rating_avg }}
+                                        <span>({{ host_rating_count }} reviews)</span>
+                                    </p>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <p class="bp-host-response">
+                            Typically responds within a day
+                        </p>
+                    </div>
+
+                    <!-- LOCATION CARD -->
+                    <div class="bp-card bp-location-card">
+                        <h3>Location</h3>
+                        <p class="bp-location-address">
+                            {{ listing.exact_address ~ ', ' ~ listing.location }}
+                        </p>
+
+                        <div class="bp-map-embed">
+                            <iframe
+                                src="{{ maps_embed_url }}"
+                                loading="lazy"
+                                referrerpolicy="no-referrer-when-downgrade"
+                                title="{{ has_map_pin ? 'Listing location map' : 'Approximate location map' }}"></iframe>
+                        </div>
+
+                        {% if has_map_pin %}
+                            <p class="bp-map-exact-note">
+                                &#10003; Exact location shown on this map
+                            </p>
+                        {% endif %}
+
+                        <a
+                            class="bp-btn-outline"
+                            href="{{ maps_url }}"
+                            target="_blank"
+                            rel="noopener">
+                            Open in Google Maps
+                        </a>
+                    </div>
+
+                </aside>
+
+            </div>
+
+        </main>
+
+        {# legacy loaded /webprogg/assets/javaScript.js here — dropped like
+           every other ported page (legacy-only hook) #}
+        <script>
+            (function() {
+                var form = document.getElementById('bp-payment-form');
+                if (!form) return;
+
+                /* Payment method highlight */
+                var methods = Array.prototype.slice.call(form.querySelectorAll('.bp-method'));
+                methods.forEach(function(m) {
+                    m.addEventListener('click', function() {
+                        methods.forEach(function(x) {
+                            x.classList.remove('bp-method-selected');
+                        });
+                        m.classList.add('bp-method-selected');
+                        var input = m.querySelector('input[type="radio"]');
+                        if (input) {
+                            input.checked = true;
+                        }
+                    });
+                });
+
+                /* =====================================================
+                   WALLET GUARD — block wallet payment when the
+                   balance can't cover the amount due (full total
+                   or remaining balance).
+                ====================================================== */
+                var WALLET_BALANCE = {{ wallet_balance|json_encode }};
+                var DUE_MAIN = {{ total_due_today|json_encode }};
+
+                var pendingAmount = DUE_MAIN;
+
+                /* Wallet check first, then prevent double submits */
+                form.addEventListener('submit', function(e) {
+                    var checked = form.querySelector('input[name="payment_method"]:checked');
+
+                    if (checked && checked.value === 'wallet' && WALLET_BALANCE + 0.005 < pendingAmount) {
+                        e.preventDefault();
+                        alert(
+                            'Your RoomHive wallet balance (₱' + WALLET_BALANCE.toFixed(2) + ')' +
+                            ' is not enough for this payment (₱' + pendingAmount.toFixed(2) + ').' +
+                            ' Choose another payment method or top up your wallet.'
+                        );
+                        return;
+                    }
+
+                    Array.prototype.forEach.call(form.querySelectorAll('button[type="submit"]'), function(b) {
+                        b.disabled = true;
+                    });
+                });
+            })();
+        </script>
+
+    </body>
+
+</html>

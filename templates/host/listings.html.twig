@@ -1,0 +1,610 @@
+{# roomhive/host/listings.html.twig
+   Host › My Listings — 1:1 port of legacy user/mylistings.php
+   (the card-style manager: cover photo + status pill + "Price
+   Locked" badge, ₱/month, bookings stat line, applicant/occupied
+   strip, Edit Listing link). Extends host/base.html.twig;
+   sidebar "My Listings" highlights via active_nav = 'listings'.
+
+   Legacy hostprofile.css classes (hp-page-header, hp-mylisting-*,
+   hp-empty-state...) are rebuilt as page-local CSS below — that
+   stylesheet was never part of the Symfony port. The status pill
+   values are the same ones host/profile.html.twig uses.
+
+   THE 3-DOT KEBAB MENU WAS REMOVED from this page (request:
+   "delete the 3 dot and add the edit listing"):
+     • Accept Tenant / Reject Tenant → the Pending Tenants page
+       owns that flow (host/pending-tenants.html.twig — the
+       sign-to-accept flow, POST /host/bookings/{id}/accept|reject
+       via AcceptBookingController). The applicant strip is now a
+       LINK to /host/pending-tenants so "awaiting your decision"
+       still has a one-click path to act.
+     • Delete Listing → NOW PORTED as a real action (request:
+       "add i can delete the space"). HostDeleteListingController,
+       POST /host/listings/{id}/delete with a confirm dialog +
+       per-session CSRF (_rh_csrf_tokens['host_listing_delete'],
+       seeded by HostListingsController). Same lock as Edit:
+       while has_active_booking (reserved OR occupied) the
+       button renders locked and non-navigating; the endpoint
+       re-checks ownership + the lock server-side and cleans up
+       reviews / wishlist / bookings / photos inside one
+       transaction (conversations just lose their listing_id).
+       Result comes back as GET flags: ?deleted=1 (green banner)
+       or ?delete_error=occupied|csrf|notfound|failed (red).
+
+   REAL STATS (request: "make bookings views and ratings works"):
+     • Bookings — confirmed + completed count (was already real).
+     • Views — listings.views column (NOT in the legacy dump;
+       self-healed on first run), incremented by
+       ListingsController::detail on every detail-page visit.
+     • Rating — AVG(reviews.rating) + review count per listing;
+       renders "—" while the listing has no reviews yet.
+
+   Occupied vs. "has active booking" (two controller-provided
+   flags, they are NOT the same):
+     has_active_booking = a pending (paid reserve, awaiting
+       decision) OR confirmed booking exists → drives the
+       "Price Locked" badge (legacy semantics: price and
+       availability lock while booked or reserving).
+     is_occupied = a CONFIRMED booking exists → someone actually
+       lives in the space right now → drives the occupied-guard
+       features below ("can edit if no one occupied").
+
+   Actions:
+     • Cover photo + listing title link to the public detail
+       page (/listings/{id}, app_listing_detail — same hardcoded
+       URL style as host/messages.html.twig): "click to see the
+       details".
+     • Edit Listing → /host/listings/edit?id=N
+       (REAL route now — HostEditListingController, the port of
+       legacy user/edit-listing.php). Still gated CLIENT-SIDE:
+       while the space is occupied the link is replaced by a
+       locked, non-navigating button that explains itself on
+       click; the edit page re-checks the lock server-side.
+     • Applicant strip → /host/pending-tenants (accept/reject
+       live there).
+     • Add New Listing → /host/become-a-host (legacy becomeahost.php)
+
+   Pairs with: HostListingsController (route /host/listings,
+   route name app_host_listings, GET only — the legacy page has
+   no POST handling of its own).
+#}
+{% extends 'host/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'listings' %}
+
+{% block page_title %}My Listings — RoomHive{% endblock %}
+
+{% block styles %}
+    <style>
+        /* ---- Page header ---- */
+        .hp-page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .hp-page-title {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--rh-ink);
+        }
+        .hp-page-subtitle {
+            margin: 4px 0 0;
+            font-size: 13px;
+            color: var(--rh-muted);
+            max-width: 640px;
+        }
+
+        /* ---- Status pills (same values as host/profile.html.twig) ---- */
+        .hp-status {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+        .hp-status-active {
+            background: #e7f7ec;
+            color: #1fa971;
+        }
+        .hp-status-pending {
+            background: var(--rh-accent-light);
+            color: #b07708;
+        }
+        .hp-status-rejected {
+            background: #fceaea;
+            color: #e14b4b;
+        }
+        .hp-status-unlisted {
+            background: #f0f1f6;
+            color: var(--rh-muted);
+        }
+
+        /* ---- Empty state ---- */
+        .hp-empty-state {
+            text-align: center;
+            padding: 56px 20px;
+            background: #fff;
+            border: 1px dashed var(--rh-line);
+            border-radius: var(--rh-radius);
+            font-size: 13.5px;
+            color: var(--rh-muted);
+        }
+        .hp-empty-state p {
+            margin: 0;
+        }
+        .hp-empty-state-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--rh-ink);
+            margin-bottom: 6px;
+        }
+
+        /* ---- Listing cards ---- */
+        .hp-mylistings-list {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .hp-mylisting-card {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            flex-wrap: wrap;
+            background: #fff;
+            border: 1px solid var(--rh-line);
+            border-radius: var(--rh-radius);
+            padding: 16px;
+        }
+        .hp-mylisting-img-wrap {
+            position: relative;
+            width: 200px;
+            height: 132px;
+            flex-shrink: 0;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #f0eee6;
+        }
+        .hp-mylisting-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        /* ---- Click-through to the detail page (cover + title) ---- */
+        .hp-mylisting-img-link {
+            display: block;
+            width: 100%;
+            height: 100%;
+            color: inherit;
+            text-decoration: none;
+        }
+        .hp-mylisting-img-link:hover .hp-mylisting-img {
+            opacity: 0.92;
+        }
+        .hp-mylisting-title-link {
+            color: inherit;
+            text-decoration: none;
+        }
+        .hp-mylisting-title-link:hover {
+            text-decoration: underline;
+        }
+
+        .hp-mylisting-info {
+            flex: 1 1 200px;
+            min-width: 0;
+        }
+        .hp-mylisting-info h3 {
+            margin: 0 0 6px;
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--rh-ink);
+        }
+        .hp-mylisting-price-row {
+            margin-top: 12px;
+            font-size: 13px;
+            color: var(--rh-muted);
+        }
+        .hp-mylisting-price {
+            font-size: 19px;
+            font-weight: 800;
+            color: var(--rh-ink);
+            margin-right: 2px;
+        }
+        .hp-mylisting-stats {
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+            flex-shrink: 0;
+        }
+        .hp-mylisting-stat-line {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12.5px;
+            color: var(--rh-muted);
+        }
+        .hp-mylisting-stat-line b {
+            color: var(--rh-ink);
+            font-weight: 700;
+        }
+        .hp-mylisting-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: auto;
+            flex-shrink: 0;
+        }
+
+        /* ---- Applicant / occupied strip (legacy values; spans the
+                                    card's second row via flex-basis) ---- */
+        .hp-mylisting-applicant {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-basis: 100%;
+            box-sizing: border-box;
+            margin: 8px 0 0;
+            padding: 6px 10px;
+            background: #fff4e0;
+            border: 1px solid #f7941d;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #8a5a10;
+        }
+        .hp-mylisting-applicant svg {
+            width: 14px;
+            height: 14px;
+            flex-shrink: 0;
+        }
+
+        /* ---- Applicant strip as a link to Pending Tenants (the
+                                    kebab's Accept/Reject live there now) ---- */
+        a.hp-mylisting-applicant {
+            text-decoration: none;
+            transition: filter 0.15s ease;
+        }
+        a.hp-mylisting-applicant:hover {
+            filter: brightness(0.97);
+        }
+        .hp-applicant-chev {
+            margin-left: auto;
+            color: #b07708;
+        }
+
+        /* ---- "Price Locked" badge (exact legacy values) ---- */
+        .hp-locked-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: rgba(28, 42, 56, 0.85);
+            color: #ffffff;
+            font-size: 10.5px;
+            font-weight: 800;
+        }
+        .hp-locked-badge svg {
+            width: 11px;
+            height: 11px;
+        }
+
+        /* ---- Occupied guard: Edit locked (only fires while
+                                    is_occupied) ---- */
+        .hp-edit-locked {
+            font-family: inherit;
+            color: var(--rh-muted);
+            background: #f6f7fb;
+            border-color: var(--rh-line);
+            cursor: not-allowed;
+        }
+        .hp-edit-locked:hover {
+            background: #f6f7fb;
+        }
+
+        /* ---- Danger action: Delete (port of legacy
+                                    delete-listing.php; same lock as edit) ---- */
+        .hp-btn-danger {
+            color: #e14b4b;
+            border-color: #f3c1c1;
+        }
+        a.hp-btn-danger:hover,
+        button.hp-btn-danger:hover {
+            background: #fdf0f0;
+        }
+        .hp-delete-form {
+            display: inline-flex;
+            margin: 0;
+        }
+        .hp-delete-locked {
+            font-family: inherit;
+            color: var(--rh-muted);
+            background: #f6f7fb;
+            border-color: var(--rh-line);
+            cursor: not-allowed;
+        }
+        .hp-delete-locked:hover {
+            background: #f6f7fb;
+        }
+
+        /* ---- Delete result banners (?deleted=1 / ?delete_error=…) ---- */
+        .hp-flash {
+            padding: 11px 14px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            margin: 0 0 16px;
+        }
+        .hp-flash-success {
+            background: #e7f7ec;
+            border: 1px solid #bfe8cf;
+            color: #1fa971;
+        }
+        .hp-flash-error {
+            background: #fceaea;
+            border: 1px solid #f3c1c1;
+            color: #e14b4b;
+        }
+
+        /* ---- Icon sizing (legacy: bare-svg descendants; the macro
+                                    prints svg.icon so these selectors hit either way) ---- */
+        svg.icon {
+            display: inline-block;
+            vertical-align: -0.18em;
+            flex-shrink: 0;
+        }
+        .hp-mylisting-location svg,
+        .hp-mylisting-stat-line svg {
+            width: 14px;
+            height: 14px;
+            flex-shrink: 0;
+            color: #8b93a6;
+        }
+        .hp-btn-outline {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .hp-btn-outline svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        /* ---- Dark mode ---- */
+        body[data-theme="dark"] .hp-page-title {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-mylisting-card {
+            background: #141b24;
+            border-color: #1a222b;
+        }
+        body[data-theme="dark"] .hp-mylisting-info h3 {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-mylisting-price {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-mylisting-stat-line b {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-empty-state {
+            background: #141b24;
+            border-color: #1a222b;
+            color: #8d99a5;
+        }
+        body[data-theme="dark"] .hp-empty-state-title {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-edit-locked,
+        body[data-theme="dark"] .hp-edit-locked:hover {
+            background: #1a222b;
+            border-color: #232d38;
+            color: #8d99a5;
+        }
+        body[data-theme="dark"] .hp-delete-locked,
+        body[data-theme="dark"] .hp-delete-locked:hover {
+            background: #1a222b;
+            border-color: #232d38;
+            color: #8d99a5;
+        }
+        body[data-theme="dark"] a.hp-btn-danger:hover,
+        body[data-theme="dark"] button.hp-btn-danger:hover {
+            background: #2a1a1c;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    <div class="hp-page-header">
+        <div>
+            <h1 class="hp-page-title">My Listings</h1>
+            <p class="hp-page-subtitle">Manage your properties — edit details anytime; price and availability lock while a guest is booked or reserving.</p>
+        </div>
+        <a href="/host/become-a-host" class="hp-btn-outline">
+            {{ ui.icon('plus') }} Add New Listing
+        </a>
+    </div>
+
+    {% if deleted %}
+        <div class="hp-flash hp-flash-success">Listing deleted — its photos, bookings, reviews and wishlist saves were removed too.</div>
+    {% elseif delete_error == 'occupied' %}
+        <div class="hp-flash hp-flash-error">This space is reserved or occupied — it can't be deleted until the booking ends.</div>
+    {% elseif delete_error == 'csrf' %}
+        <div class="hp-flash hp-flash-error">Your session expired — please try again.</div>
+    {% elseif delete_error %}
+        <div class="hp-flash hp-flash-error">Could not delete the listing — it may not exist or may not be yours. Please try again.</div>
+    {% endif %}
+
+    <div class="hp-mylistings-list">
+        {% if listings is empty %}
+
+            <div class="hp-empty-state">
+                <p class="hp-empty-state-title">No listings yet</p>
+                <p>Click "Add New Listing" above to publish your first property.</p>
+            </div>
+
+        {% else %}
+            {% for l in listings %}
+                <div class="hp-mylisting-card">
+                    <div class="hp-mylisting-img-wrap">
+                        <a href="/listings/{{ l.id }}" class="hp-mylisting-img-link" title="See the details" aria-label="See the details of {{ l.title }}">
+                            <img
+                                class="hp-mylisting-img"
+                                src="{{ l.cover_photo }}"
+                                alt="{{ l.title }}"
+                                onerror="this.onerror=null;this.src='/images/ListingPlaceholder.png';"
+                            >
+                        </a>
+                        <span class="hp-status {{ l.status_class }}" style="position:absolute; top:10px; left:10px;">
+                            {{ l.status_label }}
+                        </span>
+                        {% if l.has_active_booking %}
+                            <span class="hp-locked-badge">
+                                {{ ui.icon('lock') }} Price Locked
+                            </span>
+                        {% endif %}
+                    </div>
+
+                    <div class="hp-mylisting-info">
+                        <h3>
+                            <a href="/listings/{{ l.id }}" class="hp-mylisting-title-link" title="See the details">{{ l.title }}</a>
+                        </h3>
+                        <div class="hp-mylisting-location">
+                            {{ ui.icon('pin') }}
+                            {{ l.location }}
+                        </div>
+                        <div class="hp-mylisting-price-row">
+                            <span class="hp-mylisting-price">&#8369; {{ l.price|number_format }}</span>
+                            <span> / month</span>
+                        </div>
+                    </div>
+
+                    <div class="hp-mylisting-stats">
+                        <div class="hp-mylisting-stat-line">
+                            {{ ui.icon('calendar') }}
+                            Bookings <b>{{ l.booking_count }}</b>
+                        </div>
+                        <div class="hp-mylisting-stat-line">
+                            {{ ui.icon('eye') }}
+                            Views <b>{{ l.view_count }}</b>
+                        </div>
+                        <div class="hp-mylisting-stat-line">
+                            {{ ui.icon('star') }}
+                            {% if l.rating_count > 0 %}
+                                Rating <b>{{ l.rating_avg|number_format(1) }}</b> ({{ l.rating_count }})
+                            {% else %}
+                                Rating <b>&mdash;</b>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    {% if l.pending_booking_id %}
+                        <a href="/host/pending-tenants" class="hp-mylisting-applicant" title="Decide on the Pending Tenants page">
+                            {{ ui.icon('user-plus') }}
+                            {{ l.pending_tenant_name }} applied &mdash; awaiting your decision
+                            <span class="hp-applicant-chev">{{ ui.icon('chevron-right') }}</span>
+                        </a>
+                    {% elseif l.is_occupied %}
+                        <p class="hp-mylisting-applicant" style="background:#E8F8F1; border-color:#1FA971; color:#1FA971;">
+                            {{ ui.icon('shield') }}
+                            Currently occupied — price and availability locked
+                        </p>
+                    {% endif %}
+
+                    <div class="hp-mylisting-actions">
+                        {# EDIT — only while nobody occupies the space
+                       ("can edit if no one occupied"). While occupied
+                       this renders as a locked, non-navigating button
+                       that explains itself on click. The edit page
+                       (HostEditListingController) re-checks the lock
+                       server-side. #}
+                        {% if l.is_occupied %}
+                            <button type="button" class="hp-btn-outline hp-edit-locked" data-listing-title="{{ l.title }}" aria-disabled="true" title="Editing is disabled while the space is occupied">
+                                {{ ui.icon('lock') }} Edit Listing
+                            </button>
+                        {% else %}
+                            <a href="/host/listings/edit?id={{ l.id }}" class="hp-btn-outline">
+                                {{ ui.icon('pencil') }} Edit Listing
+                            </a>
+                        {% endif %}
+
+                        {# DELETE — port of legacy delete-listing.php
+                       (HostDeleteListingController, POST
+                       /host/listings/{id}/delete). Same lock as
+                       edit: while the space is reserved OR occupied
+                       (has_active_booking) the button renders
+                       locked; the endpoint re-checks the lock +
+                       ownership + CSRF server-side. #}
+                        {% if l.has_active_booking %}
+                            <button type="button" class="hp-btn-outline hp-btn-danger hp-delete-locked" aria-disabled="true" title="Deleting is disabled while the space is reserved or occupied">
+                                {{ ui.icon('trash') }} Delete
+                            </button>
+                        {% else %}
+                            <form method="post" action="/host/listings/{{ l.id }}/delete" class="hp-delete-form" data-listing-title="{{ l.title }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_host_listing_delete }}">
+                                <button type="submit" class="hp-btn-outline hp-btn-danger">
+                                    {{ ui.icon('trash') }} Delete
+                                </button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        /* =========================================================
+                               PAGE ACTIONS —
+                               • EDIT LOCK: occupied spaces cannot be edited.
+                                 Accept/Reject live on the Pending Tenants page
+                                 (whose endpoint, AcceptBookingController, also
+                                 re-checks occupancy server-side).
+                               • DELETE: port of legacy delete-listing.php —
+                                 confirm dialog before POST; locked while the
+                                 space is reserved or occupied.
+                            ========================================================= */
+        (function () {
+            document.querySelectorAll(".hp-edit-locked").forEach(function (btn) {
+                btn.addEventListener("click", function () {
+                    alert(
+                        "Editing is disabled while this space is occupied.\n\nYou can edit the listing again once nobody is staying in it.",
+                    );
+                });
+            });
+
+            document.querySelectorAll(".hp-delete-locked").forEach(function (btn) {
+                btn.addEventListener("click", function () {
+                    alert(
+                        "Deleting is disabled while this space is reserved or occupied.\n\nOnce the booking ends and nobody is staying in it, you can delete the listing.",
+                    );
+                });
+            });
+
+            document.querySelectorAll(".hp-delete-form").forEach(function (form) {
+                form.addEventListener("submit", function (e) {
+                    var title =
+                        form.getAttribute("data-listing-title") || "this listing";
+                    if (
+                        !window.confirm(
+                            'Delete "' +
+                                title +
+                                '" permanently?\n\nThis also removes its photos, bookings, reviews and wishlist saves. This cannot be undone.',
+                        )
+                    ) {
+                        e.preventDefault();
+                    }
+                });
+            });
+        })();
+    </script>
+{% endblock %}

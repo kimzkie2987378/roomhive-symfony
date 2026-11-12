@@ -48,8 +48,8 @@
             }
 
             /* =====================================================
-                                                           FILTER BAR — location, category and search extend
-                                                        ====================================================== */
+                                                                       FILTER BAR — location, category and search extend
+                                                                    ====================================================== */
             #filter-form {
                 display: flex !important;
                 align-items: center;
@@ -99,8 +99,8 @@
             }
 
             /* =====================================================
-                                                           DROPDOWN MAKEOVER — selects, inputs, panels
-                                                        ====================================================== */
+                                                                       DROPDOWN MAKEOVER — selects, inputs, panels
+                                                                    ====================================================== */
             .filter-group {
                 position: relative;
             }
@@ -282,9 +282,9 @@
             }
 
             /* =====================================================
-                           LOCATION PANEL — stage 2 extras
-                           (back row, whole-province row, match highlight)
-                        ====================================================== */
+                                       LOCATION PANEL — stage 2 extras
+                                       (back row, whole-province row, match highlight)
+                                    ====================================================== */
             .loc-back-row {
                 display: flex;
                 align-items: center;
@@ -322,9 +322,9 @@
             }
 
             /* =====================================================
-                           CLEAR (X) BUTTON — location search
-                           Sits in the input's 36px right padding zone.
-                        ====================================================== */
+                                       CLEAR (X) BUTTON — location search
+                                       Sits in the input's 36px right padding zone.
+                                    ====================================================== */
             .loc-clear-btn {
                 position: absolute;
                 right: 9px;
@@ -493,8 +493,8 @@
             }
 
             /* PRICE RANGE — filled track follows the thumb.
-                           Base (unfilled) color here; JS paints the gold
-                           gradient up to the thumb position on load + drag. */
+                                       Base (unfilled) color here; JS paints the gold
+                                       gradient up to the thumb position on load + drag. */
             .price-range {
                 -webkit-appearance: none;
                 appearance: none;
@@ -585,6 +585,357 @@
                 color: #ffffff;
                 background: var(--rh-gold, #d68e0e);
                 border-color: var(--rh-gold, #d68e0e);
+            }
+            /* =====================================================
+                                       WISHLIST HEART — top-right of every space card
+                                    ====================================================== */
+            .rh-card-media {
+                position: relative;
+            }
+            .rh-wish-btn {
+                position: absolute;
+                top: 12px;
+                right: 12px;
+                z-index: 30;
+
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+
+                width: 38px;
+                height: 38px;
+                padding: 0;
+
+                border: none;
+                border-radius: 50%;
+
+                background: rgba(255, 255, 255, 0.92);
+                color: #1c2a38;
+
+                cursor: pointer;
+                box-shadow: 0 2px 10px rgba(28, 42, 56, 0.22);
+
+                transition:
+                    transform 0.15s ease,
+                    box-shadow 0.15s ease,
+                    background 0.15s ease;
+            }
+            .rh-wish-btn:hover {
+                transform: scale(1.08);
+                background: #ffffff;
+                box-shadow: 0 4px 14px rgba(28, 42, 56, 0.28);
+            }
+            .rh-wish-btn:active {
+                transform: scale(0.94);
+            }
+            .rh-wish-btn:focus-visible {
+                outline: 2px solid var(--rh-gold, #d68e0e);
+                outline-offset: 2px;
+            }
+            .rh-wish-btn svg {
+                width: 18px;
+                height: 18px;
+                display: block;
+            }
+            /* outline heart by default, filled heart once saved */
+            .rh-wish-btn .rh-wish-fill {
+                display: none;
+            }
+            .rh-wish-btn.saved {
+                color: #d68e0e;
+            }
+            .rh-wish-btn.saved .rh-wish-outline {
+                display: none;
+            }
+            .rh-wish-btn.saved .rh-wish-fill {
+                display: block;
+            }
+            /* GLOW — saved hearts pulse with a soft GOLD ring that
+                           radiates outward, matching the site's gold theme.
+                           Runs alongside the .pop bounce (pop animates the svg,
+                           glow animates the button's box-shadow). */
+            .rh-wish-btn.saved {
+                animation: rhWishGlow 1.6s ease-in-out infinite;
+            }
+            @keyframes rhWishGlow {
+                0%,
+                100% {
+                    box-shadow:
+                        0 0 0 0 rgba(237, 164, 35, 0.55),
+                        0 2px 10px rgba(28, 42, 56, 0.22);
+                }
+                50% {
+                    box-shadow:
+                        0 0 0 9px rgba(237, 164, 35, 0),
+                        0 2px 10px rgba(28, 42, 56, 0.22);
+                }
+            }
+            /* hover keeps the glow running (animation owns box-shadow)
+                           but still lifts + brightens so the cursor feels alive */
+            .rh-wish-btn.saved:hover {
+                transform: scale(1.08);
+                background: #ffffff;
+            }
+            /* dark mode — brighter gold on dark cards */
+            html.dark .rh-wish-btn.saved {
+                color: #f6c04e;
+                animation-name: rhWishGlowDark;
+            }
+            @keyframes rhWishGlowDark {
+                0%,
+                100% {
+                    box-shadow:
+                        0 0 0 0 rgba(246, 192, 78, 0.55),
+                        0 2px 10px rgba(0, 0, 0, 0.35);
+                }
+                50% {
+                    box-shadow:
+                        0 0 0 9px rgba(246, 192, 78, 0),
+                        0 2px 10px rgba(0, 0, 0, 0.35);
+                }
+            }
+            /* reduced motion — static glow ring, no pulsing */
+            @media (prefers-reduced-motion: reduce) {
+                .rh-wish-btn.saved,
+                html.dark .rh-wish-btn.saved {
+                    animation: none;
+                    box-shadow:
+                        0 0 0 4px rgba(237, 164, 35, 0.4),
+                        0 2px 10px rgba(28, 42, 56, 0.22);
+                }
+            }
+            /* pop animation on toggle */
+            @keyframes rhWishPop {
+                0% {
+                    transform: scale(0.6);
+                }
+                55% {
+                    transform: scale(1.25);
+                }
+                100% {
+                    transform: scale(1);
+                }
+            }
+            .rh-wish-btn.pop svg {
+                animation: rhWishPop 0.32s ease;
+            }
+
+            /* =====================================================
+                                       ENQUIRY WAITING CARD — a listing the viewer
+                                       has a PENDING application on stays in their
+                                       grid, but the card renders slightly blurred
+                                       with a 3-dot loader, the "Waiting for host
+                                       to accept" caption and a Cancel button.
+                                       Cancel posts to the SAME
+                                       /booking/cancel-booking endpoint the My
+                                       Bookings page uses (a fresh enquiry has
+                                       nothing paid, so no refund applies).
+                                    ====================================================== */
+            .listing-box {
+                position: relative;
+            }
+            /* the card content blurs; the overlay floats above it */
+            .listing-box.rh-enquiry-wait .rh-card-media,
+            .listing-box.rh-enquiry-wait .listing-box-info {
+                filter: blur(3px);
+                pointer-events: none;
+            }
+            .rh-enquiry-overlay {
+                position: absolute;
+                inset: 0;
+                z-index: 40;
+
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 9px;
+                padding: 14px;
+                text-align: center;
+
+                background: rgba(255, 255, 255, 0.55);
+                -webkit-backdrop-filter: blur(2px);
+                backdrop-filter: blur(2px);
+                border-radius: inherit;
+                cursor: default;
+            }
+            /* 3-dot loading animation */
+            .rh-enq-dots {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+            }
+            .rh-enq-dots span {
+                width: 9px;
+                height: 9px;
+                border-radius: 50%;
+                background: var(--rh-gold, #d68e0e);
+                animation: rhEnqDot 1.2s infinite ease-in-out;
+            }
+            .rh-enq-dots span:nth-child(2) {
+                animation-delay: 0.15s;
+            }
+            .rh-enq-dots span:nth-child(3) {
+                animation-delay: 0.3s;
+            }
+            @keyframes rhEnqDot {
+                0%,
+                80%,
+                100% {
+                    transform: scale(0.55);
+                    opacity: 0.35;
+                }
+                40% {
+                    transform: scale(1);
+                    opacity: 1;
+                }
+            }
+            .rh-enq-label {
+                margin: 0;
+                font-family: inherit;
+                font-size: 13.5px;
+                font-weight: 700;
+                line-height: 1.35;
+                color: #1c2a38;
+            }
+            /* Cancel — same quiet outline style as the pagination
+                           buttons; hover borrows the gold theme */
+            .rh-enq-cancel {
+                appearance: none;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                margin-top: 3px;
+                padding: 7px 24px;
+
+                border: 1px solid var(--rh-line, #e2e8f0);
+                border-radius: 9px;
+                background: #ffffff;
+                color: #1c2a38;
+                font-family: inherit;
+                font-size: 13px;
+                font-weight: 700;
+                line-height: 1;
+                cursor: pointer;
+
+                transition:
+                    background 0.15s ease,
+                    color 0.15s ease,
+                    border-color 0.15s ease;
+            }
+            .rh-enq-cancel:hover {
+                border-color: var(--rh-gold, #d68e0e);
+                color: var(--rh-gold-deep, #9c6a08);
+            }
+            .rh-enq-cancel:disabled {
+                opacity: 0.6;
+                cursor: default;
+            }
+            .rh-enq-cancel:focus-visible {
+                outline: 2px solid var(--rh-gold, #d68e0e);
+                outline-offset: 2px;
+            }
+            /* dark mode — frost turns to smoked glass */
+            html.dark .rh-enquiry-overlay {
+                background: rgba(10, 18, 28, 0.55);
+            }
+            html.dark .rh-enq-label {
+                color: #e7eef6;
+            }
+            html.dark .rh-enq-cancel {
+                background: rgba(255, 255, 255, 0.08);
+                border-color: rgba(255, 255, 255, 0.22);
+                color: #e7eef6;
+            }
+            html.dark .rh-enq-cancel:hover {
+                border-color: var(--rh-gold, #d68e0e);
+                color: #f6c04e;
+            }
+            /* reduced motion — dots hold still instead of bouncing */
+            @media (prefers-reduced-motion: reduce) {
+                .rh-enq-dots span {
+                    animation: none;
+                    opacity: 0.55;
+                    transform: scale(0.8);
+                }
+            }
+            /* ============ CARD RATING SCALE -- the 5-star track on
+               each listing card, replacing the bare "No reviews yet"
+               text. Page-local on purpose: listings-style.css stays
+               untouched. The dim row is the track; the gold row sits
+               exactly on top of it and clips to (rating / 5 * 100)%, so
+               fractional averages scale star by star. The gold matches
+               the ratings overlay on the detail page; dark mode handled
+               below. */
+            .rh-card-rating {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                flex: 0 0 auto;
+                line-height: 1;
+                white-space: nowrap;
+            }
+            .rh-stars {
+                position: relative;
+                display: inline-block;
+                line-height: 0;
+            }
+            /* STAR SCALE v3 -- the gold fill is CLIPPED, never squeezed:
+               flex:none pins every star to its square 16px box, so
+               narrowing the fill container cannot shrink the glyphs --
+               the gold row is simply CUT at (rating / 5 * 100)%, i.e.
+               3.0 = exactly 3 crisp gold stars, 3.5 = half of the
+               fourth, 4.3 = 30% of the fifth, 0 reviews = empty track.
+               Both rows are block-level flex boxes pinned top-left, so
+               the gold sits pixel-exact ON the gray track (no baseline
+               drift, no down-left offset). Star boundaries stay on
+               exact 20% steps of the 80px track. */
+            .rh-stars-row {
+                display: flex;
+                flex-wrap: nowrap;
+                gap: 0;
+            }
+            .rh-star {
+                width: 16px;
+                height: 16px;
+                flex: none;
+                display: block;
+            }
+            .rh-stars-base {
+                color: #d3d9e3;
+            }
+            .rh-stars-fill {
+                position: absolute;
+                top: 0;
+                left: 0;
+                height: 100%;
+                overflow: hidden;
+                color: #eda423;
+                pointer-events: none;
+            }
+            .rh-stars-text {
+                display: inline-flex;
+                align-items: baseline;
+                gap: 3px;
+                font-size: 13px;
+                line-height: 1;
+            }
+            .rh-stars-num {
+                font-weight: 700;
+                color: #14142b;
+            }
+            .rh-stars-count {
+                font-weight: 600;
+                color: #8b93a6;
+            }
+            html.dark .rh-stars-base {
+                color: rgba(255, 255, 255, 0.22);
+            }
+            html.dark .rh-stars-num {
+                color: #e8eef5;
+            }
+            html.dark .rh-stars-count {
+                color: #a9b8c8;
             }
         </style>
     </head>
@@ -811,24 +1162,66 @@
 
                         {% for listing in listings %}
                             {% set isNew = listing.createdAt >= date('-14 days') %}
+                            {% set enqPending = listing.enquiryPending ?? false %}
                             {% set chips = listing.amenities %}
                             {% if listing.hasParking and 'parking' not in chips %}
                                 {% set chips = ['parking']|merge(chips) %}
                             {% endif %}
 
-                            <a href="{{ path('app_listing_detail', { id: listing.id }) }}" class="listing-box">
+                            <a
+                                href="{{ path('app_listing_detail', { id: listing.id }) }}"
+                                class="listing-box{{ enqPending ? ' rh-enquiry-wait' : '' }}"
+                            >
 
                                 <div class="rh-card-media">
                                     <img src="{{ asset(listing.coverImage) }}" alt="{{ listing.title }}">
                                     <div class="rh-card-badges">
                                         {% if isNew %}<span class="rh-badge rh-badge-new">New</span>{% endif %}
                                     </div>
+
+                                    <button
+                                        type="button"
+                                        class="rh-wish-btn{{ listing.id in wishlist_ids|default([]) ? ' saved' : '' }}"
+                                        data-listing-id="{{ listing.id }}"
+                                        aria-pressed="{{ listing.id in wishlist_ids|default([]) ? 'true' : 'false' }}"
+                                        aria-label="{{ listing.id in wishlist_ids|default([]) ? 'Remove from wishlist' : 'Save to wishlist' }}"
+                                        title="{{ listing.id in wishlist_ids|default([]) ? 'Remove from wishlist' : 'Save to wishlist' }}"
+                                    >
+                                        <svg class="rh-wish-outline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>
+                                        </svg>
+                                        <svg class="rh-wish-fill" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+                                            <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>
+                                        </svg>
+                                    </button>
                                 </div>
 
                                 <div class="listing-box-info">
                                     <div class="rh-card-title-row">
                                         <h4 class="listing-box-title">{{ listing.title }}</h4>
-                                        <span class="rh-rating-none">No reviews yet</span>
+                                        {# RATING SCALE -- the 5-star track renders on every card; the
+                                            gold fill row sits exactly on the dim track and clips to
+                                            (rating / 5 * 100)% so a 4.3 average paints 4 full stars plus
+                                            a 30%-lit fifth. 0 reviews keeps the track empty next to
+                                            "No reviews yet". Data comes from the index controller
+                                            (rating + reviews keys per listing); styles live at the top
+                                            of this file, page-local on purpose. #}
+                                        {% set rh_rating = listing.rating ?? 0 %}
+                                        {% set rh_reviews = listing.reviews ?? 0 %}
+                                        <span class="rh-card-rating" role="img" aria-label="{% if rh_reviews > 0 %}Rated {{ rh_rating|number_format(1) }} out of 5 from {{ rh_reviews }} {{ rh_reviews == 1 ? 'review' : 'reviews' }}{% else %}No reviews yet{% endif %}">
+                                            <span class="rh-stars" aria-hidden="true">
+                                                <span class="rh-stars-row rh-stars-base">{% for _rh_i in 1..5 %}<svg class="rh-star" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>{% endfor %}</span>
+                                                <span class="rh-stars-row rh-stars-fill" style="width: {{ ((rh_rating / 5) * 100)|number_format(1) }}%">{% for _rh_i in 1..5 %}<svg class="rh-star" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>{% endfor %}</span>
+                                            </span>
+                                            <span class="rh-stars-text">
+                                                {% if rh_reviews > 0 %}
+                                                    <span class="rh-stars-num">{{ rh_rating|number_format(1) }}</span>
+                                                    <span class="rh-stars-count">({{ rh_reviews }})</span>
+                                                {% else %}
+                                                    <span class="rh-rating-none">No reviews yet</span>
+                                                {% endif %}
+                                            </span>
+                                        </span>
                                     </div>
 
                                     <div class="listing-box-location">
@@ -853,6 +1246,29 @@
                                     </div>
                                 </div>
 
+                                {% if enqPending %}
+                                    {# ENQUIRY WAITING CARD — this viewer has
+                                       a PENDING application on this space:
+                                       the card goes slightly blurred with a
+                                       3-dot loader + "Waiting for host to
+                                       accept" + a Cancel button. The card
+                                       itself still links to the detail page
+                                       (which shows the tracking note); only
+                                       the Cancel button intercepts clicks. #}
+                                    <div class="rh-enquiry-overlay" role="status" aria-live="polite">
+                                        <div class="rh-enq-dots" aria-hidden="true">
+                                            <span></span><span></span><span></span>
+                                        </div>
+                                        <p class="rh-enq-label">Waiting for host to accept</p>
+                                        <button
+                                            type="button"
+                                            class="rh-enq-cancel"
+                                            data-booking-id="{{ listing.enquiryBookingId }}"
+                                            title="Cancel this enquiry"
+                                        >Cancel</button>
+                                    </div>
+                                {% endif %}
+
                             </a>
                         {% endfor %}
 
@@ -876,7 +1292,7 @@
 
         {% include 'partials/footer.html.twig' %}
 
-        <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+        <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
         <script>
             function rhRefreshIcons() {
                 if (window.lucide && typeof lucide.createIcons === "function") {
@@ -895,8 +1311,8 @@
                 "use strict";
 
                 /* =====================================================
-                                                               CATEGORY DROPDOWN — custom panel + bar icon swap
-                                                            ====================================================== */
+                                                                           CATEGORY DROPDOWN — custom panel + bar icon swap
+                                                                        ====================================================== */
                 var catGroup = document.getElementById("category-dd");
                 var catBtn = document.getElementById("category-btn");
                 var catPanel = document.getElementById("category-panel");
@@ -933,8 +1349,8 @@
                                 catValue.value = item.dataset.value;
 
                                 /* swap the BAR's icon + label to the picked one.
-                                                                           The panel's .loc-dot already holds the rendered
-                                                                           <svg> (createIcons ran), so clone it directly. */
+                                                                                       The panel's .loc-dot already holds the rendered
+                                                                                       <svg> (createIcons ran), so clone it directly. */
                                 var dot = item.querySelector(".loc-dot");
                                 if (catIcon && dot) {
                                     catIcon.innerHTML = dot.innerHTML;
@@ -968,8 +1384,8 @@
                 "use strict";
 
                 /* =====================================================
-                               PHILIPPINE LOCATIONS — dataset (all provinces).
-                            ====================================================== */
+                                           PHILIPPINE LOCATIONS — dataset (all provinces).
+                                        ====================================================== */
                 var PH = {
                     "Metro Manila": [
                         "Caloocan",
@@ -2702,17 +3118,17 @@
                 };
 
                 /* =====================================================
-                               LOCATION AUTOCOMPLETE — A–Z provinces → towns
-                               Stage 1: click/focus (empty) → ALL provinces A–Z
-                                        under letter headers
-                               Stage 2: picked province → its towns A–Z,
-                                        "All of {Province}", back row
-                               Typing:  filters provinces AND towns at any stage
-                               Free text is never blocked — on submit, whatever
-                               is typed lands in the hidden fields.
-                               X button clears the location entirely and
-                               refreshes the results (other filters kept).
-                            ====================================================== */
+                                           LOCATION AUTOCOMPLETE — A–Z provinces → towns
+                                           Stage 1: click/focus (empty) → ALL provinces A–Z
+                                                    under letter headers
+                                           Stage 2: picked province → its towns A–Z,
+                                                    "All of {Province}", back row
+                                           Typing:  filters provinces AND towns at any stage
+                                           Free text is never blocked — on submit, whatever
+                                           is typed lands in the hidden fields.
+                                           X button clears the location entirely and
+                                           refreshes the results (other filters kept).
+                                        ====================================================== */
                 var input = document.getElementById("location-search");
                 var panel = document.getElementById("location-suggestions");
                 var form = document.getElementById("filter-form");
@@ -2841,7 +3257,7 @@
                 }
 
                 /* Keep the hidden fields in step with what's typed so
-                               free-text searches still reach the server. */
+                                           free-text searches still reach the server. */
                 function syncHiddenFromText() {
                     var v = input.value.trim();
 
@@ -2896,9 +3312,9 @@
                         updateClearBtn();
 
                         /* refresh results WITHOUT the location filter —
-                                       category, price, amenities and q are kept.
-                                       Remove this form.submit() line if the X should
-                                       only clear the box (user presses Search after). */
+                                                   category, price, amenities and q are kept.
+                                                   Remove this form.submit() line if the X should
+                                                   only clear the box (user presses Search after). */
                         form.submit();
                     });
                 }
@@ -3043,7 +3459,7 @@
                     var lp = currentProvince.toLowerCase();
 
                     /* strip a leading "Iloilo" / "Iloilo, " so the rest
-                                   of the typed text filters the town list */
+                                               of the typed text filters the town list */
                     if (lv.startsWith(lp)) {
                         v = v.slice(currentProvince.length);
                         if (v.charAt(0) === ",") {
@@ -3259,7 +3675,7 @@
                             items[active].click();
                         }
                         /* no highlight → native submit runs; the form
-                                       submit handler fills the hidden fields */
+                                                   submit handler fills the hidden fields */
                     } else if (e.key === "Escape") {
                         closePanel();
                     } else if (e.key === "Tab") {
@@ -3291,16 +3707,16 @@
                 "use strict";
 
                 /* =====================================================
-                               PRICE RANGE — gold fill follows the thumb,
-                               live label + auto-submit on release
-                            ====================================================== */
+                                           PRICE RANGE — gold fill follows the thumb,
+                                           live label + auto-submit on release
+                                        ====================================================== */
                 var range = document.getElementById("price-range");
                 var maxLabel = document.getElementById("price-max");
                 var form = document.getElementById("filter-form");
 
                 if (range && maxLabel && form) {
                     /* Paint the track: gold gradient up to the thumb,
-                                   grey for the rest. Called on load and on drag. */
+                                               grey for the rest. Called on load and on drag. */
                     function paintTrack() {
                         var min = Number(range.min) || 0;
                         var max = Number(range.max) || 0;
@@ -3337,8 +3753,8 @@
                 }
 
                 /* =====================================================
-                               VIEW TOGGLE — grid / list
-                            ====================================================== */
+                                           VIEW TOGGLE — grid / list
+                                        ====================================================== */
                 var results = document.getElementById("rh-listings-results");
                 var viewBtns = document.querySelectorAll(".rh-view-btn");
 
@@ -3360,6 +3776,212 @@
                 }
             })();
         </script>
+
+        <!-- Wishlist hearts — toggle via POST /wishlist/toggle (guests → /login) -->
+        <script>
+            (function () {
+                "use strict";
+
+                /* =====================================================
+                                           WISHLIST HEARTS — every card's heart button
+                                           posts listing_id to /wishlist/toggle.
+
+                                           Two response shapes are supported because
+                                           different installs of WishlistController
+                                           answer differently:
+                                              { ok, added, count }   (added: true/false)
+                                              { ok, saved }          (saved: true/false)
+
+                                           OPTIMISTIC UI: the heart glows the instant
+                                           the user clicks — we don't wait for the
+                                           server. If the request fails or the server
+                                           disagrees, we revert to the prior state.
+
+                                           preventDefault + stopPropagation keep the
+                                           card's <a> link from firing.
+                                        ====================================================== */
+                document.addEventListener("click", function (e) {
+                    var btn = e.target.closest(".rh-wish-btn");
+                    if (!btn) {
+                        return;
+                    }
+
+                    /* the whole card is a link — do not navigate */
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    var listingId = parseInt(btn.dataset.listingId, 10);
+                    if (!listingId) {
+                        return;
+                    }
+                    if (btn.dataset.busy === "1") {
+                        return;
+                    }
+                    btn.dataset.busy = "1";
+
+                    /* ---- OPTIMISTIC UI: toggle immediately ----
+                                   remember the prior state so we can revert on
+                                   failure. */
+                    var wasSaved = btn.classList.contains("saved");
+                    var nowSaved = !wasSaved;
+
+                    function applyState(saved) {
+                        btn.classList.toggle("saved", saved);
+                        btn.setAttribute("aria-pressed", saved ? "true" : "false");
+                        var label = saved ? "Remove from wishlist" : "Save to wishlist";
+                        btn.setAttribute("aria-label", label);
+                        btn.setAttribute("title", label);
+
+                        /* restart the pop animation so the click feels
+                                       tactile — works for both glow-on and glow-off */
+                        btn.classList.remove("pop");
+                        void btn.offsetWidth;
+                        btn.classList.add("pop");
+                    }
+
+                    /* glow instantly, don't wait for the network */
+                    applyState(nowSaved);
+
+                    var body = new FormData();
+                    body.append("listing_id", String(listingId));
+
+                    fetch("/wishlist/toggle", {
+                        method: "POST",
+                        body: body,
+                        credentials: "same-origin",
+                        headers: { "X-Requested-With": "XMLHttpRequest" },
+                    })
+                        .then(function (res) {
+                            if (res.status === 401) {
+                                /* not logged in — revert the optimistic
+                                               glow, then send to login */
+                                applyState(wasSaved);
+                                window.location.href = "/login";
+                                throw new Error("login");
+                            }
+                            return res.json();
+                        })
+                        .then(function (data) {
+                            if (!data || !data.ok) {
+                                /* server refused — revert */
+                                applyState(wasSaved);
+                                return;
+                            }
+
+                            /* accept BOTH response shapes:
+                                              data.added  → boolean (newer controller)
+                                              data.saved  → boolean (legacy controller)
+                                           fall back to the optimistic value if the
+                                           server omitted both (shouldn't happen). */
+                            var serverSaved;
+                            if (data.added !== undefined) {
+                                serverSaved = !!data.added;
+                            } else if (data.saved !== undefined) {
+                                serverSaved = !!data.saved;
+                            } else {
+                                serverSaved = nowSaved;
+                            }
+
+                            /* sync to the server's truth (in case of a
+                                           race — e.g. the row already existed) */
+                            if (serverSaved !== nowSaved) {
+                                applyState(serverSaved);
+                            }
+                        })
+                        .catch(function () {
+                            /* network error / login redirect already
+                                           handled — keep the optimistic state so
+                                           the user sees their click took effect,
+                                           the next page load will reconcile */
+                        })
+                        .finally(function () {
+                            delete btn.dataset.busy;
+                        });
+                });
+            })();
+        </script>
+
+        <!-- Enquiry waiting card — Cancel withdraws the viewer's
+             PENDING application via POST /booking/cancel-booking,
+             the SAME endpoint (app_booking_cancel) the My Bookings
+             details page uses. A fresh enquiry has nothing paid, so
+             that endpoint's 98% refund math simply yields 0 and the
+             host still gets the standard "cancelled their booking"
+             notification. After the POST we reload so the card
+             renders its TRUE state: normal again if the enquiry was
+             withdrawn, gone entirely if the host accepted meanwhile. -->
+        <script>
+            (function () {
+                "use strict";
+
+                var CANCEL_URL = "/booking/cancel-booking";
+
+                document.addEventListener("click", function (e) {
+                    var btn = e.target.closest(".rh-enq-cancel");
+                    if (!btn) {
+                        return;
+                    }
+
+                    /* the whole card is a link — do not navigate */
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    if (btn.dataset.busy === "1") {
+                        return;
+                    }
+                    var bookingId = parseInt(btn.dataset.bookingId, 10);
+                    if (!bookingId) {
+                        return;
+                    }
+
+                    if (
+                        !window.confirm(
+                            "Cancel this enquiry? The host will be notified that you withdrew your request.",
+                        )
+                    ) {
+                        return;
+                    }
+
+                    btn.dataset.busy = "1";
+                    btn.disabled = true;
+
+                    var body = new FormData();
+                    body.append("booking_id", String(bookingId));
+
+                    fetch(CANCEL_URL, {
+                        method: "POST",
+                        body: body,
+                        credentials: "same-origin",
+                        headers: { "X-Requested-With": "XMLHttpRequest" },
+                    })
+                        .then(function (res) {
+                            if (res.status === 401) {
+                                window.location.href = "/login";
+                                throw new Error("login");
+                            }
+                            /* the endpoint answers with a redirect and
+                                           fetch follows it — any 2xx means the
+                                           request landed; the reload below paints
+                                           the card's truth. */
+                            if (!res.ok) {
+                                throw new Error("cancel failed");
+                            }
+                            window.location.reload();
+                        })
+                        .catch(function (err) {
+                            if (err && err.message === "login") {
+                                return;
+                            }
+                            btn.disabled = false;
+                            delete btn.dataset.busy;
+                            window.alert(
+                                "Something went wrong while cancelling your enquiry. Please try again.",
+                            );
+                        });
+                });
+            })();
+        </script>
+
 
     </body>
 

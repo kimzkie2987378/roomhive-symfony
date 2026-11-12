@@ -1,0 +1,259 @@
+{# roomhive/host/quit_hosting.html.twig
+   Host › Quit Hosting — 1:1 port of legacy host/quithosting.php.
+
+   Host dashboard shell (extends host/base.html.twig; sidebar
+   Settings › "Quit Hosting" highlights via
+   active_nav = 'quithosting' — the sidebar's RED link to
+   /host/quit-hosting was pre-reserved by the shell; legacy
+   note: $activePage = 'quithosting' matches host_sidebar.php's
+   settings-group key).
+
+   SHELL NOTE (legacy "SHELL FIX" repaired three pieces): the
+   ported shell ships all three — shared navbar with bell +
+   notification dropdown, the REAL host sidebar (legacy's old
+   /includes/hostsidebar.php path silently rendered NO sidebar
+   through an is_file guard), and the footer. Legacy also
+   wrapped the card in its own .qh-layout because the page
+   predated the shell standardization; the port drops that
+   wrapper (the shell's .host-layout replaces it) and keeps the
+   .qh-card + inner qh-* CSS VERBATIM.
+
+   Content (1:1 with legacy):
+   - Red "Quit Hosting" h1 (#a1332e) + the keep-your-stuff
+     paragraph + the 3-item qh-list (listings unlisted
+     immediately, bookings stay on record, become a host again
+     anytime)
+   - INLINE error list (.qh-error, one <p> per error) — NOT
+     PRG: legacy re-renders the page on failure (same pattern
+     as the Edit Profile port); only SUCCESS redirects
+   - The quit form: Password + "Type QUIT to confirm" fields,
+     full-width red QUIT HOSTING button, qh_csrf hidden field,
+     and the KEPT onsubmit confirm() dialog (verbatim text)
+   - Cancel link "Cancel — keep hosting" → /host/profile
+     (legacy hostprofile.php)
+
+   ON SUCCESS the controller:
+     1. UPDATE users SET is_host = 0 (transaction)
+     2. UPDATE listings SET status = 'unlisted' WHERE user_id
+        (transaction — legacy FIXED note #1: the real column is
+        user_id, not host_id)
+     3. commit → clear the is_host session flag → redirect
+        /profile?quit_hosting=1 (legacy
+        /webprogg/user/userprofile.php?quit_hosting=1; the
+        ported profile page is /profile — it does not consume
+        the flag yet, same policy as stored legacy links
+        awaiting their page port)
+
+   ICONS: this page has none in legacy (no data-lucide
+   anywhere) — the port carries no icons either.
+
+   CSS NOTE: qh-* styles were self-contained in the legacy
+   page (its own <style> block) — redeclared page-locally with
+   the same values, plus dark-mode overrides consistent with
+   the shell (legacy had none for the card).
+
+   Pairs with: HostQuitHostingController
+     GET|POST /host/quit-hosting   name app_host_quit_hosting
+#}
+{% extends 'host/base.html.twig' %}
+
+{% set active_nav = 'quithosting' %}
+
+{% block page_title %}Quit Hosting — RoomHive{% endblock %}
+
+{% block styles %}
+<style>
+    /* =========================================================
+       QUIT CARD — qh-* verbatim from the legacy page's own
+       <style> block (self-contained so the card renders
+       regardless of host CSS — legacy comment kept). The
+       .qh-layout / .qh-main wrapper CSS is dropped: the shell's
+       .host-layout / .host-content replace it.
+    ========================================================= */
+    .qh-card {
+        background: #ffffff;
+        border: 1px solid rgba(28, 42, 56, 0.08);
+        border-radius: 16px;
+        box-shadow: 0 14px 30px rgba(28, 42, 56, 0.10);
+        padding: 28px;
+        max-width: 640px;
+    }
+
+    .qh-card h1 {
+        margin: 0 0 10px;
+        color: #a1332e;
+        font-size: 22px;
+        font-weight: 800;
+    }
+
+    .qh-card>p {
+        margin: 0 0 12px;
+        font-size: 13.5px;
+        line-height: 1.65;
+        color: #5d6875;
+    }
+
+    .qh-list {
+        margin: 0 0 18px;
+        padding-left: 18px;
+        font-size: 13.5px;
+        line-height: 1.8;
+        color: #5d6875;
+    }
+
+    .qh-field {
+        margin-bottom: 14px;
+    }
+
+    .qh-field label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 12.5px;
+        font-weight: 700;
+        color: #1c2a38;
+    }
+
+    .qh-field input {
+        width: 100%;
+        padding: 11px 12px;
+        border: 1px solid #d9dee4;
+        border-radius: 10px;
+        font: inherit;
+        font-size: 14px;
+        box-sizing: border-box;
+    }
+
+    .qh-field input:focus {
+        outline: none;
+        border-color: #b07708;
+        box-shadow: 0 0 0 3px rgba(176, 119, 8, 0.15);
+    }
+
+    .qh-error {
+        background: #fdecea;
+        border: 1px solid #f5c6c2;
+        border-radius: 10px;
+        padding: 10px 14px;
+        margin-bottom: 16px;
+        font-size: 13.5px;
+    }
+
+    .qh-error p {
+        margin: 0 0 4px;
+        color: #b3261e;
+    }
+
+    .qh-btn {
+        width: 100%;
+        background: #e0524d;
+        color: #ffffff;
+        border: none;
+        border-radius: 10px;
+        padding: 12px;
+        font-family: 'Poppins', sans-serif;
+        font-weight: 700;
+        font-size: 13px;
+        cursor: pointer;
+        transition: background 0.2s ease;
+    }
+
+    .qh-btn:hover {
+        background: #c84642;
+    }
+
+    .qh-cancel {
+        display: block;
+        text-align: center;
+        margin-top: 14px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #1c2a38;
+        text-decoration: none;
+    }
+
+    .qh-cancel:hover {
+        color: #b07708;
+    }
+
+    /* ---- Dark mode (shell-consistent; legacy had none for the card) ---- */
+    body[data-theme="dark"] .qh-card {
+        background: #141b24;
+        border-color: #1a222b;
+        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.45);
+    }
+    body[data-theme="dark"] .qh-card>p,
+    body[data-theme="dark"] .qh-list { color: #8d99a5; }
+    body[data-theme="dark"] .qh-card h1 { color: #f28b82; }
+    body[data-theme="dark"] .qh-field label { color: #e8ecf1; }
+    body[data-theme="dark"] .qh-field input {
+        background: #141b24;
+        border-color: #2a3540;
+        color: #e8ecf1;
+    }
+    body[data-theme="dark"] .qh-field input:focus {
+        border-color: #f6c04e;
+        box-shadow: 0 0 0 3px rgba(246, 192, 78, 0.18);
+    }
+    body[data-theme="dark"] .qh-error {
+        background: rgba(226, 74, 61, 0.15);
+        border-color: rgba(226, 74, 61, 0.4);
+    }
+    body[data-theme="dark"] .qh-error p { color: #f28b82; }
+    body[data-theme="dark"] .qh-cancel { color: #e8ecf1; }
+    body[data-theme="dark"] .qh-cancel:hover { color: #f6c04e; }
+
+    @media (prefers-reduced-motion: reduce) {
+        .qh-btn { transition: none; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="qh-card">
+
+    <h1>Quit Hosting</h1>
+
+    <p>
+        This turns your RoomHive account back into a regular guest account.
+        <strong>You keep your account, bookings history, and reviews</strong> —
+        you just stop being a host.
+    </p>
+
+    <ul class="qh-list">
+        <li>All of your listings will be unlisted immediately.</li>
+        <li>Existing bookings stay on record for you and your guests.</li>
+        <li>You can become a host again anytime from the Become a Host page.</li>
+    </ul>
+
+    {% if errors %}
+        <div class="qh-error">
+            {% for error in errors %}
+                <p>{{ error }}</p>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <form method="POST" action="{{ path('app_host_quit_hosting') }}"
+        onsubmit="return confirm('This will end your hosting on RoomHive and unlist all your listings. Continue?');">
+
+        <input type="hidden" name="qh_csrf" value="{{ qh_csrf }}">
+
+        <div class="qh-field">
+            <label for="qhPw">Password</label>
+            <input type="password" id="qhPw" name="quit_password" required>
+        </div>
+
+        <div class="qh-field">
+            <label for="qhWord">Type QUIT to confirm</label>
+            <input type="text" id="qhWord" name="confirm_word" required>
+        </div>
+
+        <button type="submit" class="qh-btn">QUIT HOSTING</button>
+    </form>
+
+    <a href="/host/profile" class="qh-cancel">Cancel — keep hosting</a>
+
+</div>
+
+{% endblock %}

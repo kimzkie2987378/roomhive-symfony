@@ -1,0 +1,369 @@
+{# roomhive/admin/bookings.html.twig
+   Admin › Bookings — extends admin/base.html.twig.
+
+   Inherits: sidebar (Bookings highlighted), topbar, nav-alignment JS.
+
+   Provides: page-specific CSS (filter tabs, search box, table,
+   pagination), the content (filter tabs + search + table OR
+   empty state + pagination), and no page-specific JS (the per-row
+   form just submits normally).
+#}
+{% extends 'admin/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'Bookings' %}
+{% set page_heading = 'Bookings' %}
+{% set page_subheading = 'Every booking on the platform. You can correct a booking status if a host or guest is stuck.' %}
+
+{% block styles %}
+    <style>
+        /* ---- Filter tabs ---- */
+        .filter-tabs {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+        }
+        .filter-tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border-radius: 10px;
+            background: #f6f7fb;
+            color: #5b6172;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            transition:
+                background 0.15s ease,
+                color 0.15s ease;
+        }
+        .filter-tab:hover {
+            background: #eef1f6;
+            color: #14142b;
+        }
+        .filter-tab.active {
+            background: #14142b;
+            color: #fff;
+        }
+        .filter-tab .icon {
+            width: 14px;
+            height: 14px;
+        }
+
+        /* ---- Search row ---- */
+        .bookings-search-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 18px;
+        }
+        .bookings-search-row .search-box {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #f6f7fb;
+            border: 1px solid #eef1f6;
+            border-radius: 10px;
+            padding: 8px 12px;
+            max-width: 340px;
+            flex: 1;
+        }
+        .bookings-search-row .search-box .icon {
+            width: 16px;
+            height: 16px;
+            color: #8b93a6;
+            flex-shrink: 0;
+        }
+        .bookings-search-row .search-box input {
+            border: none;
+            background: transparent;
+            outline: none;
+            font-size: 13px;
+            width: 100%;
+            font-family: inherit;
+        }
+        .bookings-search-row .btn-search {
+            border: 1px solid #eda423;
+            background: #eda423;
+            color: #fff;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 9px 16px;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        .bookings-search-row .btn-search:hover {
+            background: #d99218;
+            border-color: #d99218;
+        }
+
+        /* ---- Table ---- */
+        .table-scroll {
+            overflow-x: auto;
+        }
+        table.app-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        table.app-table th {
+            text-align: left;
+            color: #8b93a6;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            padding: 10px 12px;
+            border-bottom: 1px solid #eef1f6;
+            white-space: nowrap;
+        }
+        table.app-table td {
+            padding: 12px;
+            border-bottom: 1px solid #f6f7fb;
+            vertical-align: middle;
+        }
+        table.app-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .people-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .people-name {
+            font-weight: 600;
+            color: #14142b;
+        }
+        .people-sub {
+            font-size: 12px;
+            color: #8b93a6;
+        }
+
+        /* ---- Status badge (uses admin.css badge-pending/confirmed/etc.) ---- */
+        .badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 9px;
+            border-radius: 999px;
+            display: inline-block;
+        }
+
+        /* ---- Pagination ---- */
+        .pagination {
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            padding: 18px 0 4px;
+            flex-wrap: wrap;
+        }
+        .page-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 34px;
+            height: 34px;
+            padding: 0 10px;
+            border: 1px solid #eef1f6;
+            background: #fff;
+            color: #14142b;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            transition:
+                background 0.15s ease,
+                border-color 0.15s ease;
+        }
+        .page-btn:hover {
+            background: #f6f7fb;
+            border-color: #d0d4dd;
+        }
+        .page-btn.active {
+            background: #14142b;
+            color: #fff;
+            border-color: #14142b;
+        }
+        .page-btn .icon {
+            width: 14px;
+            height: 14px;
+        }
+
+        /* ---- Flash banner ---- */
+        .flash-banner {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 16px;
+        }
+        .flash-banner.success {
+            background: #e7f7ec;
+            color: #2fa84f;
+        }
+        .flash-banner.error {
+            background: #fceaea;
+            color: #e14b4b;
+        }
+        .flash-banner .icon {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+
+        /* ---- Override view-all button styling for the search submit ---- */
+        .btn-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: none;
+            background: transparent;
+            color: #2f7de1;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            padding: 0;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    {% if flash %}
+        <div class="flash-banner {{ flash.type }}">
+            {{ ui.icon(flash.type == 'success' ? 'check-circle' : 'alert-triangle') }}
+            <span>{{ flash.text }}</span>
+        </div>
+    {% endif %}
+
+    <div class="panel">
+        {# ---- Filter tabs (All/Pending/Confirmed/Completed/Cancelled/Rejected) ---- #}
+        <div class="filter-tabs">
+            <a
+                class="filter-tab {{ status == 'all' ? 'active' : '' }}"
+                href="?status=all{{ q != '' ? '&q=' ~ q|url_encode : '' }}"
+            >
+                {{ ui.icon('inbox') }} All ({{ cnt_all }})
+            </a>
+            <a
+                class="filter-tab {{ status == 'pending' ? 'active' : '' }}"
+                href="?status=pending{{ q != '' ? '&q=' ~ q|url_encode : '' }}"
+            >
+                {{ ui.icon('clock') }} Pending ({{ cnt_pending }})
+            </a>
+            <a
+                class="filter-tab {{ status == 'confirmed' ? 'active' : '' }}"
+                href="?status=confirmed{{ q != '' ? '&q=' ~ q|url_encode : '' }}"
+            >
+                {{ ui.icon('check-circle') }} Confirmed ({{ cnt_confirmed }})
+            </a>
+            <a
+                class="filter-tab {{ status == 'completed' ? 'active' : '' }}"
+                href="?status=completed{{ q != '' ? '&q=' ~ q|url_encode : '' }}"
+            >
+                {{ ui.icon('check-circle') }} Completed ({{ cnt_completed }})
+            </a>
+            <a
+                class="filter-tab {{ status == 'cancelled' ? 'active' : '' }}"
+                href="?status=cancelled{{ q != '' ? '&q=' ~ q|url_encode : '' }}"
+            >
+                {{ ui.icon('x-circle') }} Cancelled ({{ cnt_cancelled }})
+            </a>
+            <a
+                class="filter-tab {{ status == 'rejected' ? 'active' : '' }}"
+                href="?status=rejected{{ q != '' ? '&q=' ~ q|url_encode : '' }}"
+            >
+                {{ ui.icon('x-circle') }} Rejected ({{ cnt_rejected }})
+            </a>
+        </div>
+
+        {# ---- Search form (preserves current status filter) ---- #}
+        <form method="get" class="bookings-search-row">
+            <input type="hidden" name="status" value="{{ status }}">
+            <div class="search-box">
+                {{ ui.icon('search') }}
+                <input type="text" name="q" value="{{ q }}" placeholder="Search listing, guest, host, location...">
+            </div>
+            <button type="submit" class="btn-search">Search</button>
+        </form>
+
+        {% if bookings is empty %}
+            {{ ui.empty_state(q != '' ? 'No bookings match your search.' : 'No bookings yet.') }}
+        {% else %}
+            <div class="table-scroll">
+                <table class="app-table">
+                    <thead>
+                        <tr>
+                            <th>Booking</th>
+                            <th>Guest</th>
+                            <th>Host</th>
+                            <th>Stay</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for b in bookings %}
+                            <tr>
+                                <td>
+                                    <div class="people-info">
+                                        <span class="people-name">#{{ b.id }} · {{ b.title }}</span>
+                                        <span class="people-sub">{{ b.location }} · {{ (b.payment_status ?? '')|capitalize }}</span>
+                                    </div>
+                                </td>
+                                <td>{{ b.guest_name }}</td>
+                                <td>{{ b.host_name }}</td>
+                                <td>
+                                    {% if b.checkin_date %}
+                                        {{ b.checkin_date|date('M j, Y') }}
+                                        {% if b.checkout_date %}–{{ b.checkout_date|date('M j, Y') }}{% endif %}
+                                        {% if b.guests > 0 %}
+                                            <span class="people-sub"> · {{ b.guests }} guest(s)</span>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="people-sub">Booked {{ b.created_at|date('M j, Y') }}</span>
+                                    {% endif %}
+                                </td>
+                                <td><strong>₱{{ b.amount_paid|number_format(2) }}</strong></td>
+                                <td>
+                                    <span class="badge {{ badge_class_map[b.status|capitalize] ?? '' }}">
+                                        {{ b.status|capitalize }}
+                                    </span>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {# ---- Pagination ---- #}
+            {% if total_pages > 1 %}
+                <div class="pagination">
+                    {% if page > 1 %}
+                        <a class="page-btn" href="?{{ {status: status, q: q, page: page - 1}|filter(v => v)|url_encode }}">
+                            {{ ui.icon('chevron-left') }}
+                        </a>
+                    {% endif %}
+                    {% for p in 1..total_pages %}
+                        <a
+                            class="page-btn {{ p == page ? 'active' : '' }}"
+                            href="?{{ {status: status, q: q, page: p}|filter(v => v)|url_encode }}"
+                        >
+                            {{ p }}
+                        </a>
+                    {% endfor %}
+                    {% if page < total_pages %}
+                        <a class="page-btn" href="?{{ {status: status, q: q, page: page + 1}|filter(v => v)|url_encode }}">
+                            {{ ui.icon('chevron-right') }}
+                        </a>
+                    {% endif %}
+                </div>
+            {% endif %}
+        {% endif %}
+    </div>
+{% endblock %}

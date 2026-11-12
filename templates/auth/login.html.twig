@@ -1,24 +1,31 @@
 {# =========================================================
-   ROOMHIVE — LOG IN
-   templates/auth/login.html.twig
+    ROOMHIVE — LOG IN
+    templates/auth/login.html.twig
 
-   Rendered by AuthController::login(). Port of the legacy
-   loginform.php — dark "night hive" veil, AJAX submit with
-   the loading/success animation, admin + DB login.
+    Rendered by AuthController::login(). Port of the legacy
+    loginform.php — dark "night hive" veil, AJAX submit with
+    the loading/success animation, admin + DB login.
 
-   Receives: error, success, old_email, redirect_param, csrf,
-             google_login_url, apple_login_url
+    Receives: error, success, old_email, redirect_param, csrf,
+                google_login_url, apple_login_url
 
-   EXTERNAL CSS: requires public/assets/loginform.css
-   (copy it from the legacy webprogg/assets/loginform.css).
+    EXTERNAL CSS: requires public/assets/loginform.css
+    (copy it from the legacy webprogg/assets/loginform.css).
 
-   === FIXED (this version) ===
-   - Google button no longer uses "contains" (not a Twig
-     operator — that was a Craft CMS-ism crashing the parser
-     at line ~907). The OAuth URL is now assembled in a
-     {% set %} using the correct "'?' in url" substring check,
-     which also keeps the onclick attribute readable.
-========================================================= #}
+    === FIXED (this version) ===
+    - Google button no longer uses "contains" (not a Twig
+        operator — that was a Craft CMS-ism crashing the parser
+        at line ~907). The OAuth URL is now assembled in a
+        {% set %} using the correct "'?' in url" substring check,
+        which also keeps the onclick attribute readable.
+
+    === STAFF LOGIN (this version) ===
+    - Staff accounts (users rows with role='staff') can sign in
+        right here. StaffFromUserLoginSubscriber (backend)
+        rewrites the JSON to staff:true + redirect:'/admin' and
+        the veil below reads data.staff to show "Taking you to
+        the staff dashboard…" instead of the home text.
+    ========================================================= #}
 
 <!doctype html>
 <html lang="en">
@@ -74,10 +81,10 @@
             }
 
             /* =====================================================
-                                   EYE — SHOW-PASSWORD
-                                   The wrapper pads the input so typed text never
-                                   slides under the eye button.
-                                ====================================================== */
+                                                            EYE — SHOW-PASSWORD
+                                                            The wrapper pads the input so typed text never
+                                                            slides under the eye button.
+                                                            ====================================================== */
             .lf-pw-wrap {
                 position: relative;
             }
@@ -119,8 +126,8 @@
 
         <style>
             /* =============================================
-                                   TOKENS — dark "night hive" palette
-                                ============================================== */
+                                                            TOKENS — dark "night hive" palette
+                                                            ============================================== */
             .li-veil {
                 --li-honey: #eda423;
                 --li-honey-light: #f6c04e;
@@ -136,8 +143,8 @@
             }
 
             /* =============================================
-                                   OVERLAY SHELL — dark, calm, moody
-                                ============================================== */
+                                                            OVERLAY SHELL — dark, calm, moody
+                                                            ============================================== */
             .li-veil {
                 position: fixed;
                 inset: 0;
@@ -528,8 +535,8 @@
             }
 
             /* =============================================
-                                   TEXT — light on dark
-                                ============================================== */
+                                                            TEXT — light on dark
+                                                            ============================================== */
             .li-loading-text {
                 margin: 0;
                 color: var(--li-ink);
@@ -791,8 +798,8 @@
             <div class="login-card">
 
                 <!-- Close / Back to Home — INSIDE the card so it pins
-                 to the card's top-right edge (see .close-button in
-                 loginform.css; the card is the position anchor). -->
+                    to the card's top-right edge (see .close-button in
+                    loginform.css; the card is the position anchor). -->
                 <a href="/" class="close-button" aria-label="Close">
                     &times;
                 </a>
@@ -941,11 +948,11 @@
 
                 {% if google_login_url is defined and google_login_url is not empty %}
                     {# Build the OAuth URL first — Twig has no "contains"
-                   operator, substring checks use "'x' in str" instead.
-                   Doing it in a set also keeps the onclick readable. #}
+                    operator, substring checks use "'x' in str" instead.
+                    Doing it in a set also keeps the onclick readable. #}
                     {% set google_url = redirect_param is not empty
-                    ? (google_login_url ~ ('?' in google_login_url ? '&' : '?') ~ 'redirect=' ~ (redirect_param|url_encode))
-                    : google_login_url %}
+                        ? (google_login_url ~ ('?' in google_login_url ? '&' : '?') ~ 'redirect=' ~ (redirect_param|url_encode))
+                        : google_login_url %}
 
                     <button
                         type="button"
@@ -998,10 +1005,10 @@
         </main>
 
         <!-- =====================================================
-         LOGIN VEIL — loading + success animation.
-         Dark "night hive" edition: deep navy backdrop, dim
-         amber embers, light text — honey stays as the accent.
-    ====================================================== -->
+            LOGIN VEIL — loading + success animation.
+            Dark "night hive" edition: deep navy backdrop, dim
+            amber embers, light text — honey stays as the accent.
+        ====================================================== -->
         <div
             class="li-veil"
             id="liVeil"
@@ -1091,14 +1098,14 @@
                 var LOGIN_URL = "{{ path('app_login') }}";
 
                 /* =========================================================
-                                       BFCACHE GUARD
-                                       Safari/Firefox can restore this page from the
-                                       back-forward cache (Back/Forward buttons) with NO
-                                       server request — bypassing even no-store headers.
-                                       If that happens, force a reload so the PHP guard in
-                                       AuthController re-runs and bounces any logged-in
-                                       user back to their home page.
-                                    ========================================================= */
+                                                                BFCACHE GUARD
+                                                                Safari/Firefox can restore this page from the
+                                                                back-forward cache (Back/Forward buttons) with NO
+                                                                server request — bypassing even no-store headers.
+                                                                If that happens, force a reload so the PHP guard in
+                                                                AuthController re-runs and bounces any logged-in
+                                                                user back to their home page.
+                                                                ========================================================= */
                 window.addEventListener("pageshow", function (event) {
                     if (event.persisted) {
                         window.location.reload();
@@ -1106,13 +1113,13 @@
                 });
 
                 /* =========================================================
-                                       EYE — SHOW-PASSWORD TOGGLE
-                                       The button's icon is an <i data-lucide>; swapping
-                                       textContent would destroy it, so the toggle injects
-                                       the markup and re-renders the icons. Defined on
-                                       window BEFORE the veil guard below so the inline
-                                       onclick always finds it.
-                                    ========================================================= */
+                                                                EYE — SHOW-PASSWORD TOGGLE
+                                                                The button's icon is an <i data-lucide>; swapping
+                                                                textContent would destroy it, so the toggle injects
+                                                                the markup and re-renders the icons. Defined on
+                                                                window BEFORE the veil guard below so the inline
+                                                                onclick always finds it.
+                                                                ========================================================= */
                 window.togglePassword = function (inputId, button) {
                     var input = document.getElementById(inputId);
                     var isHidden = input.type === "password";
@@ -1164,21 +1171,24 @@
                     document.body.style.overflow = "";
                 }
 
-                function successVeil(displayName, isAdmin) {
+                function successVeil(displayName, isAdmin, isStaff) {
                     veil.classList.add("success");
 
                     var nameEl = document.getElementById("liWelcomeName");
                     if (nameEl) {
                         nameEl.textContent = (
-                            displayName || (isAdmin ? "Admin" : "Friend")
+                            displayName ||
+                            (isStaff ? "Staff" : isAdmin ? "Admin" : "Friend")
                         ).trim();
                     }
 
                     var subEl = document.getElementById("liSuccessSub");
                     if (subEl) {
-                        subEl.textContent = isAdmin
-                            ? "Taking you to the admin dashboard…"
-                            : "Taking you to your home…";
+                        subEl.textContent = isStaff
+                            ? "Taking you to the staff dashboard…"
+                            : isAdmin
+                              ? "Taking you to the admin dashboard…"
+                              : "Taking you to your home…";
                     }
 
                     var label = document.getElementById("liLoadingLabel");
@@ -1303,11 +1313,11 @@
                     Promise.race([fetchPromise, timeoutPromise])
                         .then(function (data) {
                             if (data && data.success) {
-                                successVeil(data.name, !!data.admin);
+                                successVeil(data.name, !!data.admin, !!data.staff);
 
                                 /* location.replace() removes the login page
-                                                       from history — Back from the next page can't
-                                                       land here again. */
+                                                                                from history — Back from the next page can't
+                                                                                land here again. */
                                 window.setTimeout(function () {
                                     window.location.replace(data.redirect || "/");
                                 }, REDIRECT_DELAY);
@@ -1338,15 +1348,15 @@
         </script>
 
         <!-- =====================================================
-         LUCIDE LOADER — this page has no shared navbar, so it
-         loads the library itself (guarded; same key as the
-         navbar's loader for consistency). One caution: the
-         fallback JS path calls form.submit() — a direct
-         HTMLFormElement submit does NOT fire the submit event
-         again and does not re-render anything, so the icon
-         state is safe.
-    ====================================================== -->
-        <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+            LUCIDE LOADER — this page has no shared navbar, so it
+            loads the library itself (guarded; same key as the
+            navbar's loader for consistency). One caution: the
+            fallback JS path calls form.submit() — a direct
+            HTMLFormElement submit does NOT fire the submit event
+            again and does not re-render anything, so the icon
+            state is safe.
+        ====================================================== -->
+        <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
         <script>
             (function () {
                 "use strict";

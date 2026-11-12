@@ -1,40 +1,49 @@
 /* =========================
    listing-detail.css
-   Styles scoped to listing-detail.php only.
-   Nav bar / footer look and feel come from style.css,
-   same as listing.php.
+   Styles scoped to the listing detail page only.
+   Nav bar / footer look and feel come from style.css.
 
    Shares the RoomHive honey/canopy token system used on
    listings-style.css so a host page and a detail page never
    feel like two different products.
 
-   === UPDATED === added the 50% reserve breakdown rows,
-   guests display box, application-status pill base and the
-   map-pin classes used by the current listing-detail.php.
+   === REWRITE (matched to the approved design shot) ===
+   This file now styles the CURRENT detail template markup
+   (templates/listings/detail.html.twig) 1:1. The previous
+   version targeted an older markup (guests select box, inline
+   calendar, date summary fields, sticky sidebar) and left most
+   of the real classes (.rd-booking-form, .rd-field-label,
+   .rd-movein-input, .rd-duration-picker, .rd-price-row,
+   .rd-amenity-grid, .rd-host-row, ...) completely unstyled.
 
-   === LAYOUT FIXES ===
-   1. GRID OVERFLOW GUARD: .rd-main gets min-width: 0 so long
-      words / the gallery can never force the 1fr column wider
-      and crush the 400px booking sidebar.
-   2. STATIC SIDEBAR: sticky removed — the booking card no
-      longer follows the scroll.
-   3. SPACE DETAILS FILLS THE RIGHT COLUMN: the Space Details
-      block was moved OUT of the left column and into the
-      sidebar (last card, .rd-details-card). The sidebar
-      stretches to the full height of the grid row and the
-      details card flex-grows to occupy all leftover space —
-      no dead gap under the booking card. Its rows spread
-      evenly inside the stretched card. Stacks normally
-      under 1080px.
+   Layout of the design shot, reproduced here:
+   - LEFT column, flat on the canvas: gallery, title, subline,
+     application-status pill, amenities strip (no card), About,
+     House Rules, Meet your host (white card), Where you'll be.
+   - RIGHT sidebar (400px): gold-bordered booking card on top,
+     Space Details card below stretching to the full column
+     height with its rows spread evenly.
+   - Section headings (Fraunces) carry a short gold underline.
+   - Booking card: price row, 5 summary lines (Monthly price /
+     Rental duration / Total rent / Reserve now 50% / Balance at
+     move-in), move-in date field, -/1/Month/+ duration picker,
+     long-term checkbox, Send Enquiry, charge note.
 
-   === THIS FIX — TOP PADDING ===
-   The 130px top padding was reserving room for the fixed
-   ~90px navbar, but no navbar is rendering on the page, so
-   that space sat empty above "Back to Listings". Reduced
-   to 32px so the content moves up and occupies the space.
-   ⚠ IF THE FIXED NAVBAR IS RE-ADDED to listing-detail.php,
-   change the top padding back to 130px (90px navbar + 40px
-   air) or the topbar will render underneath it.
+   === KEPT FROM THE PREVIOUS FIX SET ===
+   1. GRID OVERFLOW GUARD: .rd-main keeps min-width: 0 so long
+      words / the gallery can never crush the 400px sidebar.
+   2. STATIC SIDEBAR: no sticky — the booking card does not
+      follow the scroll.
+   3. SPACE DETAILS FILLS THE RIGHT COLUMN: .rd-side stretches
+      to the grid row height and .rd-details-card flex-grows
+      into the leftover space; its rows spread inside it.
+      Stacks normally under 1080px.
+   4. TOP PADDING: 32px — there is NO fixed navbar on this page.
+      ⚠ IF THE FIXED NAVBAR IS RE-ADDED, change it back to
+      130px (90px navbar + 40px air) or the topbar will render
+      underneath it.
+   5. Leaflet map container stays position:relative (a `fixed`
+      map detached from the page and covered content).
 ========================== */
 
 :root {
@@ -47,20 +56,23 @@
 
   --rh-gold: #dd930f;
   --rh-gold-deep: #b8760a;
+  --rh-gold-bright: #f2a93c;
   --rh-gold-wash: #fbf1dc;
 
   --rh-canopy: #1f4a3d;
   --rh-canopy-deep: #163a30;
 
   --rh-coral: #dd5361;
+  --rh-green: #2f9e5b;
 
   --rh-shadow-soft: 0 6px 20px rgba(28, 43, 36, 0.07);
   --rh-shadow-lift: 0 22px 44px rgba(28, 43, 36, 0.16);
+  --rh-shadow-gold: 0 14px 34px rgba(237, 164, 35, 0.22);
 
-  --rh-radius-card: 20px;
+  --rh-radius-card: 18px;
   --rh-radius-pill: 999px;
 
-  --font-display: "Fraunces", serif;
+  --font-display: "Fraunces", Georgia, serif;
   --font-ui: "Poppins", sans-serif;
 }
 
@@ -68,8 +80,7 @@
   max-width: 1280px;
   margin: 0 auto;
 
-  /* TOP PADDING FIX — was 130px to clear a fixed navbar that
-     isn't currently on the page (dead blank space). 32px now.
+  /* TOP PADDING — no fixed navbar on this page (32px).
      Re-add the navbar include? Bump this back to 130px. */
   padding: 32px 40px 80px;
 
@@ -82,6 +93,35 @@
   .listing-detail-page {
     padding-left: 20px;
     padding-right: 20px;
+  }
+}
+
+/* =========================
+   STAGGERED REVEAL
+   The template marks blocks .rd-reveal with a --d delay and
+   adds .js to <html> via script, so content is never hidden
+   when JS is off.
+========================== */
+
+html.js .rd-reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  animation: rd-reveal-in 0.55s ease forwards;
+  animation-delay: var(--d, 0s);
+}
+
+@keyframes rd-reveal-in {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.js .rd-reveal {
+    animation: none;
+    opacity: 1;
+    transform: none;
   }
 }
 
@@ -99,12 +139,17 @@
 .rd-back-link {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   text-decoration: none;
   color: var(--rh-ink);
   font-weight: 500;
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   transition: color 0.15s ease;
+}
+
+.rd-back-link svg {
+  width: 16px;
+  height: 16px;
 }
 
 .rd-back-link:hover {
@@ -119,12 +164,13 @@
 .rd-action-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   background: var(--rh-cloud);
   border: 1px solid var(--rh-line);
   border-radius: var(--rh-radius-pill);
-  padding: 9px 18px;
-  font-size: 0.85rem;
+  padding: 8px 17px;
+  font-size: 0.78rem;
+  font-weight: 500;
   font-family: inherit;
   cursor: pointer;
   color: var(--rh-ink-soft);
@@ -132,6 +178,11 @@
     border-color 0.15s ease,
     color 0.15s ease,
     box-shadow 0.15s ease;
+}
+
+.rd-action-btn svg {
+  width: 15px;
+  height: 15px;
 }
 
 .rd-action-btn:hover {
@@ -148,6 +199,7 @@
 
 /* =========================
    LAYOUT
+   Left column 1fr — right sidebar 400px.
 ========================== */
 
 .rd-layout {
@@ -157,59 +209,21 @@
   align-items: start;
 }
 
-/* LAYOUT FIX 1 — let the left column shrink; long words and
+/* OVERFLOW GUARD — the left column may shrink; long words and
    wide media can't push it past 1fr and crush the sidebar. */
 .rd-main {
   min-width: 0;
 }
 
-/* LAYOUT FIX 2 + 3 — sticky removed; the sidebar stretches to
-   match the grid row's full height and becomes a flex column
-   so its LAST card (Space Details) can grow to occupy all the
-   leftover vertical space in the right column. */
+/* No sticky: the sidebar stretches to the grid row's full
+   height and becomes a flex column so its LAST card (Space
+   Details) can grow into the leftover vertical space.
+   (.rd-sidebar kept as an alias of .rd-side.) */
+.rd-side,
 .rd-sidebar {
   display: flex;
   flex-direction: column;
-  align-self: stretch; /* overrides .rd-layout's align-items:start */
-}
-
-/* SPACE DETAILS CARD — the last card in the sidebar.
-   flex-grow makes the card itself expand to OCCUPY every bit
-   of the leftover space in the right column, so there is no
-   dead gap under the booking card. It is also a flex column
-   so its spec rows can spread out inside it. */
-.rd-details-card {
-  flex: 1 0 auto;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Card heading — display font like the section headings, with
-   the same gold underline so it feels native to the page. */
-.rd-details-card h3 {
-  font-family: var(--font-display);
-  font-size: 1.05rem;
-  font-weight: 600;
-  margin: 0 0 10px;
-  color: var(--rh-ink);
-}
-
-.rd-details-card h3::after {
-  content: "";
-  display: block;
-  width: 36px;
-  height: 3px;
-  margin-top: 7px;
-  background: linear-gradient(90deg, #f6b93b, #eda423);
-  border-radius: 2px;
-}
-
-/* Rows spread evenly through the stretched card so the
-   occupied space looks intentional, like a tall spec sheet.
-   Delete this block if you prefer the rows compact at the
-   top of the card instead of spread out. */
-.rd-details-card .rd-detail-row {
-  flex: 1 0 auto;
+  align-self: stretch;
 }
 
 @media (max-width: 1080px) {
@@ -217,7 +231,7 @@
     grid-template-columns: 1fr;
   }
 
-  /* Sidebar stacks full-width below the main column — its
+  /* Sidebar stacks full-width below the main column; its
      height becomes auto, so the details card's flex-grow
      resolves to nothing and everything flows normally. */
 }
@@ -265,13 +279,12 @@
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  width: 46px;
-  height: 46px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: none;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
-  font-size: 1.05rem;
   color: var(--rh-ink);
   cursor: pointer;
   display: flex;
@@ -281,6 +294,11 @@
     background 0.15s ease,
     color 0.15s ease,
     transform 0.1s ease;
+}
+
+.rd-gallery-arrow svg {
+  width: 20px;
+  height: 20px;
 }
 
 .rd-gallery-arrow:hover {
@@ -303,7 +321,7 @@
   right: 14px;
   background: rgba(20, 33, 27, 0.72);
   color: #fff;
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   padding: 5px 12px;
   border-radius: var(--rh-radius-pill);
 }
@@ -331,12 +349,12 @@
 }
 
 .rd-thumb {
-  width: 104px;
-  height: 78px;
+  width: 96px;
+  height: 70px;
   object-fit: cover;
   border-radius: 12px;
   cursor: pointer;
-  opacity: 0.6;
+  opacity: 0.65;
   border: 2px solid transparent;
   transition:
     opacity 0.15s ease,
@@ -353,7 +371,7 @@
 
 .rd-thumb.active {
   opacity: 1;
-  border-color: var(--rh-gold);
+  border-color: var(--rh-gold-bright);
 }
 
 .rd-thumbs-arrow {
@@ -364,7 +382,6 @@
   border: 1px solid var(--rh-line);
   background: var(--rh-cloud);
   cursor: pointer;
-  font-size: 0.85rem;
   color: var(--rh-ink-soft);
   display: flex;
   align-items: center;
@@ -374,20 +391,25 @@
     color 0.15s ease;
 }
 
+.rd-thumbs-arrow svg {
+  width: 16px;
+  height: 16px;
+}
+
 .rd-thumbs-arrow:hover {
   border-color: var(--rh-gold);
   color: var(--rh-gold-deep);
 }
 
 /* =========================
-   TITLE / SUBLINE
+   TITLE / SUBLINE / STATUS PILL
 ========================== */
 
 .rd-title {
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 1.9rem;
-  margin: 26px 0 6px;
+  font-size: 1.95rem;
+  margin: 26px 0 8px;
   color: var(--rh-ink);
   overflow-wrap: break-word;
 }
@@ -398,9 +420,9 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 10px;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
   color: var(--rh-ink-soft);
-  font-size: 0.9rem;
+  font-size: 0.82rem;
 }
 
 .rd-location {
@@ -409,354 +431,58 @@
   gap: 6px;
 }
 
-.rd-location img {
-  width: 16px;
-  height: 16px;
-  opacity: 0.65;
+.rd-location svg {
+  width: 15px;
+  height: 15px;
+  color: var(--rh-gold);
 }
 
 .rd-rating {
-  font-weight: 600;
-  color: var(--rh-ink);
-}
-
-/* =========================
-   AMENITIES ROW
-========================== */
-
-.rd-amenities {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 22px;
-  padding: 20px 0;
-  border-top: 1px solid var(--rh-line-soft);
-  border-bottom: 1px solid var(--rh-line-soft);
-  margin-bottom: 26px;
-}
-
-.rd-amenity {
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font-size: 0.8rem;
-  color: var(--rh-ink-soft);
-  min-width: 70px;
-}
-
-.rd-amenity img {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
-}
-
-/* =========================
-   ABOUT
-========================== */
-
-.rd-about {
-  margin-bottom: 30px;
-}
-
-.rd-about h2,
-.rd-host h2 {
-  font-family: var(--font-display);
+  gap: 5px;
   font-weight: 600;
-  font-size: 1.25rem;
-  margin-bottom: 12px;
-  color: var(--rh-ink);
-}
-
-.rd-about-text {
-  color: var(--rh-ink-soft);
-  line-height: 1.65;
-  font-size: 0.94rem;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.rd-about-text.rd-expanded {
-  -webkit-line-clamp: none;
-  line-clamp: none;
-  display: block;
-  overflow: visible;
-}
-
-.rd-show-more {
-  background: none;
-  border: none;
   color: var(--rh-gold-deep);
+}
+
+.rd-rating svg {
+  width: 14px;
+  height: 14px;
+  fill: var(--rh-gold-bright);
+  color: var(--rh-gold-bright);
+}
+
+.rd-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: var(--rh-radius-pill);
+  font-size: 0.7rem;
   font-weight: 600;
-  font-size: 0.85rem;
-  cursor: pointer;
-  padding: 8px 0;
 }
 
-/* =========================
-   HOST CARD
-========================== */
-
-.rd-host-card {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  background: var(--rh-cloud);
-  border: 1px solid var(--rh-line);
-  border-radius: 16px;
-  padding: 20px;
-  flex-wrap: wrap;
-  box-shadow: var(--rh-shadow-soft);
+.rd-badge-new {
+  background: var(--rh-gold-wash);
+  color: var(--rh-gold-deep);
+  border: 1px solid var(--rh-gold-bright);
 }
 
-.rd-host-avatar {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 2px solid var(--rh-gold-wash);
-}
+/* APPLICATION STATUS PILL — sits under the subline in the
+   LEFT column (design shot), not inside the booking card. */
 
-.rd-host-info {
-  flex: 1;
-  min-width: 180px;
-}
-
-.rd-host-name-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.rd-application-status {
+  display: inline-block;
+  padding: 8px 16px;
+  border-radius: var(--rh-radius-pill);
+  font-size: 0.78rem;
+  font-weight: 600;
   margin-bottom: 4px;
 }
 
-.rd-host-info p {
-  margin: 2px 0;
-  font-size: 0.85rem;
-  color: var(--rh-ink-soft);
-}
-
-.rd-superhost-badge {
-  background: #eafaf0;
-  color: #2f9e5c;
-  font-size: 0.72rem;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: var(--rh-radius-pill);
-}
-
-.rd-host-profile-btn {
-  border: 1px solid var(--rh-gold);
-  color: var(--rh-gold-deep);
-  text-decoration: none;
-  padding: 9px 20px;
-  border-radius: var(--rh-radius-pill);
-  font-size: 0.85rem;
-  font-weight: 600;
-  white-space: nowrap;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease;
-}
-
-.rd-host-profile-btn:hover {
-  background: var(--rh-gold);
-  color: #fff;
-}
-
-/* =========================
-   SIDEBAR — SHARED CARD STYLE
-========================== */
-
-.rd-card {
-  background: var(--rh-cloud);
-  border: 1px solid var(--rh-line);
-  border-radius: var(--rh-radius-card);
-  padding: 22px;
-  margin-bottom: 20px;
-  box-shadow: var(--rh-shadow-soft);
-}
-
-/* BOOKING CARD */
-
-.rd-price {
-  font-size: 1.55rem;
-  font-weight: 700;
-  color: var(--rh-ink);
-  margin-bottom: 16px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--rh-line-soft);
-}
-
-.rd-peso {
-  color: var(--rh-gold-deep);
-}
-
-.rd-per {
-  font-size: 0.85rem;
-  font-weight: 400;
-  color: var(--rh-ink-soft);
-}
-
-.rd-dates label,
-.rd-guests label {
-  display: block;
-  font-size: 0.76rem;
-  font-weight: 600;
-  color: var(--rh-ink-soft);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  margin-bottom: 8px;
-}
-
-/* =========================
-   50% RESERVE BREAKDOWN (booking card)
-========================== */
-
-.rd-reserve-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-
-  border-top: 1px dashed var(--rh-line);
-  margin-top: 14px;
-  padding-top: 12px;
-}
-
-.rd-reserve-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: 13px;
-  color: var(--rh-ink-soft);
-}
-
-.rd-reserve-row strong {
-  color: var(--rh-ink);
-  font-weight: 600;
-}
-
-.rd-reserve-row.rd-reserve-now strong {
-  color: var(--rh-gold-deep);
-  font-weight: 800;
-}
-
-/* =========================
-   DATE SUMMARY (above the calendar)
-========================== */
-
-.rd-date-summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-
-.rd-date-summary-field {
-  flex: 1;
-  border: 1px solid var(--rh-line);
-  border-radius: 12px;
-  padding: 9px 11px;
-}
-
-.rd-date-summary-field span {
-  display: block;
-  font-size: 0.7rem;
-  color: var(--rh-ink-soft);
-}
-
-.rd-date-summary-field strong {
-  display: block;
-  font-size: 0.85rem;
-  color: var(--rh-ink);
-  font-weight: 600;
-}
-
-.rd-date-sep {
-  color: #ccc;
-}
-
-/* =========================
-   INLINE CALENDAR
-========================== */
-
-#rd-calendar {
-  margin-bottom: 16px;
-}
-
-#rd-calendar .flatpickr-calendar {
-  width: 100%;
-  box-shadow: none;
-  border: 1px solid var(--rh-line);
-  border-radius: 12px;
-}
-
-#rd-calendar .flatpickr-days,
-#rd-calendar .dayContainer {
-  width: 100%;
-  max-width: 100%;
-}
-
-#rd-calendar .flatpickr-day.selected,
-#rd-calendar .flatpickr-day.startRange,
-#rd-calendar .flatpickr-day.endRange {
-  background: var(--rh-gold);
-  border-color: var(--rh-gold);
-}
-
-#rd-calendar .flatpickr-day.inRange {
-  background: var(--rh-gold-wash);
-  border-color: var(--rh-gold-wash);
-  box-shadow:
-    -5px 0 0 var(--rh-gold-wash),
-    5px 0 0 var(--rh-gold-wash);
-}
-
-/* Booked days — crossed out */
-.flatpickr-day.flatpickr-disabled {
-  text-decoration: line-through;
-  opacity: 0.35;
-}
-
-.rd-guests {
-  margin-bottom: 18px;
-}
-
-/* =========================
-   GUESTS DISPLAY BOX
-   (the page shows a fixed capacity, not a select)
-========================== */
-
-.rd-guests-display {
-  width: 100%;
-  padding: 11px;
-  border-radius: 12px;
-  border: 1px solid var(--rh-line);
-  font-family: inherit;
-  font-size: 0.88rem;
-  color: var(--rh-ink);
-  background: var(--rh-cloud);
-  margin-bottom: 5px;
-  box-sizing: border-box;
-}
-
-.rd-guests-note {
-  display: block;
-  font-size: 11px;
-  color: var(--rh-ink-soft);
-}
-
-/* =========================
-   APPLICATION STATUS PILL (base)
-========================== */
-
-.rd-application-status {
-  padding: 7px 15px;
-  border-radius: var(--rh-radius-pill);
-  font-size: 12.5px;
-  font-weight: 700;
-  display: inline-block;
-  margin-bottom: 16px;
+.rd-application-status svg {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+  margin-right: 4px;
 }
 
 .rd-application-status-pending {
@@ -778,13 +504,711 @@
 }
 
 .rd-application-status-cancelled {
-  background: #f4f6f8;
-  color: #5d6875;
-  border: 1px solid #e3e7ec;
+  background: #eef2f8;
+  color: #5b7a9d;
+  border: 1px solid #dbe4ef;
 }
 
 /* =========================
-   NOTICE BANNER (base)
+   AMENITIES STRIP
+   Flat icon row between two hairlines — no card, no heading
+   (matches the design shot).
+========================== */
+
+.rd-amenities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 44px;
+  padding: 20px 2px;
+  border-top: 1px solid var(--rh-line-soft);
+  border-bottom: 1px solid var(--rh-line-soft);
+  margin: 18px 0 30px;
+}
+
+.rd-amenity-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 44px;
+  width: 100%;
+}
+
+.rd-amenity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: #4a574f;
+  min-width: 64px;
+}
+
+.rd-amenity svg {
+  width: 26px;
+  height: 26px;
+  color: var(--rh-gold-bright);
+}
+
+/* =========================
+   LEFT COLUMN SECTIONS
+   Flat headings on the canvas; only the host card and the map
+   block sit on white surfaces.
+========================== */
+
+.rd-section {
+  margin-bottom: 34px;
+}
+
+.rd-section-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.22rem;
+  color: var(--rh-ink);
+  margin: 0 0 12px;
+}
+
+.rd-section-title::after {
+  content: "";
+  display: block;
+  width: 55px;
+  height: 3px;
+  margin-top: 7px;
+  background: linear-gradient(90deg, #f6b93b, #eda423);
+  border-radius: 2px;
+}
+
+/* ABOUT + HOUSE RULES */
+
+.rd-about-text,
+.rd-rules-text {
+  color: var(--rh-ink-soft);
+  line-height: 1.75;
+  font-size: 0.84rem;
+  margin: 0;
+}
+
+.rd-about-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* The JS toggles the class "expanded" (was wrongly documented
+   as "rd-expanded" before — that mismatch is fixed here). */
+.rd-about-text.expanded,
+.rd-about-text.rd-expanded {
+  -webkit-line-clamp: none;
+  line-clamp: none;
+  display: block;
+  overflow: visible;
+}
+
+.rd-show-more {
+  background: none;
+  border: none;
+  color: var(--rh-gold-deep);
+  font-weight: 600;
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 10px 0 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: inherit;
+}
+
+.rd-show-more svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* HOST */
+
+.rd-host-card {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  background: var(--rh-cloud);
+  border: 1px solid var(--rh-line);
+  border-radius: 16px;
+  padding: 22px;
+  flex-wrap: wrap;
+  box-shadow: var(--rh-shadow-soft);
+}
+
+.rd-host-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--rh-gold-bright);
+  flex: 0 0 auto;
+}
+
+.rd-host-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex: 1;
+  min-width: 220px;
+}
+
+.rd-host-info {
+  flex: 1;
+  min-width: 180px;
+}
+
+.rd-host-info strong {
+  display: block;
+  font-size: 0.95rem;
+  color: var(--rh-ink);
+  margin-bottom: 6px;
+}
+
+.rd-host-info span,
+.rd-host-info p {
+  display: block;
+  margin: 3px 0;
+  font-size: 0.78rem;
+  color: var(--rh-ink-soft);
+}
+
+.rd-host-profile-btn {
+  margin-left: auto;
+  border: 1.5px solid var(--rh-gold-bright);
+  color: var(--rh-gold-deep);
+  background: var(--rh-cloud);
+  text-decoration: none;
+  padding: 12px 22px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.rd-host-profile-btn:hover {
+  background: var(--rh-gold);
+  border-color: var(--rh-gold);
+  color: #fff;
+}
+
+@media (max-width: 600px) {
+  .rd-host-profile-btn {
+    margin-left: 0;
+    width: 100%;
+    text-align: center;
+  }
+}
+
+/* WHERE YOU'LL BE */
+
+.rd-where-address {
+  font-size: 0.82rem;
+  color: var(--rh-ink-soft);
+  margin: 0 0 14px;
+}
+
+/* Leaflet requires a positioned container — `fixed` detached
+   the map from the page and covered content while scrolling,
+   so this stays `relative`. */
+.rd-map-embed {
+  position: relative;
+  z-index: 1;
+  height: 260px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--rh-line);
+  margin-bottom: 12px;
+  box-shadow: 0 8px 20px -12px rgba(28, 43, 36, 0.3);
+  background: #eaf2fb;
+}
+
+.rd-map-embed .leaflet-container {
+  font-family: var(--font-ui);
+}
+
+.rd-map-exact-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 14px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--rh-green);
+}
+
+.rd-map-exact-note svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* =========================
+   SHARED CARD STYLE (sidebar)
+========================== */
+
+.rd-card {
+  background: var(--rh-cloud);
+  border: 1px solid var(--rh-line);
+  border-radius: var(--rh-radius-card);
+  padding: 22px;
+  margin-bottom: 20px;
+  box-shadow: var(--rh-shadow-soft);
+}
+
+/* =========================
+   BOOKING CARD — gold-bordered hero card
+========================== */
+
+.rd-booking-card {
+  border: 1.5px solid var(--rh-gold-bright);
+  box-shadow: var(--rh-shadow-gold);
+  margin-bottom: 20px;
+}
+
+.rd-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--rh-line-soft);
+}
+
+.rd-price-row .rd-peso-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--rh-gold);
+  align-self: center;
+}
+
+.rd-price-row .rd-price {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--rh-ink);
+  line-height: 1;
+}
+
+.rd-price-row .rd-per {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--rh-ink-soft);
+}
+
+/* ---- SUMMARY LINES (Monthly price / Rental duration / Total
+   rent / Reserve now / Balance at move-in) ---- */
+
+.rd-price-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  border-top: 1px dashed var(--rh-line);
+  margin-top: 12px;
+  padding-top: 14px;
+}
+
+.rd-price-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.78rem;
+  color: #55645a;
+}
+
+.rd-price-line strong {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  color: var(--rh-ink);
+  font-weight: 700;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.rd-price-line.rd-line-total strong {
+  color: var(--rh-gold-deep);
+  font-weight: 800;
+}
+
+/* ---- UNAVAILABLE / VERIFY states inside the card ---- */
+
+.rd-unavailable-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: #fdecec;
+  border: 1px solid #f3b9b9;
+  color: #a1332e;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  margin: 14px 0 4px;
+}
+
+.rd-unavailable-note svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.rd-verify-nudge {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--rh-gold-wash);
+  border: 1px solid rgba(237, 164, 35, 0.5);
+  color: #8a5a10;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  margin: 14px 0 4px;
+}
+
+.rd-verify-nudge svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.rd-verify-nudge a {
+  color: inherit;
+  font-weight: 700;
+}
+
+/* =========================
+   BOOKING FORM
+========================== */
+
+.rd-booking-form {
+  margin-top: 4px;
+}
+
+.rd-field-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--rh-ink);
+  margin: 16px 0 8px;
+}
+
+.rd-field-label svg {
+  width: 15px;
+  height: 15px;
+  color: var(--rh-gold);
+}
+
+.rd-movein-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 13px 14px;
+  border: 1px solid var(--rh-line);
+  border-radius: 12px;
+  background: var(--rh-cloud);
+  font-family: inherit;
+  font-size: 0.8rem;
+  color: var(--rh-ink);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.rd-movein-input::placeholder {
+  color: #a9aea4;
+}
+
+.rd-movein-input:focus {
+  outline: none;
+  border-color: var(--rh-gold);
+  box-shadow: 0 0 0 3px var(--rh-gold-wash);
+}
+
+/* ---- DURATION PICKER:  (−)  1 / Month  (+) ---- */
+
+.rd-duration-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--rh-line);
+  border-radius: 14px;
+  padding: 8px;
+  background: var(--rh-cloud);
+}
+
+.rd-dur-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.05rem;
+  font-family: inherit;
+  line-height: 1;
+  transition:
+    filter 0.15s ease,
+    transform 0.1s ease;
+}
+
+.rd-dur-btn:active {
+  transform: scale(0.94);
+}
+
+.rd-dur-minus {
+  background: var(--rh-cloud);
+  border: 1.5px solid var(--rh-gold-bright);
+  color: var(--rh-gold-deep);
+}
+
+.rd-dur-plus {
+  background: var(--rh-gold-bright);
+  border: none;
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(237, 164, 35, 0.35);
+}
+
+.rd-dur-btn:hover {
+  filter: brightness(1.05);
+}
+
+.rd-dur-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.rd-dur-value {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.rd-dur-value strong {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--rh-ink);
+}
+
+.rd-dur-value span {
+  font-size: 0.68rem;
+  color: var(--rh-ink-soft);
+}
+
+/* ---- LONG TERM CHECKBOX ---- */
+
+.rd-long-term {
+  margin: 14px 0 2px;
+}
+
+.rd-long-term-label {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 400;
+  color: var(--rh-ink-soft);
+  line-height: 1.55;
+}
+
+.rd-long-term-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  accent-color: var(--rh-gold);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.rd-long-term-label svg {
+  width: 15px;
+  height: 15px;
+  color: var(--rh-gold);
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+/* Long Term hides the duration picker */
+#rd-duration-wrap.rd-date-hidden,
+.rd-date-hidden {
+  display: none !important;
+}
+
+/* ---- SUBMIT + CHARGE NOTE ---- */
+
+.rd-btn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  padding: 14px;
+  border-radius: var(--rh-radius-pill);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: inherit;
+  box-sizing: border-box;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease,
+    box-shadow 0.15s ease;
+}
+
+.rd-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.rd-btn-primary {
+  background: linear-gradient(90deg, #f6b93b, #eda423);
+  color: #fff;
+  border: none;
+  box-shadow: 0 10px 24px rgba(237, 164, 35, 0.38);
+}
+
+.rd-btn-primary:hover {
+  background: linear-gradient(90deg, #f0ad25, #dd930f);
+}
+
+.rd-btn-primary:active {
+  transform: translateY(1px);
+}
+
+.rd-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.rd-btn-outline {
+  background: var(--rh-cloud);
+  color: var(--rh-gold-deep);
+  border: 1.5px solid var(--rh-gold-bright);
+}
+
+.rd-btn-outline:hover {
+  background: var(--rh-gold-wash);
+}
+
+.rd-charge-note {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  font-size: 0.7rem;
+  line-height: 1.6;
+  color: var(--rh-ink-soft);
+  margin: 12px 0 0;
+}
+
+.rd-charge-note svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--rh-green);
+  margin-top: 2px;
+}
+
+/* =========================
+   SPACE DETAILS CARD — last card in the sidebar.
+   flex-grow makes the card occupy every bit of the leftover
+   space in the right column (no dead gap under the booking
+   card); it is a flex column so its rows spread inside it.
+========================== */
+
+.rd-details-card {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+.rd-details-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-ui);
+  font-size: 0.88rem;
+  font-weight: 700;
+  margin: 0 0 6px;
+  color: var(--rh-ink);
+}
+
+.rd-details-card h3 svg {
+  width: 17px;
+  height: 17px;
+  color: var(--rh-gold);
+}
+
+/* Gold bar sits to the RIGHT of the heading text, like the
+   design shot. */
+.rd-details-card h3::after {
+  content: "";
+  width: 42px;
+  height: 5px;
+  margin-left: 2px;
+  background: linear-gradient(90deg, #f6b93b, #eda423);
+  border-radius: 3px;
+}
+
+/* Rows spread evenly through the stretched card so the
+   occupied space looks intentional, like a tall spec sheet.
+   Delete this block if you prefer the rows compact at the
+   top of the card instead of spread out. */
+.rd-details-card .rd-detail-row {
+  flex: 1 0 auto;
+}
+
+.rd-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rh-line-soft);
+  font-size: 0.78rem;
+}
+
+.rd-detail-row:last-child {
+  border-bottom: none;
+}
+
+.rd-detail-row svg {
+  width: 16px;
+  height: 16px;
+  color: var(--rh-gold);
+  flex: 0 0 auto;
+}
+
+.rd-detail-row span {
+  flex: 1;
+  color: #55645a;
+}
+
+.rd-detail-row strong {
+  color: var(--rh-ink);
+  font-weight: 700;
+  font-size: 0.8rem;
+  text-align: right;
+}
+
+/* =========================
+   NOTICES (redirect feedback)
 ========================== */
 
 .rd-notice {
@@ -797,7 +1221,14 @@
   border-radius: 14px;
   color: #8a5a10;
   font-weight: 500;
-  margin-bottom: 16px;
+  font-size: 0.82rem;
+  margin-bottom: 18px;
+}
+
+.rd-notice svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
 }
 
 .rd-notice-success {
@@ -807,231 +1238,73 @@
 }
 
 /* =========================
-   DATE COMPLETION HINT
+   FLATPICKR (move-in date popup)
 ========================== */
 
-.rd-date-hint {
-  text-align: center;
-  margin: 8px 0 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--rh-gold-deep);
-}
-
-.rd-date-hint.rd-hint-ok {
-  color: #2f9e5b;
-}
-
-/* =========================
-   LONG TERM CHECKBOX
-========================== */
-
-.rd-long-term {
-  margin-bottom: 10px;
-}
-
-.rd-long-term-label {
-  display: inline-flex !important;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  font-size: 0.85rem !important;
-  font-weight: 500 !important;
-  color: var(--rh-ink) !important;
-  text-transform: none !important;
-  letter-spacing: normal !important;
-  margin-bottom: 0 !important;
-}
-
-.rd-long-term-label input[type="checkbox"] {
-  width: 17px;
-  height: 17px;
-  margin: 0;
-  accent-color: var(--rh-gold);
-  cursor: pointer;
-}
-
-/* Long Term hides the check-out field */
-.rd-date-hidden {
-  display: none !important;
-}
-
-.rd-btn {
-  display: block;
-  width: 100%;
-  text-align: center;
-  padding: 13px;
-  border-radius: var(--rh-radius-pill);
-  font-weight: 600;
-  font-size: 0.9rem;
-  cursor: pointer;
-  text-decoration: none;
-  margin-bottom: 10px;
-  font-family: inherit;
-  transition:
-    background 0.15s ease,
-    transform 0.1s ease,
-    box-shadow 0.15s ease;
-}
-
-.rd-btn-primary {
-  background: var(--rh-gold);
-  color: #fff;
-  border: none;
-  box-shadow: 0 8px 20px rgba(221, 147, 15, 0.28);
-}
-
-.rd-btn-primary:hover {
-  background: var(--rh-gold-deep);
-}
-
-.rd-btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.rd-btn-outline {
-  background: var(--rh-cloud);
-  color: var(--rh-gold-deep);
-  border: 1px solid var(--rh-gold);
-}
-
-.rd-btn-outline:hover {
-  background: var(--rh-gold-wash);
-}
-
-.rd-charge-note {
-  text-align: center;
-  font-size: 0.78rem;
-  color: var(--rh-ink-soft);
-  margin: 6px 0 0;
-}
-
-/* SPACE DETAILS ROWS
-   (the card itself lives at the bottom of the sidebar via
-   .rd-details-card { flex: 1 0 auto } — see the LAYOUT
-   section above) */
-
-.rd-detail-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 11px 0;
-  border-bottom: 1px solid var(--rh-line-soft);
-  font-size: 0.85rem;
-}
-
-.rd-detail-row:last-child {
-  border-bottom: none;
-}
-
-.rd-detail-row img {
-  width: 18px;
-  height: 18px;
-  object-fit: contain;
-  opacity: 0.7;
-}
-
-.rd-detail-row span {
-  flex: 1;
-  color: var(--rh-ink-soft);
-}
-
-.rd-detail-row strong {
-  color: var(--rh-ink);
-}
-
-/* LOCATION CARD */
-
-.rd-location-card h3 {
-  font-family: var(--font-display);
-  font-size: 1.05rem;
-  margin: 0 0 4px;
-  color: var(--rh-ink);
-}
-
-.rd-location-card p {
-  font-size: 0.85rem;
-  color: var(--rh-ink-soft);
-  margin: 0 0 12px;
-}
-
-.rd-map-placeholder {
-  position: relative;
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--rh-line-soft);
-  aspect-ratio: 16 / 10;
-  margin-bottom: 14px;
-}
-
-.rd-map-placeholder img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.rd-map-pin {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -100%);
-  font-size: 1.6rem;
-  color: var(--rh-coral);
-}
-
-/* =========================
-   LEAFLET EXACT-LOCATION MAP
-   FIX: position was changed to `fixed`, which detached the
-   map from the page — it floated over the viewport and
-   covered content while scrolling. Restored to `relative`
-   (Leaflet also requires a positioned container).
-========================== */
-
-.rd-map-embed {
-  position: relative;
-  z-index: 1;
-  height: 220px;
-  border-radius: 12px;
-  overflow: hidden;
+.listing-detail-page .flatpickr-calendar {
+  font-family: var(--font-ui);
+  box-shadow: var(--rh-shadow-lift);
   border: 1px solid var(--rh-line);
-  margin-bottom: 14px;
-  box-shadow: 0 8px 20px -12px rgba(28, 43, 36, 0.3);
-  background: #eaf2fb;
+  border-radius: 12px;
 }
 
-.rd-pin-icon {
-  background: transparent;
-  border: none;
+.listing-detail-page .flatpickr-day.selected,
+.listing-detail-page .flatpickr-day.startRange,
+.listing-detail-page .flatpickr-day.endRange {
+  background: var(--rh-gold);
+  border-color: var(--rh-gold);
 }
 
-.rd-pin {
-  font-size: 30px;
-  line-height: 1;
-  filter: drop-shadow(0 3px 3px rgba(0, 0, 0, 0.35));
+.listing-detail-page .flatpickr-day.inRange {
+  background: var(--rh-gold-wash);
+  border-color: var(--rh-gold-wash);
+  box-shadow:
+    -5px 0 0 var(--rh-gold-wash),
+    5px 0 0 var(--rh-gold-wash);
 }
 
-.rd-map-exact-note {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0 0 14px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #2f9e5b;
+/* Booked days — crossed out */
+.flatpickr-day.flatpickr-disabled {
+  text-decoration: line-through;
+  opacity: 0.35;
 }
 
-.rd-map-btn {
-  margin-bottom: 0;
-}
+/* =========================
+   MOTION PREFERENCES
+========================== */
 
 @media (prefers-reduced-motion: reduce) {
+
   .rd-gallery-arrow,
   .rd-thumb,
+  .rd-dur-btn,
   .rd-btn,
   .rd-host-profile-btn {
     transition: none !important;
   }
 }
 
+/* =========================
+   RESPONSIVE POLISH
+========================== */
+
+@media (max-width: 1080px) {
+  .rd-details-card {
+    flex: 0 0 auto;
+  }
+}
+
+@media (max-width: 600px) {
+  .rd-topbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .rd-amenity-grid {
+    gap: 16px 28px;
+  }
+
+  .rd-layout {
+    gap: 28px;
+  }
+}

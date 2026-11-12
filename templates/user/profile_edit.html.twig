@@ -1,0 +1,1402 @@
+{# =========================================================
+   ROOMHIVE (Symfony) — templates/user/profile_edit.html.twig
+   Pixel-parity port of /webprogg/user/editprofile.php
+
+   Vars from ProfileController::edit() (all have defaults):
+     user{name,avatar,personal,email,phone,age,location}
+       — accepts BOTH the mapped array AND a raw users-table
+         row (avatar_path/personal_photo) — normalized below.
+     idTypes (key=>label), idDocs[], isVerified, hasIdNoProfile,
+     errors[], saved, savedId, justVerified, notification_count
+
+   CSRF token id is 'profile_edit' in BOTH forms — the
+   controller validates the same id via isCsrfTokenValid().
+
+   SIDEBAR: included below with active_sidebar: 'profile' —
+   partials/sidebar.html.twig highlights "Profile & Account".
+========================================================= #}
+{% set idTypes = idTypes|default({
+    'passport':        'Passport',
+    'drivers-license': "Driver's License",
+    'philsys':         'PhilSys / National ID',
+    'umid':            'UMID',
+    'voters-id':       "Voter's ID",
+    'postal-id':       'Postal ID',
+    'prc-id':          'PRC ID',
+    'student-id':      'Student ID',
+    'sss-id':          'SSS ID',
+    'tin-id':          'TIN ID',
+}) %}
+{% set idDocs = idDocs|default([]) %}
+{% set isVerified = isVerified|default(false) %}
+{% set hasIdNoProfile = hasIdNoProfile|default(false) %}
+{% set errors = errors|default([]) %}
+{% set saved = saved|default(false) %}
+{% set savedId = savedId|default(false) %}
+{% set justVerified = justVerified|default(false) %}
+{% set notification_count = notification_count|default(0) %}
+
+{# Accepts BOTH the mapped array from the controller AND a raw
+   users-table row — normalizes to the keys this template uses.
+   Relative DB paths (uploads/...) get a leading slash so they
+   resolve against the site root, not the current URL. #}
+{% set _u = user|default({}) %}
+
+{% set _av = (_u.avatar is defined and _u.avatar) ? _u.avatar : ((_u.avatar_path is defined and _u.avatar_path) ? _u.avatar_path : '') %}
+{% if _av and _av[: 1] != '/' and _av[: 4] != 'http' %}
+    {% set _av = '/' ~ _av %}
+{% endif %}
+
+{% set _pp = (_u.personal is defined and _u.personal) ? _u.personal : ((_u.personal_photo is defined and _u.personal_photo) ? _u.personal_photo : '') %}
+{% if _pp and _pp[: 1] != '/' and _pp[: 4] != 'http' %}
+    {% set _pp = '/' ~ _pp %}
+{% endif %}
+
+{% set user = {
+    'name':     _u.name is defined ? _u.name : '',
+    'avatar':   _av ? _av : '/images/default-avatar.png',
+    'personal': _pp,
+    'email':    _u.email is defined ? _u.email : '',
+    'phone':    _u.phone is defined ? _u.phone : '',
+    'age':      _u.age is defined ? _u.age : '',
+    'location': _u.location is defined ? _u.location : '',
+} %}
+
+{% macro uid_badge(status) %}
+    {% set map = {
+        'pending':  ['Needs complete profile', 'uid-badge-pending'],
+        'verified': ['Verified',               'uid-badge-verified'],
+        'rejected': ['Rejected',               'uid-badge-rejected'],
+    } %}
+    {% set s = map[status]|default(map['pending']) %}
+    <span class="uid-badge {{ s[1] }}">{{ s[0] }}</span>
+{% endmacro %}
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Profile &amp; Account — RoomHive</title>
+        <script>
+            try {
+                if (localStorage.getItem("rhTheme") === "dark") {
+                    document.documentElement.setAttribute("data-theme-preview", "1");
+                }
+            } catch (e) {}
+        </script>
+        <link rel="stylesheet" href="/assets/style.css">
+        <link rel="stylesheet" href="/assets/myaccount.css">
+        <script>
+            document.documentElement.classList.add("js");
+        </script>
+        <style>
+            .uid-badge {
+                display: inline-block;
+                font-size: 10.5px;
+                font-weight: 800;
+                letter-spacing: 0.04em;
+                border-radius: 999px;
+                padding: 3px 10px;
+                white-space: nowrap;
+            }
+
+            .uid-badge-pending {
+                background: #fff1dc;
+                color: #b07708;
+                border: 1px solid rgba(237, 164, 35, 0.5);
+            }
+
+            .uid-badge-verified {
+                background: #e8f8f1;
+                color: #178a50;
+                border: 1px solid rgba(23, 138, 80, 0.35);
+            }
+
+            .uid-badge-rejected {
+                background: #fdecec;
+                color: #a4302f;
+                border: 1px solid #f3b9b9;
+            }
+
+            .uid-item {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 10px 12px;
+                border: 1px solid #ececec;
+                border-radius: 10px;
+                margin-bottom: 8px;
+                background: #fbfbf9;
+            }
+
+            .uid-item-thumb {
+                width: 40px;
+                height: 40px;
+                border-radius: 8px;
+                object-fit: cover;
+                background: #f0eee6;
+                flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 18px;
+                overflow: hidden;
+            }
+
+            .uid-item-body {
+                flex: 1;
+                min-width: 0;
+            }
+
+            .uid-item-body strong {
+                display: block;
+                font-size: 12.5px;
+                color: #1c2a38;
+            }
+
+            .uid-item-body span {
+                display: block;
+                font-size: 11px;
+                color: #8d99a5;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .uid-item-note {
+                font-size: 11px;
+                color: #a4302f;
+                margin-top: 2px;
+                white-space: normal;
+            }
+
+            .uid-upload-box {
+                border: 1.5px dashed #d9d9d9;
+                border-radius: 10px;
+                background: #fbfcfd;
+                padding: 16px 14px;
+                text-align: center;
+                cursor: pointer;
+                transition:
+                    border-color 0.15s ease,
+                    background 0.15s ease;
+                display: block;
+            }
+
+            .uid-upload-box:hover {
+                border-color: #eda423;
+                background: #fffaf0;
+            }
+
+            .uid-upload-box input[type="file"] {
+                display: none;
+            }
+
+            .uid-upload-ico {
+                font-size: 26px;
+                line-height: 1;
+                color: #293541;
+                display: inline-flex;
+            }
+
+            .uid-upload-text strong {
+                display: block;
+                font-size: 13px;
+                color: #39444e;
+                font-weight: 600;
+                margin-top: 4px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .uid-upload-text span {
+                display: block;
+                font-size: 11.5px;
+                color: #888f95;
+                margin-top: 2px;
+            }
+
+            .uid-upload-box.has-file {
+                border-color: #eda423;
+                background: #fdf4e3;
+            }
+
+            .uid-upload-box.has-file .uid-upload-text strong {
+                color: #b07708;
+            }
+
+            .uid-verified-banner {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 12px 14px;
+                border-radius: 10px;
+                background: #e8f8f1;
+                border: 1px solid rgba(23, 138, 80, 0.35);
+                color: #178a50;
+                font-size: 13px;
+                font-weight: 700;
+                margin-bottom: 12px;
+            }
+
+            .uid-steps {
+                font-size: 12.5px;
+                color: #777777;
+                margin: 0 0 12px;
+                line-height: 1.6;
+                padding-left: 18px;
+            }
+
+            .uid-cam-btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 7px;
+                border: 1.5px solid #eda423;
+                background: #fdf4e3;
+                color: #b07708;
+                font-family: inherit;
+                font-size: 12.5px;
+                font-weight: 700;
+                border-radius: 10px;
+                padding: 10px 16px;
+                cursor: pointer;
+                transition:
+                    background 0.15s ease,
+                    transform 0.15s ease;
+                position: relative;
+                z-index: 5;
+                pointer-events: auto;
+                -webkit-tap-highlight-color: transparent;
+                user-select: none;
+            }
+
+            .uid-cam-btn:hover {
+                background: #eda423;
+                color: #fff;
+                transform: translateY(-1px);
+            }
+
+            .uid-cam-row {
+                display: flex;
+                gap: 8px;
+                margin-top: 10px;
+                flex-wrap: wrap;
+                position: relative;
+                z-index: 5;
+            }
+
+            .cam-overlay {
+                position: fixed;
+                inset: 0;
+                z-index: 9000;
+                background: rgba(15, 25, 20, 0.85);
+                display: none;
+                align-items: center;
+                justify-content: center;
+                padding: 16px;
+            }
+
+            .cam-overlay.open {
+                display: flex;
+            }
+
+            .cam-card {
+                background: #fff;
+                border-radius: 18px;
+                width: 100%;
+                max-width: 520px;
+                max-height: calc(100vh - 32px);
+                overflow-y: auto;
+                box-shadow: 0 30px 70px rgba(0, 0, 0, 0.4);
+            }
+
+            .cam-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 14px 18px;
+                border-bottom: 1px solid #eee4d3;
+            }
+
+            .cam-head strong {
+                font-size: 14px;
+                color: #1c2a38;
+            }
+
+            .cam-close {
+                width: 32px;
+                height: 32px;
+                border: none;
+                border-radius: 50%;
+                background: #f4f1e7;
+                color: #62705f;
+                cursor: pointer;
+                font-size: 16px;
+                line-height: 1;
+            }
+
+            .cam-close:hover {
+                background: #dd930f;
+                color: #fff;
+            }
+
+            /* THE CLICK FIX — the stage and EVERYTHING inside it can
+                                                                           never intercept a click; the button row sits above. */
+            .cam-stage {
+                position: relative;
+                width: 100%;
+                aspect-ratio: 4/3;
+                background: #111;
+                overflow: hidden;
+                pointer-events: none !important;
+            }
+
+            .cam-stage * {
+                pointer-events: none !important;
+            }
+
+            .cam-stage video,
+            .cam-stage img {
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                object-position: center;
+                display: block;
+            }
+
+            .cam-stage video {
+                transform: scaleX(-1);
+            }
+
+            .cam-stage img {
+                visibility: hidden;
+            }
+
+            .cam-stage.captured video {
+                visibility: hidden;
+            }
+
+            .cam-stage.captured img {
+                visibility: visible;
+            }
+
+            .cam-flash-dot {
+                position: absolute;
+                inset: 0;
+                background: #fff;
+                opacity: 0;
+            }
+
+            .cam-flash-dot.go {
+                animation: camFlash 0.35s ease;
+            }
+
+            @keyframes camFlash {
+                0% {
+                    opacity: 0.85;
+                }
+
+                100% {
+                    opacity: 0;
+                }
+            }
+
+            .cam-guide {
+                position: absolute;
+                left: 50%;
+                bottom: 10px;
+                transform: translateX(-50%);
+                background: rgba(0, 0, 0, 0.55);
+                color: #fff;
+                font-size: 11.5px;
+                padding: 6px 12px;
+                border-radius: 999px;
+            }
+
+            .cam-err {
+                margin: 12px 18px 0;
+                padding: 10px 12px;
+                border-radius: 10px;
+                background: #fdecec;
+                color: #a4302f;
+                font-size: 12.5px;
+                border: 1px solid #f3b9b9;
+                display: none;
+            }
+
+            /* Button row — own stacking context above everything */
+            .cam-actions {
+                position: relative;
+                z-index: 9100;
+                display: flex;
+                gap: 8px;
+                padding: 14px 18px 18px;
+                flex-wrap: wrap;
+            }
+
+            .cam-btn {
+                flex: 1;
+                min-width: 110px;
+                padding: 12px;
+                border: none;
+                border-radius: 10px;
+                font-family: inherit;
+                font-size: 13px;
+                font-weight: 800;
+                cursor: pointer;
+                pointer-events: auto !important;
+                transition: transform 0.15s ease;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+            }
+
+            .cam-btn:hover {
+                transform: translateY(-1px);
+            }
+
+            .cam-shutter {
+                background: linear-gradient(135deg, #f6b93b, #eda423);
+                color: #1c2a38;
+            }
+
+            .cam-upload {
+                background: #178a50;
+                color: #fff;
+            }
+
+            .cam-cancel {
+                background: #f6f7fb;
+                color: #1c2a38;
+                flex: 0 0 auto;
+                padding: 12px 18px;
+            }
+
+            [hidden] {
+                display: none !important;
+            }
+
+            .cam-note {
+                padding: 0 18px 12px;
+                font-size: 11.5px;
+                color: #8d99a5;
+                text-align: center;
+            }
+
+            /* PERSONAL PHOTO — full-width box preview */
+            .ep-photo-section {
+                border: 1.5px dashed #e3e7ec;
+                border-radius: 12px;
+                padding: 16px;
+                background: #fbfcfd;
+                text-align: center;
+                overflow: hidden;
+            }
+
+            .ep-photo-preview {
+                width: 100% !important;
+                max-width: 100% !important;
+                height: 220px !important;
+                object-fit: cover;
+                object-position: center;
+                border-radius: 14px;
+                border: 1px solid rgba(28, 42, 56, 0.12);
+                background: #f0eee6;
+                display: block;
+                margin: 0 0 10px 0;
+                box-shadow: 0 4px 14px rgba(28, 42, 56, 0.12);
+            }
+
+            .ep-photo-preview.is-empty {
+                background: repeating-linear-gradient(
+                    45deg,
+                    #f0eee6,
+                    #f0eee6 12px,
+                    #eae5d6 12px,
+                    #eae5d6 24px
+                );
+            }
+
+            .ep-photo-btns {
+                display: flex;
+                gap: 8px;
+                justify-content: center;
+                flex-wrap: wrap;
+                margin-top: 10px;
+            }
+
+            .ep-photo-status {
+                display: block;
+                font-size: 12px;
+                font-weight: 600;
+                margin-top: 8px;
+                min-height: 16px;
+            }
+
+            .ep-photo-status.ok {
+                color: #178a50;
+            }
+
+            .ep-photo-status.err {
+                color: #a4302f;
+            }
+
+            .ep-photo-file {
+                display: none;
+            }
+
+            .uid-hidden-file {
+                display: none;
+            }
+
+            /* Profile-picture avatar (top of form) */
+            .up-profile-photo img {
+                border-radius: 12px;
+                object-fit: cover;
+            }
+
+            /* Lucide icon sizing */
+            .uid-cam-btn svg,
+            .cam-btn svg,
+            .uid-upload-ico svg,
+            .uid-item-thumb svg {
+                width: 15px;
+                height: 15px;
+                vertical-align: -2px;
+            }
+
+            .uid-verified-banner svg {
+                width: 15px;
+                height: 15px;
+                flex-shrink: 0;
+                vertical-align: -2px;
+            }
+
+            .up-alert svg {
+                width: 16px;
+                height: 16px;
+                flex-shrink: 0;
+                vertical-align: -3px;
+                margin-right: 6px;
+            }
+
+            /* =========================================================
+                                                                           LUCIDE ICONS (lucide.dev) — additional sizing.
+                                                                           Lucide copies the placeholder's classes onto the
+                                                                           generated <svg>, so the rules above keep working.
+                                                                        ========================================================== */
+            svg.lucide {
+                display: inline-block;
+                vertical-align: -0.18em;
+                flex-shrink: 0;
+            }
+
+            /* Close button (was &times;) */
+            .cam-close {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .cam-close svg {
+                width: 15px;
+                height: 15px;
+            }
+
+            /* Upload-box icon — restore the original 26px visual
+                                                                           weight (the old .uid-upload-ico was font-size:26px;
+                                                                           the 15px svg rule undersized it) */
+            .uid-upload-ico svg {
+                width: 26px;
+                height: 26px;
+            }
+
+            /* PDF thumb icon — matches the old 18px text glyph */
+            .uid-item-thumb svg {
+                width: 18px;
+                height: 18px;
+            }
+
+            /* Field label icons (NOT the upload-box label) */
+            .up-field > label:not(.uid-upload-box) {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+
+            .up-field > label:not(.uid-upload-box) svg {
+                width: 14px;
+                height: 14px;
+                color: #b07708;
+            }
+
+            /* Buttons */
+            .up-btn-solid,
+            .up-btn-outline {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+            }
+
+            .up-btn-solid svg,
+            .up-btn-outline svg {
+                width: 15px;
+                height: 15px;
+            }
+
+            /* Need-help icon (was needhelpicon-userprofile.png) */
+            svg.up-need-help-image {
+                width: 64px;
+                height: 64px;
+                color: #f6c04e;
+                flex-shrink: 0;
+            }
+        </style>
+    </head>
+
+    <body>
+        {# Top nav — pass the real unread bell count #}
+        {% include 'partials/navbar.html.twig' with { notification_count: notification_count } %}
+
+        <header class="ub-page-head">
+            <span class="ub-eyebrow">Profile &amp; Account</span>
+            <h1>Keep your details up to date</h1>
+            <p class="ub-lead">Hosts and support use this info to reach you about your bookings.</p>
+        </header>
+
+        <main class="up-dashboard">
+
+            {# ============ ACCOUNT SIDEBAR — "Profile & Account" highlighted ============ #}
+            {% include 'partials/sidebar.html.twig' with { active_sidebar: 'profile' } %}
+
+            <div class="up-content">
+
+                {% set vr = app.session ? app.session.get('verification_redirect') : null %}
+                {% if vr %}
+                    {% do app.session.remove('verification_redirect') %}
+                    <section class="up-alert up-alert-error">
+                        <p><i data-lucide="triangle-alert"></i>{{ vr }}</p>
+                    </section>
+                {% endif %}
+
+                {% if savedId and isVerified %}
+                    <section class="up-alert up-alert-success">
+                        <p><i data-lucide="circle-check"></i>You're verified! Your Verified badge is now active and you can list a space.</p>
+                    </section>
+                {% elseif savedId %}
+                    <section class="up-alert up-alert-success">
+                        <p><i data-lucide="circle-check"></i>ID uploaded. Fill in your name, phone, age, and location below to be verified automatically.</p>
+                    </section>
+                {% elseif saved and justVerified %}
+                    <section class="up-alert up-alert-success">
+                        <p><i data-lucide="circle-check"></i>Profile saved — and you're now VERIFIED! Your badge is active and listing is unlocked.</p>
+                    </section>
+                {% elseif saved %}
+                    <section class="up-alert up-alert-success">
+                        <p><i data-lucide="circle-check"></i>Your profile has been updated.</p>
+                    </section>
+                {% endif %}
+
+                {% if errors|length %}
+                    <section class="up-alert up-alert-error">
+                        {% for error in errors %}
+                            <p><i data-lucide="circle-x"></i>{{ error }}</p>
+                        {% endfor %}
+                    </section>
+                {% endif %}
+
+                <div class="up-two-col">
+
+                    <!-- ============ LEFT: PROFILE FORM ============ -->
+                    <form method="POST" id="epProfileForm" class="up-card up-reveal" style="display:block;">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token('profile_edit') }}">
+
+                        <div class="up-profile-photo" style="margin-bottom:20px;">
+                            <img
+                                src="{{ user.avatar }}"
+                                alt="{{ user.name }}"
+                                id="epAvatarImg"
+                                onerror="if(!this.dataset.fb){this.dataset.fb=1;this.src='/images/default-avatar.png';}else{this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22112%22 height=%22112%22 viewBox=%220 0 112 112%22><rect width=%22112%22 height=%22112%22 fill=%22%23f0eee6%22/><circle cx=%2256%22 cy=%2242%22 r=%2220%22 fill=%22%23eda423%22/><path d=%22M18 100c0-21 17-38 38-38s38 17 38 38z%22 fill=%22%23eda423%22/></svg>';}"
+                            >
+                        </div>
+
+                        <div style="display:flex; flex-direction:column; gap:16px;">
+
+                            <div class="up-field">
+                                <label for="epName"><i data-lucide="user" aria-hidden="true"></i> Full Name</label>
+                                <input type="text" id="epName" name="name" value="{{ user.name }}" required>
+                            </div>
+
+                            <div class="up-field">
+                                <label for="epEmail"><i data-lucide="mail" aria-hidden="true"></i> Email</label>
+                                <input type="email" id="epEmail" value="{{ user.email }}" disabled>
+                                <span class="up-field-hint">Contact support to change the email on your account.</span>
+                            </div>
+
+                            <div class="up-field">
+                                <label for="epPhone"><i data-lucide="phone" aria-hidden="true"></i> Phone Number <span style="color:#B07708;">*</span></label>
+                                <input type="tel" id="epPhone" name="phone" value="{{ user.phone }}" placeholder="09XX XXX XXXX" required>
+                            </div>
+
+                            <div class="up-field">
+                                <label for="epAge"><i data-lucide="cake" aria-hidden="true"></i> Age <span style="color:#B07708;">*</span></label>
+                                <input type="number" id="epAge" name="age" value="{{ user.age }}" min="18" max="120" required>
+                            </div>
+
+                            <div class="up-field">
+                                <label for="epLocation"><i data-lucide="map-pin" aria-hidden="true"></i> Location <span style="color:#B07708;">*</span></label>
+                                <input type="text" id="epLocation" name="location" value="{{ user.location }}" placeholder="City, Province" required>
+                            </div>
+
+                            <!-- PERSONAL PHOTO (below Location) — separate from
+                                 the profile picture, saves to personal_photo -->
+                            <div class="up-field">
+                                <label><i data-lucide="image" aria-hidden="true"></i> Personal Photo</label>
+
+                                <div class="ep-photo-section">
+
+                                    {% if user.personal %}
+                                        <img
+                                            class="ep-photo-preview"
+                                            id="epPhotoPreview"
+                                            src="{{ user.personal }}"
+                                            alt="Personal photo"
+                                            onerror="this.onerror=null;this.style.display='none';"
+                                        >
+                                    {% else %}
+                                        <img
+                                            class="ep-photo-preview is-empty"
+                                            id="epPhotoPreview"
+                                            src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="
+                                            alt="No personal photo yet"
+                                        >
+                                    {% endif %}
+
+                                    <p style="font-size:11.5px;color:#8d99a5;margin:0 0 6px;">
+                                        This is separate from your profile picture — hosts use it to
+                                        recognize you when you meet in person.
+                                    </p>
+
+                                    <div class="ep-photo-btns">
+                                        <button type="button" class="uid-cam-btn" data-cam-open="personal">
+                                            <i data-lucide="camera"></i> Take Photo
+                                        </button>
+                                        <button type="button" class="uid-cam-btn" id="epPhotoFileBtn" style="background:#fff;">
+                                            <i data-lucide="folder-open"></i> Choose File
+                                        </button>
+                                    </div>
+
+                                    <input
+                                        type="file"
+                                        id="epPhotoFile"
+                                        class="ep-photo-file"
+                                        accept="image/jpeg,image/png,image/webp"
+                                    >
+
+                                    <span class="ep-photo-status" id="epPhotoStatus"></span>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <button type="submit" class="up-btn-solid" style="margin-top:20px;">
+                            <i data-lucide="save" aria-hidden="true"></i> <span class="btn-label">SAVE CHANGES</span>
+                        </button>
+                    </form>
+
+                    <!-- ============ RIGHT COLUMN ============ -->
+                    <div class="up-right-col">
+
+                        <div class="up-card up-account-security up-reveal" id="verify-card" style="--i: 0; scroll-margin-top: 120px;">
+                            <div class="up-card-header">
+                                <h3>Verify Your Identity</h3>
+                                {% if isVerified %}
+                                    <span class="uid-badge uid-badge-verified">Verified</span>
+                                {% endif %}
+                            </div>
+
+                            {% if isVerified %}
+
+                                <div class="uid-verified-banner">
+                                    <i data-lucide="circle-check"></i>
+                                    <span>You're verified! Your badge is active and you can list a space.</span>
+                                </div>
+
+                            {% else %}
+
+                                <p style="font-size:13px; color:#777777; margin:0 0 10px;">
+                                    Get verified <strong>automatically</strong> — no waiting, no review.
+                                    Complete both steps:
+                                </p>
+
+                                <ol class="uid-steps">
+                                    <li>Fill in your <strong>name, phone, age, and location</strong> (left form) and save.</li>
+                                    <li>Upload <strong>one government-issued ID</strong> below — file or live camera.</li>
+                                </ol>
+
+                                {% if hasIdNoProfile %}
+                                    <div class="uid-verified-banner" style="background:#FFF1DC;border-color:rgba(237,164,35,.5);color:#B07708;">
+                                        <i data-lucide="hourglass"></i>
+                                        <span>Your ID is received — just complete the four profile fields on the left to be verified instantly.</span>
+                                    </div>
+                                {% endif %}
+
+                            {% endif %}
+
+                            {% if idDocs|length %}
+                                <div style="margin-bottom:14px;">
+                                    {% for doc in idDocs %}
+                                        {% set isPdf = doc.file_path|lower ends with '.pdf' %}
+                                        <div class="uid-item">
+                                            {% if isPdf %}
+                                                <span class="uid-item-thumb" title="PDF document"><i data-lucide="file-text"></i></span>
+                                            {% else %}
+                                                <img class="uid-item-thumb" src="{{ doc.file_path }}" alt="ID document">
+                                            {% endif %}
+                                            <div class="uid-item-body">
+                                                <strong>
+                                                    {{ idTypes[doc.id_type] is defined ? idTypes[doc.id_type] : (doc.id_type|replace({'-' : ' '})|title) }}
+                                                    {{ _self.uid_badge(doc.status) }}
+                                                </strong>
+                                                <span>
+                                                    &bull;&bull;&bull;&bull;{{ doc.id_number|slice(-4) }}
+                                                    &middot; uploaded {{ doc.uploaded_at ? doc.uploaded_at|date('M j, Y') : '' }}
+                                                </span>
+                                                {% if doc.status == 'rejected' and doc.admin_note %}
+                                                    <span class="uid-item-note">Reason: {{ doc.admin_note }}</span>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+
+                            <form method="POST" enctype="multipart/form-data" id="uidUploadForm" novalidate>
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token('profile_edit') }}">
+                                <input type="hidden" name="upload_id" value="1">
+
+                                <div class="up-field">
+                                    <label for="uidType"><i data-lucide="id-card" aria-hidden="true"></i> ID Type</label>
+                                    <select id="uidType" name="id_type" required>
+                                        <option value="" disabled selected>Select ID type</option>
+                                        {% for val, label in idTypes %}
+                                            <option value="{{ val }}">{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+
+                                <div class="up-field">
+                                    <label for="uidNumber"><i data-lucide="hash" aria-hidden="true"></i> ID Number</label>
+                                    <input type="text" id="uidNumber" name="id_number" maxlength="80" placeholder="e.g. N12-345-678-901" required>
+                                </div>
+
+                                <div class="up-field">
+                                    <label><i data-lucide="folder-open" aria-hidden="true"></i> ID Document — file or live camera</label>
+
+                                    <label class="uid-upload-box" id="uidUploadBox" for="uidFile">
+                                        <span class="uid-upload-ico"><i data-lucide="cloud-upload"></i></span>
+                                        <span class="uid-upload-text">
+                                            <strong id="uidFileName">Choose a file</strong>
+                                            <span>JPG, PNG, WEBP or PDF &middot; max 5MB</span>
+                                        </span>
+                                    </label>
+
+                                    <input
+                                        type="file"
+                                        id="uidFile"
+                                        name="id_file"
+                                        class="uid-hidden-file"
+                                        accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf"
+                                    >
+
+                                    <div class="uid-cam-row">
+                                        <button type="button" class="uid-cam-btn" data-cam-open="id">
+                                            <i data-lucide="camera"></i> Take ID photo with camera
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <button type="submit" class="up-btn-solid" style="width:100%;">
+                                    <i data-lucide="upload" aria-hidden="true"></i> <span class="btn-label">UPLOAD ID</span>
+                                </button>
+                            </form>
+                        </div>
+
+                        {# Adjust the three hrefs below as you port security.php / userprofile.php / helpcenter.php #}
+                        <div class="up-card up-account-security up-reveal" style="--i: 1;">
+                            <div class="up-card-header">
+                                <h3>Change Password</h3>
+                            </div>
+                            <p style="font-size:13px; color:#777777; margin:0 0 12px;">Update the password you use to sign in.</p>
+                            <a href="/security" class="up-btn-outline up-manage-security">
+                                <i data-lucide="shield" aria-hidden="true"></i> Manage Security
+                            </a>
+                        </div>
+
+                        <div class="up-card up-account-security up-reveal" style="--i: 2;">
+                            <div class="up-card-header">
+                                <h3>Profile Picture</h3>
+                            </div>
+                            <p style="font-size:13px; color:#777777; margin:0 0 12px;">
+                                Change your profile picture from the Overview page. Your Personal
+                                Photo (left) is separate and used for in-person recognition.
+                            </p>
+                            <a href="/profile" class="up-btn-outline">
+                                GO TO OVERVIEW <i data-lucide="arrow-right" aria-hidden="true"></i>
+                            </a>
+                        </div>
+
+                        <div class="up-need-help up-reveal" style="--i: 3;">
+                            <div class="up-need-help-text">
+                                <h3>Need Help?</h3>
+                                <p>Questions about your account? We're here 24/7.</p>
+                                <a href="/help" class="up-btn-solid">
+                                    <i data-lucide="headset" aria-hidden="true"></i> CONTACT SUPPORT
+                                </a>
+                            </div>
+                            <i data-lucide="life-buoy" class="up-need-help-image" aria-hidden="true"></i>
+                        </div>
+
+                    </div>
+
+                </div>
+            </div>
+        </main>
+
+        <!-- LIVE CAMERA MODAL -->
+        <div class="cam-overlay" id="camOverlay" aria-hidden="true">
+            <div class="cam-card" role="dialog" aria-modal="true" aria-label="Camera">
+
+                <div class="cam-head">
+                    <strong id="camTitle">Camera</strong>
+                    <button type="button" class="cam-close" id="camCloseBtn" aria-label="Close camera">
+                        <i data-lucide="x" aria-hidden="true"></i>
+                    </button>
+                </div>
+
+                <div class="cam-stage" id="camStage">
+                    <video id="camVideo" autoplay playsinline muted></video>
+                    <img id="camShot" alt="Captured photo">
+                    <span class="cam-flash-dot" id="camFlash"></span>
+                    <span class="cam-guide" id="camGuide">Center your photo, then tap Capture</span>
+                </div>
+
+                <div class="cam-err" id="camErr"></div>
+
+                <div class="cam-actions">
+                    <button type="button" class="cam-btn cam-retake" id="camRetakeBtn" hidden><i data-lucide="rotate-ccw"></i> Retake</button>
+                    <button type="button" class="cam-btn cam-shutter" id="camShutterBtn"><i data-lucide="camera"></i> Capture</button>
+                    <button type="button" class="cam-btn cam-upload" id="camUploadBtn" hidden><i data-lucide="upload"></i> Upload</button>
+                    <button type="button" class="cam-btn cam-cancel" id="camCancelBtn">Cancel</button>
+                </div>
+
+                <p class="cam-note" id="camNote">
+                    The photo is saved exactly as framed in the box above.
+                </p>
+
+            </div>
+        </div>
+
+        {% include 'partials/footer.html.twig' %}
+
+        <script src="/assets/javaScript.js"></script>
+
+        <!-- =========================================================
+             LUCIDE ICONS — LOADER
+        ========================================================== -->
+        <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+        <script>
+            /* Re-runnable: call epRefreshIcons() any time you inject HTML
+                                                                           containing data-lucide */
+            function epRefreshIcons() {
+                if (window.lucide && typeof lucide.createIcons === "function") {
+                    lucide.createIcons();
+                }
+            }
+            epRefreshIcons();
+            document.addEventListener("DOMContentLoaded", epRefreshIcons);
+
+            /* =========================================================
+                                                                           CAMERA + FILE PICKERS + FORM GUARD
+                                                                           All modal buttons wired by DOCUMENT-LEVEL CAPTURE-PHASE
+                                                                           delegation — fires before any other script, cannot be
+                                                                           blocked. 'id' target: Upload fills #uidFile + submits the
+                                                                           ID form. 'personal' target: Upload POSTs to THIS page
+                                                                           with upload_personal=1 (users.personal_photo — never
+                                                                           touches avatar_path).
+                                                                        ========================================================== */
+            (function () {
+                "use strict";
+
+                var overlay = document.getElementById("camOverlay"),
+                    stage = document.getElementById("camStage"),
+                    video = document.getElementById("camVideo"),
+                    shot = document.getElementById("camShot"),
+                    flash = document.getElementById("camFlash"),
+                    guide = document.getElementById("camGuide"),
+                    errBox = document.getElementById("camErr"),
+                    title = document.getElementById("camTitle"),
+                    closeBtn = document.getElementById("camCloseBtn"),
+                    retakeB = document.getElementById("camRetakeBtn"),
+                    shutterB = document.getElementById("camShutterBtn"),
+                    uploadB = document.getElementById("camUploadBtn"),
+                    cancelB = document.getElementById("camCancelBtn");
+
+                var stream = null,
+                    camTarget = "id",
+                    capturedCanvas = null;
+
+                function showErr(msg) {
+                    if (!errBox) return;
+                    errBox.textContent = msg;
+                    errBox.style.display = "block";
+                }
+
+                function hideErr() {
+                    if (errBox) errBox.style.display = "none";
+                }
+
+                function stopStream() {
+                    if (stream) {
+                        try {
+                            stream.getTracks().forEach(function (t) {
+                                t.stop();
+                            });
+                        } catch (e) {}
+                        stream = null;
+                    }
+                }
+
+                function resetToLive() {
+                    if (stage) stage.classList.remove("captured");
+                    if (shot) shot.removeAttribute("src");
+                    if (retakeB) retakeB.hidden = true;
+                    if (uploadB) uploadB.hidden = true;
+                    if (shutterB) shutterB.hidden = false;
+                }
+
+                function openCam(target) {
+                    camTarget = target === "personal" ? "personal" : "id";
+                    capturedCanvas = null;
+                    hideErr();
+                    if (title)
+                        title.textContent =
+                            camTarget === "personal"
+                                ? "Take Personal Photo"
+                                : "Take ID Photo";
+                    if (guide)
+                        guide.textContent =
+                            camTarget === "personal"
+                                ? "Center your face, then tap Capture"
+                                : "Center your ID, then tap Capture";
+                    resetToLive();
+                    if (!overlay) return;
+                    overlay.classList.add("open");
+                    overlay.setAttribute("aria-hidden", "false");
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        showErr(
+                            'Camera is not supported in this browser. Use "Choose File" instead.',
+                        );
+                        return;
+                    }
+                    navigator.mediaDevices
+                        .getUserMedia({
+                            video: {
+                                facingMode: "environment",
+                                width: { ideal: 1280 },
+                                height: { ideal: 960 },
+                            },
+                            audio: false,
+                        })
+                        .then(function (s) {
+                            stream = s;
+                            video.srcObject = s;
+                            return video.play();
+                        })
+                        .catch(function () {
+                            showErr(
+                                'Could not access the camera. Allow camera permission or use "Choose File".',
+                            );
+                        });
+                }
+
+                function closeCam() {
+                    stopStream();
+                    capturedCanvas = null;
+                    if (overlay) {
+                        overlay.classList.remove("open");
+                        overlay.setAttribute("aria-hidden", "true");
+                    }
+                }
+
+                function capture() {
+                    if (!stream || !video.videoWidth) {
+                        showErr("Camera is not ready yet.");
+                        return;
+                    }
+                    capturedCanvas = document.createElement("canvas");
+                    capturedCanvas.width = video.videoWidth;
+                    capturedCanvas.height = video.videoHeight;
+                    var ctx = capturedCanvas.getContext("2d");
+                    /* video is CSS-mirrored (scaleX(-1)) — flip back so the
+                                                                                   saved photo matches exactly what the user framed */
+                    ctx.translate(capturedCanvas.width, 0);
+                    ctx.scale(-1, 1);
+                    ctx.drawImage(video, 0, 0);
+                    if (shot) shot.src = capturedCanvas.toDataURL("image/jpeg", 0.92);
+                    if (stage) stage.classList.add("captured");
+                    if (shutterB) shutterB.hidden = true;
+                    if (retakeB) retakeB.hidden = false;
+                    if (uploadB) uploadB.hidden = false;
+                    if (flash) {
+                        flash.classList.add("go");
+                        setTimeout(function () {
+                            flash.classList.remove("go");
+                        }, 400);
+                    }
+                    hideErr();
+                }
+
+                function canvasBlob(cb) {
+                    if (!capturedCanvas) {
+                        cb(null);
+                        return;
+                    }
+                    if (capturedCanvas.toBlob) {
+                        capturedCanvas.toBlob(
+                            function (b) {
+                                cb(b);
+                            },
+                            "image/jpeg",
+                            0.92,
+                        );
+                    } else {
+                        var data = capturedCanvas.toDataURL("image/jpeg", 0.92),
+                            bin = atob(data.split(",")[1]),
+                            arr = new Uint8Array(bin.length);
+                        for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+                        cb(new Blob([arr], { type: "image/jpeg" }));
+                    }
+                }
+
+                /* ---------- personal photo upload (camera OR Choose File) ---------- */
+                function sendPersonal(blob, filename) {
+                    var status = document.getElementById("epPhotoStatus"),
+                        csrf = document.querySelector(
+                            '#epProfileForm input[name="_csrf_token"]',
+                        );
+                    if (status) {
+                        status.className = "ep-photo-status";
+                        status.textContent = "Uploading…";
+                    }
+                    var fd = new FormData();
+                    fd.append("upload_personal", "1");
+                    fd.append("_csrf_token", csrf ? csrf.value : "");
+                    fd.append("personal_photo", blob, filename);
+                    var xhr = new XMLHttpRequest();
+                    xhr.open("POST", window.location.href, true);
+                    xhr.onreadystatechange = function () {
+                        if (xhr.readyState !== 4) return;
+                        var res = {};
+                        try {
+                            res = JSON.parse(xhr.responseText);
+                        } catch (e) {}
+                        if (xhr.status === 200 && res.ok) {
+                            if (status) {
+                                status.className = "ep-photo-status ok";
+                                status.textContent = "Personal photo saved!";
+                            }
+                            setTimeout(function () {
+                                window.location.reload();
+                            }, 500);
+                        } else {
+                            if (status) {
+                                status.className = "ep-photo-status err";
+                                status.textContent =
+                                    res.message || "Upload failed — please try again.";
+                            }
+                        }
+                    };
+                    xhr.send(fd);
+                }
+
+                /* ---------- upload the captured frame ---------- */
+                function uploadCaptured() {
+                    if (!capturedCanvas) return;
+                    canvasBlob(function (blob) {
+                        if (!blob) {
+                            showErr(
+                                "Could not process the photo. Try the file picker instead.",
+                            );
+                            return;
+                        }
+                        if (camTarget === "personal") {
+                            sendPersonal(blob, "personal-photo.jpg");
+                            closeCam();
+                        } else {
+                            var input = document.getElementById("uidFile");
+                            if (input) {
+                                try {
+                                    var dt = new DataTransfer();
+                                    dt.items.add(
+                                        new File([blob], "id-photo.jpg", {
+                                            type: "image/jpeg",
+                                        }),
+                                    );
+                                    input.files = dt.files;
+                                } catch (e) {}
+                                var nameEl = document.getElementById("uidFileName");
+                                if (nameEl)
+                                    nameEl.textContent = "id-photo.jpg (from camera)";
+                                var boxEl = document.getElementById("uidUploadBox");
+                                if (boxEl) boxEl.classList.add("has-file");
+                                var form = document.getElementById("uidUploadForm");
+                                if (form) {
+                                    if (form.requestSubmit) form.requestSubmit();
+                                    else form.submit();
+                                }
+                            }
+                            closeCam();
+                        }
+                    });
+                }
+
+                /* ---------- ALL modal buttons — document-level CAPTURE-PHASE
+                                                       delegation: fires before any other script, cannot be blocked ---------- */
+                document.addEventListener(
+                    "click",
+                    function (ev) {
+                        var t = ev.target;
+                        if (!(t instanceof Element)) return;
+
+                        var openBtn = t.closest("[data-cam-open]");
+                        if (openBtn) {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            openCam(openBtn.getAttribute("data-cam-open"));
+                            return;
+                        }
+                        if (t.closest("#camCloseBtn") || t.closest("#camCancelBtn")) {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            closeCam();
+                            return;
+                        }
+                        if (t.closest("#camRetakeBtn")) {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            resetToLive();
+                            hideErr();
+                            return;
+                        }
+                        if (t.closest("#camShutterBtn")) {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            capture();
+                            return;
+                        }
+                        if (t.closest("#camUploadBtn")) {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            uploadCaptured();
+                            return;
+                        }
+                        if (
+                            overlay &&
+                            overlay.classList.contains("open") &&
+                            !t.closest(".cam-card")
+                        ) {
+                            closeCam();
+                        }
+                    },
+                    true,
+                );
+
+                document.addEventListener("keydown", function (ev) {
+                    if (
+                        ev.key === "Escape" &&
+                        overlay &&
+                        overlay.classList.contains("open")
+                    ) {
+                        closeCam();
+                    }
+                });
+
+                /* ---------- "Choose File" (personal photo) ---------- */
+                var photoFileBtn = document.getElementById("epPhotoFileBtn"),
+                    photoFileInp = document.getElementById("epPhotoFile");
+                if (photoFileBtn && photoFileInp) {
+                    photoFileBtn.addEventListener("click", function (e) {
+                        e.preventDefault();
+                        photoFileInp.click();
+                    });
+                    photoFileInp.addEventListener("change", function () {
+                        if (photoFileInp.files && photoFileInp.files[0]) {
+                            sendPersonal(photoFileInp.files[0], photoFileInp.files[0].name);
+                            photoFileInp.value = "";
+                        }
+                    });
+                }
+
+                /* ---------- ID upload box: show the chosen filename ---------- */
+                var uidFile = document.getElementById("uidFile"),
+                    uidName = document.getElementById("uidFileName"),
+                    uidBox = document.getElementById("uidUploadBox");
+                if (uidFile && uidName && uidBox) {
+                    uidFile.addEventListener("change", function () {
+                        var f = uidFile.files && uidFile.files[0];
+                        uidName.textContent = f ? f.name : "Choose a file";
+                        uidBox.classList.toggle("has-file", !!f);
+                    });
+                }
+
+                /* ---------- double-submit guard ---------- */
+                ["epProfileForm", "uidUploadForm"].forEach(function (id) {
+                    var f = document.getElementById(id);
+                    if (!f) return;
+                    f.addEventListener("submit", function (ev) {
+                        if (f.dataset.busy === "1") {
+                            ev.preventDefault();
+                            return;
+                        }
+                        f.dataset.busy = "1";
+                        var lbl = f.querySelector(".btn-label");
+                        if (lbl) {
+                            lbl.dataset.orig = lbl.textContent;
+                            lbl.textContent = "PLEASE WAIT…";
+                        }
+                    });
+                });
+
+                /* ---------- reveal fallback (never leave cards invisible) ---------- */
+                setTimeout(function () {
+                    document.querySelectorAll(".up-reveal").forEach(function (el) {
+                        var cs = getComputedStyle(el);
+                        if (parseFloat(cs.opacity) < 0.05 || cs.visibility === "hidden") {
+                            el.style.opacity = "1";
+                            el.style.transform = "none";
+                            el.style.visibility = "visible";
+                        }
+                    });
+                }, 900);
+
+                /* ---------- after an ID upload: glide to the verify card ---------- */
+                if (window.location.hash === "#verify-card") {
+                    var vcard = document.getElementById("verify-card");
+                    if (vcard) {
+                        setTimeout(function () {
+                            vcard.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }, 200);
+                    }
+                }
+            })();
+        </script>
+    </body>
+
+</html>

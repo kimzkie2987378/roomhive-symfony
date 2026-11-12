@@ -1,0 +1,603 @@
+{# =========================================================
+   RoomHive — My Account › Wishlist
+   templates/user/wishlist.html.twig
+
+   REBUILT onto the shared account shell — same recipe as
+   help / notifications / bookings / payments / messages /
+   reviews / wallet:
+
+     - Sidebar: shared partial templates/partials/sidebar.html.twig,
+       highlight key 'wishlist'. The inline <aside> + its ~110-line
+       CSS block are gone (the partial owns them) — and with them
+       the Saved Searches entry (removed from the sidebar
+       everywhere; help is now the last entry).
+     - Theme boot: swapped rhTheme/data-theme-preview -> the app key
+       roomhive_theme -> html.dark + html[data-theme] (the old key
+       was never written, so this page could never go dark — real
+       bug, same as the help page had).
+     - Dark mode CSS: every html[data-theme-preview="1"] /
+       body[data-theme="dark"] pair became a single html.dark rule
+       (sidebar dark rules are not on this page anymore — the
+       partial owns them).
+     - NAVBAR CLEARANCE + LAYOUT — bulletproof, notifications/
+       settings variant (no ub-page-head here): the old flat
+       "margin-top: 110px" rule could lose the cascade and its
+       margin could collapse — now main.up-dashboard (higher
+       specificity, always wins) carries the clearance as PADDING:
+       110px 20px 70px, max-width: 1560px; .up-dashboard
+       .up-content { padding-top: 75px; } puts the wishlist card on
+       the 185px card line; .up-dashboard .up-sidebar sticks at
+       the 110px line (the partial's default is 86px).
+     - Navbar include: defensive ?? guards added — controller
+       variable NAMES kept, with fallbacks for the other render
+       contract (user.avatar_path / notif_count) so the bell and
+       avatar work either way.
+     - Already modern here, kept as-is: guarded lucide loader
+       (__rhNavbarLucide), partials/footer.html.twig, collapse
+       script (updateTitles), real reveal + 1.5s failsafe, and the
+       client-side remove-from-wishlist flow.
+
+   Content (1:1 — nothing content-side changed):
+   - wishlist card: live count (upWlCount), Browse Listings link
+   - 3-col grid of saved listings: cover photo (gradient
+     placeholder + onerror->remove), heart remove button
+     (up-wl-heart, busy state), title, map-pin location,
+     ₱ price / night; rows open nothing here — removal is the
+     only action (toggle endpoint saved:false = removed)
+   - empty state (upWlEmpty): Nothing saved yet → BROWSE LISTINGS
+
+   Data from the wishlist controller (wishlist / count aliases,
+   wl_total via template usage; user, notif_count on the
+   additions contract). Controller untouched — template-only
+   change. Pure Twig -> Ctrl+F5.
+========================================================= #}
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>My Wishlist · RoomHive</title>
+
+        <script>
+            /* theme boot — before paint (app key: roomhive_theme) */
+            (function () {
+                try {
+                    if (localStorage.getItem("roomhive_theme") === "dark") {
+                        document.documentElement.classList.add("dark");
+                        document.documentElement.setAttribute("data-theme", "dark");
+                    }
+                } catch (e) {}
+            })();
+            document.documentElement.classList.add("js");
+        </script>
+
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/myaccount.css') }}">
+
+        <style>
+            :root {
+                --rh-ink: #1c2a38;
+                --rh-muted: #66788a;
+                --rh-line: #e6ebf1;
+                --rh-card: #ffffff;
+                --rh-accent: #eda423;
+                --rh-accent-deep: #d98c12;
+                --rh-radius: 16px;
+            }
+
+            body {
+                background: #f3f5f9;
+            }
+
+            .up-dashboard,
+            .up-dashboard * {
+                box-sizing: border-box;
+            }
+
+            /* =========================================================
+                                       NAVBAR CLEARANCE + LAYOUT — page-local, bulletproof
+                                       (no ub-page-head here — notifications/settings variant).
+                                       main.up-dashboard (higher specificity, always wins vs
+                                       myaccount.css) carries the clearance as PADDING —
+                                       margins can collapse, padding can never: padding:
+                                       110px 20px 70px, max-width: 1560px. The wishlist card
+                                       joins the 185px card line via the 75px content drop.
+                                    ========================================================== */
+            main.up-dashboard {
+                margin-top: 0;
+                padding: 110px 20px 70px;
+                max-width: 1560px;
+            }
+
+            /* the content column keeps its extra 75px drop below the
+                                       shell's 110px clearance (the wishlist card lands on the
+                                       same 185px line as the other account pages) */
+            .up-dashboard .up-content {
+                padding-top: 75px;
+            }
+
+            /* sticky offset matches the shell's clearance line — when
+                                       you scroll, the sidebar sticks at the same 110px line
+                                       instead of tucking under the navbar (the partial's
+                                       default is 86px) */
+            .up-dashboard .up-sidebar {
+                top: 110px;
+            }
+
+            /* sidebar markup + styles live in templates/partials/sidebar.html.twig */
+
+            .nav-bell svg {
+                width: 22px;
+                height: 22px;
+                display: block;
+            }
+
+            /* ================= wishlist card + grid ================= */
+            .up-wishlist-card {
+                background: #fff;
+                border: 1px solid #e6ebf1;
+                border-radius: 16px;
+                padding: 20px;
+                box-shadow: 0 10px 30px rgba(28, 42, 56, 0.05);
+            }
+            .up-card-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                margin-bottom: 16px;
+            }
+            .up-card-header h3 {
+                margin: 0;
+                font-size: 17px;
+                color: #1c2a38;
+            }
+            .up-card-header a {
+                font-size: 13px;
+                color: #2f7de1;
+                text-decoration: none;
+                font-weight: 600;
+            }
+            .up-card-header a:hover {
+                text-decoration: underline;
+            }
+
+            .up-wl-grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 16px;
+            }
+            .listing-box {
+                background: #fff;
+                border: 1px solid #e6ebf1;
+                border-radius: 14px;
+                padding: 10px;
+                transition:
+                    transform 0.2s ease,
+                    box-shadow 0.2s ease;
+                position: relative; /* heart button's offset parent */
+            }
+            .listing-box:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 8px 22px rgba(28, 42, 56, 0.1);
+            }
+            /* card link — wraps photo + info so the whole card is
+                                       clickable to the listing detail page. Neutral styling
+                                       so it never turns blue/underlined. */
+            .up-wl-card-link {
+                display: block;
+                text-decoration: none;
+                color: inherit;
+            }
+            .up-wl-photo {
+                position: relative;
+                height: 150px;
+                border-radius: 10px;
+                overflow: hidden;
+                background: linear-gradient(135deg, #dfe6ee, #c9d4e0);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #93a5b7;
+            }
+            .up-wl-photo > svg {
+                width: 26px;
+                height: 26px;
+            }
+            .up-wl-photo img {
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                transition: transform 0.35s ease;
+            }
+            .listing-box:hover .up-wl-photo img {
+                transform: scale(1.05);
+            }
+            .up-wl-heart {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                width: 34px;
+                height: 34px;
+                border-radius: 50%;
+                border: 0;
+                background: rgba(255, 255, 255, 0.95);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                box-shadow: 0 2px 8px rgba(28, 42, 56, 0.22);
+                transition: transform 0.2s ease;
+                z-index: 2;
+            }
+            .up-wl-heart svg {
+                width: 17px;
+                height: 17px;
+                color: #e5484d;
+                fill: #e5484d;
+            }
+            .up-wl-heart:hover {
+                transform: scale(1.1);
+            }
+            .up-wl-heart.busy {
+                opacity: 0.5;
+                pointer-events: none;
+            }
+            .up-wl-info {
+                padding: 10px 4px 2px;
+            }
+            .up-wl-info h4 {
+                margin: 0 0 3px;
+                font-size: 14.5px;
+                color: #1c2a38;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .up-wl-loc {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                margin: 0 0 6px;
+                font-size: 12.5px;
+                color: #66788a;
+            }
+            .up-wl-loc svg {
+                width: 13px;
+                height: 13px;
+                flex-shrink: 0;
+            }
+            .up-wl-price {
+                margin: 0;
+                font-size: 14px;
+                color: #66788a;
+            }
+            .up-wl-price strong {
+                color: #1c2a38;
+                font-size: 15px;
+            }
+            .up-wl-empty {
+                margin-top: 6px;
+            }
+
+            /* ================= dark mode (html.dark — same mechanism
+                                       as the other account pages; the old data-theme-preview /
+                                       body[data-theme] pairs never fired) ================= */
+            html.dark .up-wishlist-card {
+                background: #1e2a38;
+                border-color: rgba(255, 255, 255, 0.08);
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+            }
+            html.dark .up-card-header h3 {
+                color: #e8eef5;
+            }
+            html.dark .listing-box {
+                background: #243140;
+                border-color: rgba(255, 255, 255, 0.07);
+            }
+            html.dark .up-wl-photo {
+                background: linear-gradient(135deg, #26333f, #1c2a38);
+                color: #5f7488;
+            }
+            html.dark .up-wl-info h4 {
+                color: #e8eef5;
+            }
+            html.dark .up-wl-loc,
+            html.dark .up-wl-price {
+                color: #a9b8c8;
+            }
+            html.dark .up-wl-price strong {
+                color: #e8eef5;
+            }
+
+            /* ================= responsive =================
+                                       (860px sidebar rules live in the shared partial) */
+            @media (max-width: 900px) {
+                .up-wl-grid {
+                    grid-template-columns: repeat(2, 1fr);
+                }
+            }
+            @media (max-width: 560px) {
+                .up-wl-grid {
+                    grid-template-columns: 1fr;
+                }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .listing-box,
+                .up-wl-photo img {
+                    transition: none;
+                }
+            }
+        </style>
+    </head>
+    <body>
+
+        {{ include('partials/navbar.html.twig', {
+            is_logged_in: true,
+            is_host: is_host ?? false,
+            nav_avatar: nav_avatar ?? user.avatar_path ?? null,
+            notification_count: notification_count ?? notif_count ?? 0,
+            current_page: 'wishlist'
+        }) }}
+
+        <main class="up-dashboard">
+
+            <!-- ==================================================
+                 SIDEBAR — shared partial (templates/partials/sidebar.html.twig)
+                 highlight = active_sidebar key · collapse JS stays on this page
+            =================================================== -->
+            {% include 'partials/sidebar.html.twig' with { active_sidebar: 'wishlist' } %}
+
+            <div class="up-content">
+
+                <section class="up-wishlist-card up-reveal">
+
+                    <div class="up-card-header">
+                        <h3>My Wishlist (<span class="up-wishlist-count" id="upWlCount">{{ wl_total }}</span>)</h3>
+                        <a href="/" class="up-link-view-all">Browse Listings</a>
+                    </div>
+
+                    <div class="up-wl-grid" id="upWlGrid">
+                        {% for w in wishlist %}
+                            <article
+                                class="listing-box up-reveal"
+                                data-listing-id="{{ w.id }}"
+                                style="--i: {{ min(loop.index0, 6) }}; border-radius: 14px;"
+                            >
+                                <a href="{{ path('app_listing_detail', { id: w.id }) }}" class="up-wl-card-link">
+                                    <div class="up-wl-photo">
+                                        {% if w.cover_url|default('') %}
+                                            <img
+                                                src="{{ w.cover_url }}"
+                                                alt="{{ w.title }}"
+                                                onerror="this.onerror=null; this.src='/images/ListingPlaceholder.png';"
+                                            >
+                                        {% else %}
+                                            <img src="/images/ListingPlaceholder.png" alt="{{ w.title }}" style="opacity:0.35;">
+                                        {% endif %}
+                                        <i data-lucide="home"></i>
+                                    </div>
+                                    <div class="up-wl-info">
+                                        <h4>{{ w.title }}</h4>
+                                        <p class="up-wl-loc"><i data-lucide="map-pin"></i>{{ w.location }}</p>
+                                        <p class="up-wl-price"><strong>&#8369;{{ w.price_str|default('0') }}</strong><span> / night</span></p>
+                                    </div>
+                                </a>
+                                <button type="button" class="up-wl-heart" aria-label="Remove from wishlist">
+                                    <i data-lucide="heart"></i>
+                                </button>
+                            </article>
+                        {% endfor %}
+                    </div>
+
+                    <div class="up-bookings-empty up-wl-empty" id="upWlEmpty" {% if wishlist %}style="display:none"{% endif %}>
+                        <i data-lucide="heart"></i>
+                        <p class="up-bookings-empty-title">Nothing saved yet</p>
+                        <p class="up-bookings-empty-text">
+                            Tap the heart on any listing and it will be waiting for you here.
+                        </p>
+                        <a href="/" class="up-btn-outline">BROWSE LISTINGS</a>
+                    </div>
+
+                </section>
+
+            </div>
+        </main>
+
+        {{ include('partials/footer.html.twig') }}
+
+        <!-- Lucide — guarded loader, same key as navbar (never double-runs) -->
+        <script>
+            (function () {
+                "use strict";
+                function renderRhIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
+                }
+                if (!window.__rhNavbarLucide) {
+                    window.__rhNavbarLucide = true;
+                    var s = document.createElement("script");
+                    s.src = "https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js";
+                    s.addEventListener("load", renderRhIcons);
+                    document.head.appendChild(s);
+                }
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", renderRhIcons);
+                } else {
+                    renderRhIcons();
+                }
+                window.addEventListener("load", renderRhIcons);
+            })();
+        </script>
+
+        <!-- Sidebar collapse — same behavior + localStorage key -->
+        <script>
+            (function () {
+                var sidebar = document.getElementById("upSidebar");
+                var toggle = document.getElementById("upSidebarToggle");
+                if (!sidebar || !toggle) {
+                    return;
+                }
+
+                var STORAGE_KEY = "roomhive_sidebar_collapsed";
+                var links = sidebar.querySelectorAll(".up-side-link");
+
+                function updateTitles(collapsed) {
+                    links.forEach(function (link) {
+                        var label = link.querySelector(".up-side-label");
+                        if (collapsed) {
+                            link.setAttribute("title", label ? label.textContent : "");
+                        } else {
+                            link.removeAttribute("title");
+                        }
+                    });
+                }
+
+                function applyState(collapsed) {
+                    sidebar.classList.toggle("collapsed", collapsed);
+                    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                    toggle.setAttribute(
+                        "aria-label",
+                        collapsed ? "Expand sidebar" : "Collapse sidebar",
+                    );
+                    updateTitles(collapsed);
+                }
+
+                var savedCollapsed = false;
+                try {
+                    savedCollapsed = localStorage.getItem(STORAGE_KEY) === "1";
+                } catch (e) {}
+                applyState(savedCollapsed);
+
+                toggle.addEventListener("click", function () {
+                    var nowCollapsed = !sidebar.classList.contains("collapsed");
+                    applyState(nowCollapsed);
+                    try {
+                        localStorage.setItem(STORAGE_KEY, nowCollapsed ? "1" : "0");
+                    } catch (e) {}
+                });
+            })();
+        </script>
+
+        <!-- Reveal — real legacy mechanism (.in-view) + 1.5s failsafe -->
+        <script>
+            (function () {
+                "use strict";
+
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                var revealEls = Array.prototype.slice.call(
+                    document.querySelectorAll(".up-reveal"),
+                );
+
+                function showAll() {
+                    revealEls.forEach(function (el) {
+                        el.classList.add("in-view");
+                    });
+                }
+
+                if (reduced || !("IntersectionObserver" in window)) {
+                    showAll();
+                } else {
+                    var io = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) {
+                                    return;
+                                }
+                                var el = entry.target;
+                                io.unobserve(el);
+                                el.classList.add("in-view");
+                                window.setTimeout(function () {
+                                    el.style.setProperty("--i", "0");
+                                }, 1200);
+                            });
+                        },
+                        {
+                            threshold: 0.12,
+                            rootMargin: "0px 0px -40px 0px",
+                        },
+                    );
+                    revealEls.forEach(function (el) {
+                        io.observe(el);
+                    });
+
+                    setTimeout(showAll, 1500);
+                }
+            })();
+        </script>
+
+        <!-- Remove from wishlist — shared toggle endpoint (saved:false = removed) -->
+        <script>
+            document.addEventListener(
+                "click",
+                function (ev) {
+                    var t = ev.target;
+                    if (!(t instanceof Element)) {
+                        return;
+                    }
+                    var heart = t.closest(".up-wl-heart");
+                    if (!heart) {
+                        return;
+                    }
+                    ev.preventDefault();
+                    ev.stopPropagation();
+
+                    var box = heart.closest(".listing-box");
+                    var id = box ? box.getAttribute("data-listing-id") : null;
+                    if (!id) {
+                        return;
+                    }
+
+                    heart.classList.add("busy");
+                    fetch("/wishlist/toggle", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                        body: "listing_id=" + encodeURIComponent(id),
+                    })
+                        .then(function (r) {
+                            return r.json();
+                        })
+                        .then(function (d) {
+                            heart.classList.remove("busy");
+                            if (!d || !d.ok) {
+                                alert((d && d.error) || "Could not update your wishlist.");
+                                return;
+                            }
+                            if (d.saved) {
+                                /* ended up saved (race) — keep the card */
+                                return;
+                            }
+                            if (box) {
+                                box.remove();
+                            }
+
+                            var cnt = document.getElementById("upWlCount");
+                            if (cnt) {
+                                var n = parseInt(cnt.textContent, 10);
+                                if (!isNaN(n) && n > 0) {
+                                    cnt.textContent = n - 1;
+                                }
+                            }
+
+                            var grid = document.getElementById("upWlGrid");
+                            if (grid && !grid.querySelector(".listing-box")) {
+                                var empty = document.getElementById("upWlEmpty");
+                                if (empty) {
+                                    empty.style.display = "";
+                                }
+                            }
+                        })
+                        .catch(function () {
+                            heart.classList.remove("busy");
+                            alert("Network error — try again.");
+                        });
+                },
+                true,
+            );
+        </script>
+
+    </body>
+</html>

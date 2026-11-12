@@ -1,0 +1,322 @@
+{# roomhive/admin/host_application_eye.html.twig
+   Admin › Host Application Eye — full-detail viewer.
+   Extends admin/base.html.twig. 1:1 port of legacy
+   hostapplicationeye.php.
+
+   Shows exactly what the applicant filled in on the "Become a
+   Host" form — full name, email, phone, age, location, ID
+   type/number — plus the actual uploaded ID photo shown inline,
+   not just a link.
+
+   Read-only (the legacy page has no forms today): approve /
+   reject / delete stay on the Host Applications list page. The
+   Back link carries filter/page/id so the admin returns to the
+   exact spot in the table.
+
+   ID PHOTO 404 FIX: host_applications.id_file is resolved to a
+   site-root absolute URL by the controller's resolvePhoto()
+   (same convention as the listing eye page). If the file still
+   fails to load, the onerror handler swaps the image for the
+   "ID file unavailable" panel.
+#}
+{% extends 'admin/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'Host Applications' %}
+{% set page_title = application.full_name ~ "'s Host Application — RoomHive Admin" %}
+{% set page_heading = application.full_name ~ "'s Host Application" %}
+{% set page_subheading = 'Exactly what was filled in on the "Become a Host" form.' %}
+
+{% block page_heading_extra %}
+    <span class="badge {{ badge_class_map[status_label] ?? '' }}">{{ status_label }}</span>
+{% endblock %}
+
+{% block styles %}
+    <style>
+        /* ---- Back link ---- */
+        .eye-back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #8b93a6;
+            text-decoration: none;
+            margin-bottom: 14px;
+        }
+        .eye-back-link:hover {
+            color: #d99218;
+        }
+        .eye-back-link .icon {
+            width: 15px;
+            height: 15px;
+        }
+
+        /* ---- Page heading (status badge inline in the H1) ---- */
+        .page-heading h1 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 9px;
+            border-radius: 999px;
+            display: inline-block;
+        }
+
+        /* ---- Two-pane layout (form fields + ID photo) ---- */
+        .eye-layout {
+            display: grid;
+            grid-template-columns: 1.1fr 1fr;
+            gap: 20px;
+            align-items: start;
+            max-width: 980px;
+        }
+        @media (max-width: 900px) {
+            .eye-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .eye-panel {
+            background: #fff;
+            border: 1px solid #eef1f6;
+            border-radius: 14px;
+            padding: 22px;
+        }
+
+        /* ---- Applicant header ---- */
+        .eye-applicant-header {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+        .eye-avatar {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: #eda423;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+        .eye-applicant-name {
+            font-size: 17px;
+            font-weight: 700;
+            color: #14142b;
+            margin: 0 0 4px;
+        }
+
+        /* ---- Info grid (form fields) ---- */
+        .eye-info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px 18px;
+            margin-top: 4px;
+        }
+        .eye-info-item .info-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: #8b93a6;
+            font-weight: 600;
+        }
+        .eye-info-item .info-label .icon {
+            width: 13px;
+            height: 13px;
+        }
+        .eye-info-item .info-value {
+            display: block;
+            font-size: 13px;
+            color: #14142b;
+            font-weight: 600;
+            margin-top: 2px;
+            word-break: break-word;
+        }
+        .eye-info-item.full-width {
+            grid-column: 1 / -1;
+        }
+
+        /* ---- Uploaded ID photo ---- */
+        .eye-id-label {
+            display: block;
+            margin-bottom: 10px;
+            font-size: 11px;
+            color: #8b93a6;
+            font-weight: 600;
+        }
+        .eye-id-photo-wrap {
+            position: relative;
+            border: 1px solid #eef1f6;
+            border-radius: 10px;
+            overflow: hidden;
+            background: #fff4e0;
+        }
+        .eye-id-photo {
+            width: 100%;
+            max-height: 340px;
+            object-fit: contain;
+            display: block;
+            background: #fff;
+        }
+        .eye-id-photo-missing {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 60px 12px;
+            color: #8b93a6;
+            font-size: 13px;
+        }
+        .eye-id-photo-missing .icon {
+            width: 26px;
+            height: 26px;
+        }
+        .eye-id-expand {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(15, 15, 20, 0.65);
+            color: #fff;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 12px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            text-decoration: none;
+        }
+        .eye-id-expand:hover {
+            background: rgba(15, 15, 20, 0.85);
+        }
+        .eye-id-expand .icon {
+            width: 12px;
+            height: 12px;
+        }
+
+        /* ---- Submitted row ---- */
+        .eye-submitted-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 16px;
+            padding-top: 14px;
+            border-top: 1px solid #eef1f6;
+            font-size: 13px;
+        }
+        .eye-submitted-row .info-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: #8b93a6;
+            font-weight: 600;
+        }
+        .eye-submitted-row .info-label .icon {
+            width: 13px;
+            height: 13px;
+        }
+        .eye-submitted-row .info-value {
+            font-size: 13px;
+            color: #14142b;
+            font-weight: 600;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    <a
+        href="{{ path('app_admin_host_applications') }}?{{ {filter: filter, page: page, id: application.id}|url_encode }}"
+        class="eye-back-link"
+    >
+        {{ ui.icon('arrow-left') }} Back to Host Applications
+    </a>
+
+    <div class="eye-layout">
+
+        {# ============ LEFT: what was filled in on Become a Host ============ #}
+        <div class="eye-panel">
+
+            <div class="eye-applicant-header">
+                <div class="eye-avatar">{{ avatar_initial }}</div>
+                <div>
+                    <p class="eye-applicant-name">{{ application.full_name }}</p>
+                </div>
+            </div>
+
+            <div class="eye-info-grid">
+                <div class="eye-info-item">
+                    <span class="info-label">{{ ui.icon('mail') }} Email</span>
+                    <span class="info-value">{{ application.email }}</span>
+                </div>
+                <div class="eye-info-item">
+                    <span class="info-label">{{ ui.icon('phone') }} Phone</span>
+                    <span class="info-value">{{ application.phone }}</span>
+                </div>
+                <div class="eye-info-item">
+                    <span class="info-label">Age</span>
+                    <span class="info-value">{{ application.age }}</span>
+                </div>
+                <div class="eye-info-item full-width">
+                    <span class="info-label">{{ ui.icon('pin') }} Location</span>
+                    <span class="info-value">{{ application.location }}</span>
+                </div>
+                <div class="eye-info-item">
+                    <span class="info-label">ID Type</span>
+                    <span class="info-value">{{ id_type_label }}</span>
+                </div>
+                <div class="eye-info-item">
+                    <span class="info-label">ID Number</span>
+                    <span class="info-value">{{ application.id_number }}</span>
+                </div>
+            </div>
+
+            <div class="eye-submitted-row">
+                <span class="info-label">{{ ui.icon('calendar-small') }} Submitted on</span>
+                <span class="info-value">{{ application.created_at|date('M j, Y g:i A') }}</span>
+            </div>
+        </div>
+
+        {# ============ RIGHT: uploaded ID photo ============ #}
+        <div class="eye-panel">
+            <span class="eye-id-label">Uploaded ID</span>
+
+            {% if id_file_url %}
+                <div class="eye-id-photo-wrap">
+                    <img
+                        class="eye-id-photo"
+                        src="{{ id_file_url }}"
+                        alt="Uploaded ID for {{ application.full_name }}"
+                        onerror="this.style.display='none'; this.parentElement.querySelector('.eye-id-photo-missing').style.display='flex'; this.parentElement.querySelector('.eye-id-expand').style.display='none';"
+                    >
+                    <a class="eye-id-expand" href="{{ id_file_url }}" target="_blank" rel="noopener">
+                        {{ ui.icon('expand') }} Full Size
+                    </a>
+                    <div class="eye-id-photo-missing" style="display:none;">
+                        {{ ui.icon('file') }}
+                        <span>ID file unavailable</span>
+                    </div>
+                </div>
+            {% else %}
+                <div class="eye-id-photo-wrap">
+                    <div class="eye-id-photo-missing">
+                        {{ ui.icon('file') }}
+                        <span>No ID file on record</span>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+
+    </div>
+{% endblock %}

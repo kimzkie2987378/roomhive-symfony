@@ -1,0 +1,995 @@
+{# =========================================================
+   ROOMHIVE — HOST PUBLIC PROFILE ("meet the host" page)
+   templates/listings/host_public_profile.html.twig
+   1:1 port of legacy host/hostpublicprofile.php.
+
+   Reached from listing-detail.html.twig's "View Host Profile"
+   button:  {{ path('app_host_public_profile', { id: host.id }) }}
+   →  GET /listings/host/{id}   (HostPublicProfileController)
+
+   STRUCTURE:
+     1. Hero card — gold-ring avatar, shimmer name, "Hosting
+        since", verified/superhost badges (hardcoded off until
+        wired), rating pill.
+     2. About — bio or the "hasn't added an introduction yet"
+        placeholder (users has no bio column, same as legacy).
+     3. Listings grid — the host's APPROVED listings, reusing the
+        listings-page .listing-box card (assets/listings-style.css
+        provides its base styles; the polish layer below adds the
+        hover lift + image zoom).
+     4. Sticky sidebar — response time / active listings / member
+        since + CTA: Edit your profile (own), Message {first_name}
+        (logged in — app_messages_start: finds-or-creates the
+        thread with this host and lands on /messages with it
+        already open), or Log in to message host (guest).
+
+   CSS CONTRACT (same two-layer approach as the legacy page):
+     Layer 1 (structure) + Layer 2 (honey polish) are INLINE
+     below. The legacy linked host-profile.css (the DASHBOARD
+     css) but its structural classes (.hp-hero-inner, .hp-layout,
+     …) were never defined there — these inline layers are
+     self-contained, so the Symfony port skips host-profile.css
+     entirely and loads only assets/style.css +
+     assets/listings-style.css. The .hp-* class names are kept
+     verbatim (no collision: hostprofile.css is not loaded here).
+
+   DECORATIONS KEPT: the .hp-hex clip-path honey marks and the
+   two blurred .hp-blob glows are deliberate brand shapes from
+   the legacy page (documented in its docblock as "deliberately
+   kept").
+
+   FIX LOG:
+   - .hp-avatar gains overflow:hidden — if an avatar file 404s
+     (e.g. public/images/default-avatar.png not copied yet), the
+     alt text stays clipped inside the circle instead of
+     spilling out (same pattern as the dashboard profile fix).
+   - The avatar src itself was fixed on the CONTROLLER side:
+     HostPublicProfileController::resolvePhoto() now resolves
+     /webprogg/uploads/avatars/… to /uploads/avatars/… exactly
+     like ListingsController::legacyPhotoUrl().
+========================================================= #}
+
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+        <title>RoomHive - {{ host.name }}</title>
+
+        <link
+            href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
+            rel="stylesheet"
+        >
+
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/listings-style.css') }}">
+
+        <!-- Anti-flash dark-mode bootstrap (same as legacy) -->
+        <script>
+            try {
+                if (localStorage.getItem("rhTheme") === "dark") {
+                    document.documentElement.setAttribute("data-theme-preview", "1");
+                }
+            } catch (e) {}
+        </script>
+
+        <script>
+            document.documentElement.classList.add("js");
+        </script>
+
+        <!-- =====================================================
+         HOST PUBLIC PROFILE — LAYER 1: STRUCTURE
+         The legacy linked host-profile.css (dashboard css) which
+         did NOT contain these classes — this layer defines the
+         public profile's own layout. Self-contained.
+    ====================================================== -->
+
+        <style>
+            .hp-page {
+                --hp-honey: #eda423;
+                --hp-honey-light: #f6c04e;
+                --hp-honey-dark: #d99218;
+                --hp-moss: #2f9e5b;
+                --hp-ink: #1c2a38;
+                --hp-ink-soft: #5d6875;
+                --hp-line: rgba(28, 42, 56, 0.08);
+                --hp-gold-shadow: 0 14px 28px rgba(237, 164, 35, 0.16);
+
+                position: relative;
+                overflow-x: clip;
+
+                /* === STRUCTURE === page shell, clears the fixed navbar */
+                max-width: 1280px;
+                margin: 0 auto;
+                padding: 130px 40px 80px;
+            }
+
+            /* --- Hero: card-style --- */
+            .hp-page .hp-hero {
+                display: block;
+                margin-top: 0;
+                padding: 30px 34px;
+                position: relative;
+                z-index: 1;
+
+                background: #ffffff;
+                border: 1px solid var(--hp-line);
+                border-radius: 24px;
+                box-shadow: 0 6px 20px rgba(28, 43, 36, 0.07);
+            }
+
+            .hp-hero-inner {
+                display: flex;
+                align-items: center;
+                gap: 26px;
+                flex-wrap: wrap;
+            }
+
+            .hp-avatar-frame {
+                position: relative;
+                flex-shrink: 0;
+            }
+
+            .hp-page .hp-avatar {
+                width: 110px;
+                height: 110px;
+                border-radius: 50%;
+                object-fit: cover;
+                display: block;
+                /* broken-image alt text stays clipped inside the
+                           circle (same guard as the dashboard profile fix) */
+                overflow: hidden;
+            }
+
+            .hp-hero-text {
+                flex: 1;
+                min-width: 240px;
+            }
+
+            .hp-name {
+                margin: 0 0 4px;
+                font-size: clamp(26px, 3vw, 36px);
+            }
+
+            .hp-joined {
+                margin: 0;
+                font-size: 13px;
+            }
+
+            .hp-badges {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                flex-wrap: wrap;
+                margin-top: 12px;
+            }
+
+            .hp-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 7px;
+                padding: 6px 14px;
+                border-radius: 999px;
+                font-size: 12px;
+                background: #ffffff;
+                border: 1px solid var(--hp-line);
+            }
+
+            /* Hex dot — honey tick used in badges + detail rows */
+            .hp-hex {
+                display: inline-block;
+                width: 11px;
+                height: 12px;
+                flex-shrink: 0;
+                background: var(--hp-honey);
+                clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%);
+            }
+
+            .hp-hex-sm {
+                width: 9px;
+                height: 10px;
+            }
+
+            .hp-rating {
+                font-size: 13px;
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+            }
+
+            /* --- Two-column body --- */
+            .hp-layout {
+                display: grid;
+                grid-template-columns: 1fr 340px;
+                gap: 26px;
+                align-items: start;
+                margin-top: 26px;
+                position: relative;
+                z-index: 1;
+            }
+
+            @media (max-width: 900px) {
+                .hp-layout {
+                    grid-template-columns: 1fr;
+                }
+            }
+
+            .hp-main {
+                min-width: 0;
+            }
+
+            .hp-about {
+                margin-bottom: 34px;
+            }
+
+            .hp-about h2,
+            .hp-listings h2 {
+                margin: 0 0 16px;
+                font-family: "Fraunces", serif;
+                font-size: 1.3rem;
+            }
+
+            .hp-about-text {
+                margin: 0;
+                font-size: 14px;
+            }
+
+            .hp-about-empty,
+            .hp-listings-empty {
+                font-size: 14px;
+            }
+
+            .hp-listings {
+                margin-bottom: 20px;
+            }
+
+            .hp-listings-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+                gap: 18px;
+            }
+
+            /* --- Sidebar --- */
+            .hp-page .hp-sidebar {
+                position: sticky;
+                top: 130px;
+            }
+
+            .hp-card h3 {
+                margin: 0 0 12px;
+                font-size: 15px;
+            }
+
+            .hp-detail-row {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 11px 4px;
+                border-bottom: 1px solid var(--hp-line);
+                font-size: 13px;
+                color: var(--hp-ink-soft);
+            }
+
+            .hp-detail-row:last-of-type {
+                border-bottom: none;
+            }
+
+            /* label column stretches, value column sits right */
+            .hp-detail-row span:nth-of-type(2) {
+                flex: 1;
+            }
+
+            .hp-detail-row strong {
+                font-size: 13px;
+                color: var(--hp-ink);
+            }
+
+            .hp-btn {
+                display: block;
+                width: 100%;
+                margin-top: 16px;
+                text-align: center;
+                text-decoration: none;
+                font-family: inherit;
+                box-sizing: border-box;
+            }
+
+            /* --- Mobile shell --- */
+            @media (max-width: 700px) {
+                .hp-page {
+                    padding: 120px 18px 60px;
+                }
+
+                .hp-page .hp-hero {
+                    padding: 24px 20px;
+                }
+
+                .hp-page .hp-sidebar {
+                    position: static;
+                }
+            }
+        </style>
+
+        <!-- =====================================================
+         HOST PUBLIC PROFILE — LAYER 2: HIVE POLISH
+         (colors, badges, cards, buttons, decorations)
+    ====================================================== -->
+
+        <style>
+            /* =====================================================
+                       DECORATION LAYER — honeycomb + glow blobs
+                    ====================================================== */
+
+            .hp-deco {
+                position: absolute;
+                inset: 0;
+
+                background-image: url("data:image/svg+xml,%3Csvg width='28' height='49' viewBox='0 0 28 49' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23eda423' fill-opacity='0.07' fill-rule='nonzero'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/svg%3E");
+                background-size: 28px 49px;
+
+                -webkit-mask-image: linear-gradient(
+                    180deg,
+                    rgba(0, 0, 0, 0.9),
+                    transparent 45%
+                );
+                mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), transparent 45%);
+
+                pointer-events: none;
+
+                z-index: 0;
+            }
+
+            .hp-blob {
+                position: absolute;
+                border-radius: 50%;
+                filter: blur(70px);
+                pointer-events: none;
+            }
+
+            .hp-blob-1 {
+                width: 360px;
+                height: 360px;
+                top: -140px;
+                right: -120px;
+                background: radial-gradient(
+                    circle at 30% 30%,
+                    rgba(246, 196, 78, 0.8),
+                    rgba(237, 164, 35, 0.22) 60%,
+                    transparent 75%
+                );
+                animation: hpDrift 14s ease-in-out infinite alternate;
+            }
+
+            .hp-blob-2 {
+                width: 260px;
+                height: 260px;
+                top: 380px;
+                left: -140px;
+                background: radial-gradient(
+                    circle at 60% 40%,
+                    rgba(246, 196, 78, 0.6),
+                    rgba(237, 164, 35, 0.18) 60%,
+                    transparent 75%
+                );
+                animation: hpDrift 18s ease-in-out infinite alternate-reverse;
+            }
+
+            @keyframes hpDrift {
+                from {
+                    transform: translate(0, 0) scale(1);
+                }
+
+                to {
+                    transform: translate(30px, -24px) scale(1.08);
+                }
+            }
+
+            /* =====================================================
+                       ENTRANCE REVEALS (JS-gated)
+                    ====================================================== */
+
+            @keyframes hpRise {
+                from {
+                    opacity: 0;
+                    transform: translateY(18px);
+                }
+
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+
+            .js .hp-reveal {
+                opacity: 0;
+                animation: hpRise 0.6s cubic-bezier(0.22, 1, 0.36, 1) var(--d, 0s) forwards;
+            }
+
+            /* =====================================================
+                       BACK LINK
+                    ====================================================== */
+
+            .hp-back-link {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                position: relative;
+                z-index: 1;
+
+                color: var(--hp-ink-soft) !important;
+                font-weight: 600;
+                text-decoration: none;
+                transition:
+                    color 0.15s ease,
+                    transform 0.15s ease;
+            }
+
+            .hp-back-link:hover {
+                color: var(--hp-honey-dark) !important;
+                transform: translateX(-3px);
+            }
+
+            /* =====================================================
+                       HERO — name shimmer, gold-ring avatar, badges
+                    ====================================================== */
+
+            .hp-avatar {
+                border: 3px solid #ffffff !important;
+                box-shadow:
+                    0 0 0 3px var(--hp-honey),
+                    0 14px 28px rgba(237, 164, 35, 0.3) !important;
+                transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+            }
+
+            .hp-avatar:hover {
+                transform: scale(1.04) rotate(-2deg);
+            }
+
+            .hp-name {
+                color: var(--hp-ink) !important;
+                font-weight: 800 !important;
+                letter-spacing: -0.6px;
+
+                background: linear-gradient(
+                    92deg,
+                    var(--hp-ink) 0%,
+                    var(--hp-ink) 55%,
+                    #eda423 85%,
+                    #f6c04e 100%
+                );
+                background-size: 200% auto;
+
+                -webkit-background-clip: text;
+                background-clip: text;
+                -webkit-text-fill-color: transparent;
+                color: transparent;
+
+                animation: hpShimmer 5s linear infinite;
+            }
+
+            @keyframes hpShimmer {
+                to {
+                    background-position: 200% center;
+                }
+            }
+
+            .hp-joined {
+                color: var(--hp-ink-soft) !important;
+            }
+
+            .hp-badge {
+                font-weight: 700 !important;
+                transition:
+                    transform 0.2s ease,
+                    box-shadow 0.2s ease;
+            }
+
+            .hp-badge:hover {
+                transform: translateY(-2px);
+            }
+
+            .hp-badge-verified {
+                background: linear-gradient(135deg, #f6b93b, var(--hp-honey)) !important;
+                border-color: transparent !important;
+                color: var(--hp-ink) !important;
+                box-shadow: 0 6px 14px rgba(237, 164, 35, 0.35);
+            }
+
+            .hp-badge-superhost {
+                background: var(--hp-moss) !important;
+                border-color: transparent !important;
+                color: #ffffff !important;
+                box-shadow: 0 6px 14px rgba(47, 158, 91, 0.35);
+            }
+
+            .hp-rating {
+                color: #b07708 !important;
+                font-weight: 700 !important;
+            }
+
+            .hp-rating-count {
+                color: var(--hp-ink-soft) !important;
+                font-weight: 500 !important;
+            }
+
+            .hp-rating-empty {
+                color: var(--hp-ink-soft) !important;
+            }
+
+            /* =====================================================
+                       SECTION HEADINGS — gold accent bar
+                    ====================================================== */
+
+            .hp-about h2,
+            .hp-listings h2 {
+                position: relative;
+                display: inline-block;
+                color: var(--hp-ink) !important;
+                font-weight: 800 !important;
+            }
+
+            .hp-about h2::after,
+            .hp-listings h2::after {
+                content: "";
+                position: absolute;
+                width: 36px;
+                height: 3px;
+                left: 0;
+                bottom: -7px;
+                background: linear-gradient(90deg, #f6b93b, var(--hp-honey));
+                border-radius: 2px;
+            }
+
+            .hp-about-text {
+                color: var(--hp-ink-soft) !important;
+                line-height: 1.75 !important;
+            }
+
+            .hp-about-empty,
+            .hp-listings-empty {
+                color: var(--hp-ink-soft) !important;
+            }
+
+            /* =====================================================
+                       LISTING CARDS — hover lift + image zoom + gold price
+                    ====================================================== */
+
+            .hp-listings-grid .listing-box {
+                border-radius: 16px;
+                transition:
+                    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+                    box-shadow 0.3s ease,
+                    border-color 0.3s ease;
+            }
+
+            .hp-listings-grid .listing-box:hover {
+                transform: translateY(-6px);
+                border-color: rgba(237, 164, 35, 0.45) !important;
+                box-shadow: var(--hp-gold-shadow) !important;
+            }
+
+            .hp-listings-grid .rh-card-media {
+                aspect-ratio: 4 / 3;
+                overflow: hidden;
+            }
+
+            .hp-listings-grid .rh-card-media img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                display: block;
+                transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+            }
+
+            .hp-listings-grid .listing-box:hover .rh-card-media img {
+                transform: scale(1.06);
+            }
+
+            .hp-listings-grid .listing-box-title {
+                color: var(--hp-ink) !important;
+                font-weight: 700 !important;
+            }
+
+            .hp-listings-grid .listing-box-location {
+                color: var(--hp-ink-soft) !important;
+            }
+
+            .hp-listings-grid .listing-box-price {
+                color: var(--hp-ink) !important;
+            }
+
+            .hp-listings-grid .listing-box-price .peso {
+                color: var(--hp-honey-dark) !important;
+            }
+
+            /* =====================================================
+                       SIDEBAR CARD — honey top bar + hover rows
+                    ====================================================== */
+
+            .hp-page .hp-card {
+                border-top: 4px solid var(--hp-honey) !important;
+                transition:
+                    box-shadow 0.25s ease,
+                    border-color 0.25s ease;
+            }
+
+            .hp-page .hp-card:hover {
+                box-shadow: var(--hp-gold-shadow) !important;
+            }
+
+            .hp-card h3 {
+                color: var(--hp-ink) !important;
+                font-weight: 800 !important;
+            }
+
+            .hp-detail-row {
+                transition:
+                    background 0.15s ease,
+                    transform 0.15s ease;
+                border-radius: 10px;
+            }
+
+            .hp-detail-row:hover {
+                background: #fff8ec;
+                transform: translateX(3px);
+            }
+
+            .hp-detail-row strong {
+                color: var(--hp-ink) !important;
+            }
+
+            /* Hex marks honey */
+            .hp-hex {
+                background: var(--hp-honey) !important;
+            }
+
+            .hp-hex-sm {
+                background: var(--hp-honey) !important;
+            }
+
+            /* =====================================================
+                       BUTTONS — gradient honey primary
+                    ====================================================== */
+
+            .hp-btn-primary {
+                background: linear-gradient(135deg, #f6b93b, var(--hp-honey)) !important;
+                border: none !important;
+                color: var(--hp-ink) !important;
+                font-weight: 700 !important;
+                box-shadow: 0 8px 20px rgba(237, 164, 35, 0.35) !important;
+                transition:
+                    transform 0.2s ease,
+                    box-shadow 0.2s ease !important;
+            }
+
+            .hp-btn-primary:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 12px 26px rgba(237, 164, 35, 0.45) !important;
+            }
+
+            .hp-btn-primary:active {
+                transform: translateY(0) scale(0.98);
+            }
+
+            /* =====================================================
+                       LUCIDE ICONS (lucide.dev)
+                       Lucide copies the placeholder's classes onto the
+                       generated <svg>.
+                    ====================================================== */
+
+            svg.lucide {
+                display: inline-block;
+                vertical-align: -0.18em;
+                flex-shrink: 0;
+            }
+
+            .hp-back-link svg {
+                width: 15px;
+                height: 15px;
+            }
+
+            .hp-rating svg {
+                width: 13px;
+                height: 13px;
+                color: #eda423;
+                fill: currentColor;
+            }
+
+            .listing-box-location svg {
+                width: 12px;
+                height: 12px;
+                color: #8b93a6;
+                flex-shrink: 0;
+            }
+
+            /* =====================================================
+                       RESPONSIVE / MOTION SAFETY
+                    ====================================================== */
+
+            @media (max-width: 700px) {
+                .hp-deco {
+                    -webkit-mask-image: linear-gradient(
+                        180deg,
+                        rgba(0, 0, 0, 0.6),
+                        transparent 30%
+                    );
+                    mask-image: linear-gradient(
+                        180deg,
+                        rgba(0, 0, 0, 0.6),
+                        transparent 30%
+                    );
+                }
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .hp-deco,
+                .hp-blob,
+                .hp-name {
+                    animation: none !important;
+                }
+
+                .js .hp-reveal {
+                    animation: none !important;
+                    opacity: 1 !important;
+                    transform: none !important;
+                }
+
+                .hp-avatar,
+                .hp-badge,
+                .hp-listings-grid .listing-box,
+                .hp-listings-grid .rh-card-media img,
+                .hp-detail-row,
+                .hp-btn-primary,
+                .hp-back-link {
+                    transition: none !important;
+                }
+            }
+        </style>
+
+    </head>
+
+    <body>
+
+        <!-- =========================
+     NAVIGATION BAR (shared)
+========================== -->
+
+        {% include 'partials/navbar.html.twig' with {
+        is_logged_in:       is_logged_in,
+        is_host:            viewer_is_host,
+        nav_avatar:         nav_avatar,
+        notification_count: notification_count,
+        current_page:       current_page,
+    } %}
+
+        <!-- =========================
+     HOST PROFILE PAGE
+========================== -->
+
+        <main class="hp-page">
+
+            <div class="hp-deco" aria-hidden="true">
+                <span class="hp-blob hp-blob-1"></span>
+                <span class="hp-blob hp-blob-2"></span>
+            </div>
+
+            <a href="{{ path('app_listings') }}" class="hp-back-link hp-reveal" style="--d: .05s;">
+                <i data-lucide="arrow-left" aria-hidden="true"></i> Back to Listings
+            </a>
+
+            <!-- =========================
+         HERO
+    ========================== -->
+
+            <section class="hp-hero hp-reveal" style="--d: .1s;">
+
+                <div class="hp-hero-inner">
+
+                    <div class="hp-avatar-frame">
+                        <img
+                            src="{{ asset(host.avatar) }}"
+                            alt="{{ host.name }}"
+                            class="hp-avatar"
+                        >
+                    </div>
+
+                    <div class="hp-hero-text">
+
+                        <h1 class="hp-name">{{ host.name }}</h1>
+
+                        <p class="hp-joined">Hosting since {{ host.member_since }}</p>
+
+                        <div class="hp-badges">
+
+                            {% if host.verified %}
+                                <span class="hp-badge hp-badge-verified">
+                                    <span class="hp-hex"></span> Verified ID
+                                </span>
+                            {% endif %}
+
+                            {% if host.superhost %}
+                                <span class="hp-badge hp-badge-superhost">
+                                    <span class="hp-hex"></span> Superhost
+                                </span>
+                            {% endif %}
+
+                            {% if host.reviews > 0 %}
+                                <span class="hp-rating">
+                                    <i data-lucide="star" aria-hidden="true"></i>
+                                    {{ host.rating|number_format(1) }}
+                                    <span class="hp-rating-count">({{ host.reviews }} reviews)</span>
+                                </span>
+                            {% else %}
+                                <span class="hp-rating hp-rating-empty">No reviews yet</span>
+                            {% endif %}
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+            <!-- =========================
+         BODY
+    ========================== -->
+
+            <div class="hp-layout">
+
+                <div class="hp-main">
+
+                    <section class="hp-about hp-reveal" style="--d: .18s;">
+
+                        <h2>About {{ host.name }}</h2>
+
+                        {% if host.bio is not empty %}
+                            <p class="hp-about-text">{{ host.bio|nl2br }}</p>
+                        {% else %}
+                            <p class="hp-about-text hp-about-empty">
+                                {{ host.name }} hasn't added an introduction yet.
+                            </p>
+                        {% endif %}
+
+                    </section>
+
+                    <section class="hp-listings hp-reveal" style="--d: .24s;">
+
+                        <h2>
+                            {% if listing_count > 0 %}
+                                Listings from {{ host.name }}
+                            {% else %}
+                                No active listings
+                            {% endif %}
+                        </h2>
+
+                        {% if listing_count == 0 %}
+
+                            <p class="hp-listings-empty">
+                                {{ host.name }} doesn't have any approved
+                                listings right now. Check back later.
+                            </p>
+
+                        {% else %}
+
+                            <div class="hp-listings-grid">
+
+                                {% for listing in host_listings %}
+
+                                    <a
+                                        href="{{ path('app_listing_detail', { id: listing.id }) }}"
+                                        class="listing-box"
+                                    >
+
+                                        <div class="rh-card-media">
+                                            <img
+                                                src="{{ asset(listing.image) }}"
+                                                alt="{{ listing.title }}"
+                                            >
+                                        </div>
+
+                                        <div class="listing-box-info">
+
+                                            <h4 class="listing-box-title">
+                                                {{ listing.title }}
+                                            </h4>
+
+                                            <div class="listing-box-location">
+                                                <i data-lucide="map-pin" aria-hidden="true"></i>
+                                                <span>{{ listing.location }}</span>
+                                                <span class="rh-bedrooms">
+                                                    &middot; {{ listing.bedrooms }}
+                                                    {{ listing.bedrooms == 1 ? 'bedroom' : 'bedrooms' }}
+                                                </span>
+                                            </div>
+
+                                            <div class="listing-box-price">
+                                                <span class="peso">&#8369;</span>
+                                                {{ listing.price|number_format(0) }}
+                                                <span class="per">/month</span>
+                                            </div>
+
+                                        </div>
+
+                                    </a>
+
+                                {% endfor %}
+
+                            </div>
+
+                        {% endif %}
+
+                    </section>
+
+                </div>
+
+                <!-- =========================
+             SIDEBAR
+        ========================== -->
+
+                <aside class="hp-sidebar hp-reveal" style="--d: .2s;">
+
+                    <div class="hp-card">
+
+                        <h3>Host details</h3>
+
+                        <div class="hp-detail-row">
+                            <span class="hp-hex hp-hex-sm"></span>
+                            <span>Response time</span>
+                            <strong>{{ host.response_time }}</strong>
+                        </div>
+
+                        <div class="hp-detail-row">
+                            <span class="hp-hex hp-hex-sm"></span>
+                            <span>Active listings</span>
+                            <strong>{{ listing_count }}</strong>
+                        </div>
+
+                        <div class="hp-detail-row">
+                            <span class="hp-hex hp-hex-sm"></span>
+                            <span>Member since</span>
+                            <strong>{{ host.member_since }}</strong>
+                        </div>
+
+                        {% if is_own_profile %}
+
+                            <a href="{{ path('app_profile_edit') }}" class="hp-btn hp-btn-primary">
+                                Edit your profile
+                            </a>
+
+                        {% elseif is_logged_in %}
+
+                            {# Legacy start-conversation.php - ported as
+                           app_messages_start: finds or creates the
+                           thread with this host, then PRGs into the
+                           inbox with ?conversation=N so the
+                           conversation is already open on arrival. #}
+                            <a href="{{ path('app_messages_start', { id: host.id }) }}" class="hp-btn hp-btn-primary">
+                                Message {{ first_name }}
+                            </a>
+
+                        {% else %}
+
+                            <a href="{{ path('app_login') }}" class="hp-btn hp-btn-primary">
+                                Log in to message host
+                            </a>
+
+                        {% endif %}
+
+                    </div>
+
+                </aside>
+
+            </div>
+
+        </main>
+
+        <!-- Lucide: rendered by the shared navbar's guarded loader —
+     no page-level loader needed. -->
+
+    </body>
+
+</html>

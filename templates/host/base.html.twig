@@ -1,0 +1,673 @@
+{# roomhive/host/base.html.twig
+   SHARED HOST SHELL — shared site navbar + collapsible host sidebar.
+   Every host page extends this and only provides a content block.
+
+   The sidebar is a 1:1 port of legacy host/host_sidebar.php:
+     - 9 main links + 5 Settings links + 1 footer link + Log Out
+     - Collapsible (250px → 66px), chevron toggle, localStorage key
+       'roomhive_host_sidebar_collapsed' (own key, separate from the
+       user sidebar's)
+     - Red badge pills: Pending Tenants (pending_tenants_count) +
+       Notifications (notification_count); collapsed state shows a
+       small dot pinned to the icon's top-right
+     - "Quit Hosting" in red; collapsed links get title tooltips
+
+   === VISUAL FIX (this version — verified against the legacy
+   screenshot with a pixel-matched side-by-side render) ===
+     - ACTIVE link now carries the amber LEFT ACCENT BAR:
+       inset 5px box-shadow in --rh-accent, following the pill's
+       rounded corners (the legacy "Overview" pill shows a solid
+       amber bar on its left edge — sampled #e1a83d off the shot).
+     - INACTIVE link color darkened var(--rh-muted) → #3f4750:
+       the legacy labels + icons sample at near-ink slate
+       (#454a4f stroke cores), noticeably darker than muted gray.
+     - SETTINGS heading gray nudged #9aa5b1 → #949ba6.
+     Everything else (pill bg, badge red, Poppins, rhythm, icons)
+     already sampled identical.
+
+   === SIDEBAR FREEZE + OWN SCROLLBAR (this version) ===
+     - The rail no longer scrolls away with the page: on desktop
+       it is position:fixed, pinned 90px below the top edge at the
+       left edge of the centered 1280px container — scrolling the
+       main content leaves it frozen in place.
+     - (Why not sticky: sticky only freezes while no ancestor is a
+       scroll container — a single overflow rule on <body> in the
+       global stylesheet silently disables it for every descendant,
+       and this template doesn't control the global CSS. fixed
+       carries no such dependency.)
+     - The rail is capped to the space under the navbar
+       (max-height: calc(100vh - 110px)): when the 15 links +
+       Settings group + Log Out don't fit the screen, it scrolls
+       INSIDE itself with its own slim theme-aware scrollbar
+       instead of being cut off at the fold.
+     - fixed takes the rail out of the flex flow, so the content
+       column re-aligns itself with margin-left (250px rail +
+       22px gap = 272px, transitioned 0.3s to match the rail's
+       width animation). The collapse toggle now also flips a
+       body.rh-side-collapsed class (one added line in the JS) and
+       the column shifts back to 66px + 22px = 88px in sync — the
+       collapse reflow still closes the gap like before.
+     - Below 900px everything reverts to the old stacked layout:
+       static full-width rail, no cap, no internal scroll, no
+       column offset.
+
+   ACTIVE-NAV KEYS (set in the child template):
+     overview | listings | pending | bookings | earnings | payouts |
+     reviews | messages | notifications | editprofile | verification |
+     payoutmethods | notificationsettings | security | quithosting |
+     helpcenter
+     ('verification' has no sidebar link — a host verification page
+     can set active_nav='verification' and nothing highlights, same
+     as the legacy behavior)
+
+   LEGACY → SYMFONY URL MAP (unported pages are TODO routes — the
+   links will 404 until those legacy files are pasted and ported):
+     overview            → /host/profile              ✓ ported
+     listings            → /host/listings             (mylistings.php)
+     pending             → /host/pending-tenants      (pendingtenants.php)
+     bookings            → /host/bookings             (hostbookings.php)
+     earnings            → /host/earnings             (hostearnings.php)
+     payouts             → /host/payouts              (payouts.php)
+     reviews             → /host/reviews              (hostreviews.php)
+     messages            → /host/messages             (hostmessages.php)
+     notifications       → /host/notifications        (hostnotifications.php)
+     editprofile         → /host/profile/edit         (hosteditprofile.php)
+     payoutmethods       → /host/payout-methods       (payoutmethods.php)
+     notificationsettings→ /host/notification-settings(hostnotificationsettings.php)
+     security            → /host/security             (hostsecurity.php)
+     quithosting         → /host/quit-hosting         (quithosting.php)
+     helpcenter          → /host/help                 (helpcenter.php)
+
+   === TOPBAR → SHARED NAVBAR (this version) ===
+   The placeholder topbar (logo, bell, theme toggle, host chip
+   dropdown) is removed. The real shared navbar — the Twig port of
+   legacy includes/navbar.php — is now included at the top of every
+   host page, so hosts see the same header as user pages: logo,
+   menu links, bell with unread badge, and the MY PROFILE dropdown
+   (whose first entry reads "Host Dashboard" → /host/profile for
+   hosts). The host's avatar photo is forwarded to the navbar via
+   nav_avatar. The old chip-menu Security link that still pointed
+   at /settings is gone with the placeholder.
+
+   Dark mode: still applied on load from localStorage 'rhTheme'
+   (body[data-theme="dark"]); the toggle itself lives on the
+   settings page, same as the legacy layout.
+
+   Lucide: loaded once by the navbar's guarded loader — this shell
+   no longer ships its own copy (same __rhNavbarLucide guard key).
+
+   Controller contract — each host page passes:
+     host (name/avatar/email), notification_count,
+     pending_tenants_count
+#}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{# ---- Sidebar link groups (key, url, icon, label) ---- #}
+{% set side_badges = {
+    'pending':       pending_tenants_count|default(0),
+    'notifications': notification_count|default(0),
+} %}
+
+{% set side_main = [
+    {key: 'overview',      href: '/host/profile',            icon: 'layout-dashboard', label: 'Overview'},
+    {key: 'listings',      href: '/host/listings',           icon: 'building-2',       label: 'My Listings'},
+    {key: 'pending',       href: '/host/pending-tenants',    icon: 'user-plus',        label: 'Pending Tenants'},
+    {key: 'bookings',      href: '/host/bookings',           icon: 'calendar-check',   label: 'Bookings'},
+    {key: 'earnings',      href: '/host/earnings',           icon: 'banknote',         label: 'Earnings'},
+    {key: 'payouts',       href: '/host/payouts',            icon: 'hand-coins',       label: 'Payouts'},
+    {key: 'reviews',       href: '/host/reviews',            icon: 'star',             label: 'Reviews'},
+    {key: 'messages',      href: '/host/messages',           icon: 'message-square',   label: 'Messages'},
+    {key: 'notifications', href: '/host/notifications',      icon: 'bell',             label: 'Notifications'},
+] %}
+{% set side_settings = [
+    {key: 'editprofile',          href: '/host/profile/edit',        icon: 'user-round',   label: 'Profile & Account'},
+    {key: 'notificationsettings', href: '/host/notification-settings', icon: 'bell-ring', label: 'Notification Settings'},
+    {key: 'security',             href: '/host/security',            icon: 'shield',       label: 'Security'},
+    {key: 'quithosting',          href: '/host/quit-hosting',        icon: 'door-open',    label: 'Quit Hosting'},
+] %}
+{% set side_footer = [
+    {key: 'helpcenter', href: '/host/help', icon: 'circle-help', label: 'Help Center'},
+] %}
+
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>{% block page_title %}Host — RoomHive{% endblock %}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+        {# Anti-flash dark-mode bootstrap (matches legacy rhTheme convention) #}
+        <script>
+            try {
+                if (localStorage.getItem("rhTheme") === "dark") {
+                    document.documentElement.setAttribute("data-theme-preview", "1");
+                }
+            } catch (e) {}
+        </script>
+
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <script>
+            document.documentElement.classList.add("js");
+        </script>
+
+        <style>
+            :root {
+                --rh-ink: #1c2a38;
+                --rh-muted: #66788a;
+                --rh-line: #e6ebf1;
+                --rh-card: #ffffff;
+                --rh-accent: #eda423;
+                --rh-accent-light: #fff4e0;
+                --rh-radius: 16px;
+            }
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                font-family: "Poppins", sans-serif;
+                background: #f6f7fb;
+                color: var(--rh-ink);
+                margin: 0;
+                min-height: 100vh;
+            }
+
+            /* ===== Layout ===== */
+            .host-layout {
+                display: flex;
+                align-items: flex-start;
+                max-width: 1280px;
+                margin: 0 auto;
+                padding: 90px 20px 40px;
+                gap: 22px;
+            }
+            .host-content {
+                flex: 1 1 auto;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+                /* the fixed rail no longer occupies flex space, so the
+                                                       column offsets itself: 250px rail + 22px gap;
+                                                       transitioned so it closes up in sync when the rail
+                                                       collapses (66px + 22px below) */
+                margin-left: 272px;
+                transition: margin-left 0.3s ease;
+            }
+            body.rh-side-collapsed .host-content {
+                margin-left: 88px;
+            }
+
+            /* =========================================================
+                                                                                       COLLAPSIBLE HOST SIDEBAR — 1:1 port of host_sidebar.php.
+                                                                                       Profile card removed (this version) — links start flush
+                                                                                       at the top, matching the user sidebar.
+                                                                                    ========================================================= */
+            .hp-sidebar {
+                /* ---- spacing knobs ---- */
+                --hp-w: 250px;
+                --hp-w-collapsed: 66px;
+                --hp-icon: 18px;
+                --hp-gap: 10px;
+                --hp-link-pad-y: 10px;
+                --hp-link-pad-x: 14px;
+
+                /* frozen rail: pinned under the navbar at the left
+                                                       edge of the centered 1280px container — scrolling
+                                                       the main content no longer moves it */
+                position: fixed;
+                top: 90px;
+                left: max(20px, calc(50% - 620px));
+                flex-shrink: 0;
+
+                display: flex;
+                flex-direction: column;
+                gap: 3px;
+
+                width: var(--hp-w);
+                box-sizing: border-box;
+                background: #fff;
+                border: 1px solid var(--rh-line);
+                border-radius: var(--rh-radius);
+                padding: 12px 10px;
+
+                transition: width 0.3s ease;
+
+                /* ---- its own scrollbar ----
+                                                       capped to the space under the navbar: when the
+                                                       links don't fit the screen, the rail scrolls
+                                                       inside itself instead of being cut off */
+                max-height: calc(100vh - 110px);
+                overflow-y: auto;
+                overflow-x: hidden;
+                scrollbar-width: thin;
+                scrollbar-color: #cdd6e0 transparent;
+            }
+
+            /* ---- the rail's own scrollbar (light theme) ---- */
+            .hp-sidebar::-webkit-scrollbar {
+                width: 6px;
+            }
+            .hp-sidebar::-webkit-scrollbar-track {
+                background: transparent;
+            }
+            .hp-sidebar::-webkit-scrollbar-thumb {
+                background: #cdd6e0;
+                border-radius: 999px;
+            }
+            .hp-sidebar::-webkit-scrollbar-thumb:hover {
+                background: #b7c2cf;
+            }
+
+            /* ---- chevron toggle ---- */
+            .hp-side-toggle {
+                display: flex;
+                align-items: center;
+                justify-content: flex-end;
+                width: 100%;
+                padding: 6px 4px;
+                margin: 0 0 4px;
+                background: transparent;
+                border: none;
+                border-radius: 8px;
+                color: inherit;
+                font: inherit;
+                cursor: pointer;
+                transition: background 0.2s ease;
+            }
+            .hp-side-toggle:hover {
+                background: rgba(0, 0, 0, 0.06);
+            }
+            .hp-side-toggle .icon {
+                width: 20px;
+                height: 20px;
+                transition: transform 0.3s ease;
+            }
+
+            /* ---- links ---- */
+            .hp-side-link {
+                display: flex;
+                align-items: center;
+                gap: var(--hp-gap);
+                padding: var(--hp-link-pad-y) var(--hp-link-pad-x);
+                margin: 0;
+                white-space: nowrap;
+                position: relative;
+                font-size: 13px;
+                font-weight: 600;
+                color: #3f4750; /* legacy: near-ink slate, darker than --rh-muted */
+                text-decoration: none;
+                border-radius: 10px;
+                transition:
+                    background 0.2s ease,
+                    color 0.2s ease;
+            }
+            .hp-side-link:hover {
+                background: #f6f7fb;
+                color: var(--rh-ink);
+            }
+            .hp-side-link.active {
+                background: var(--rh-accent-light);
+                color: #b07708;
+                /* amber left accent bar — follows the rounded corners */
+                box-shadow: inset 5px 0 0 var(--rh-accent);
+            }
+            .hp-side-link .icon {
+                width: var(--hp-icon);
+                height: var(--hp-icon);
+                flex-shrink: 0;
+            }
+            .hp-side-label {
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            /* ---- badges ---- */
+            .hp-side-badge {
+                margin-left: auto;
+                background: #e14b4b;
+                color: #fff;
+                font-size: 11px;
+                font-weight: 700;
+                line-height: 1;
+                padding: 3px 7px;
+                border-radius: 999px;
+            }
+
+            /* ---- Settings group heading ---- */
+            .hp-side-heading {
+                margin: 14px 10px 4px;
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 1px;
+                text-transform: uppercase;
+                color: #949ba6;
+            }
+
+            .hp-side-quit {
+                color: #b3261e;
+            }
+            .hp-side-quit:hover {
+                background: #fdecea;
+                color: #b3261e;
+            }
+
+            /* =========================================================
+                                                                                       COLLAPSED STATE
+                                                                                    ========================================================= */
+            .hp-sidebar.collapsed {
+                width: var(--hp-w-collapsed);
+            }
+            .hp-sidebar.collapsed .hp-side-toggle {
+                justify-content: center;
+            }
+            .hp-sidebar.collapsed .hp-side-toggle .icon {
+                transform: rotate(180deg);
+            }
+            .hp-sidebar.collapsed .hp-side-label,
+            .hp-sidebar.collapsed .hp-side-heading {
+                display: none;
+            }
+            .hp-sidebar.collapsed .hp-side-link {
+                justify-content: center;
+                gap: 0;
+                padding-left: 0;
+                padding-right: 0;
+            }
+            /* badge becomes a small dot pinned to the icon's top-right */
+            .hp-sidebar.collapsed .hp-side-badge {
+                position: absolute;
+                top: 4px;
+                left: calc(50% + 2px);
+                margin-left: 0;
+                min-width: 15px;
+                height: 15px;
+                padding: 0 4px;
+                font-size: 9px;
+                line-height: 15px;
+                text-align: center;
+            }
+
+            .hp-side-logout {
+                margin-top: 10px;
+            }
+
+            /* ---- Card base (shared by host pages) ---- */
+            .hp-card {
+                background: #fff;
+                border: 1px solid var(--rh-line);
+                border-radius: var(--rh-radius);
+                padding: 22px;
+            }
+            .hp-card-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 16px;
+            }
+            .hp-card-header h3 {
+                margin: 0;
+                font-size: 16px;
+                font-weight: 700;
+                color: var(--rh-ink);
+            }
+            .hp-muted {
+                font-size: 12px;
+                color: var(--rh-muted);
+            }
+            .hp-btn-outline {
+                display: inline-block;
+                padding: 8px 16px;
+                border-radius: 9px;
+                border: 1px solid var(--rh-accent);
+                color: var(--rh-accent);
+                background: #fff;
+                font-size: 12px;
+                font-weight: 700;
+                text-decoration: none;
+                transition: background 0.15s ease;
+            }
+            .hp-btn-outline:hover {
+                background: var(--rh-accent-light);
+            }
+
+            @media (max-width: 900px) {
+                /* stacked layout again: normal-flow full-width rail,
+                                                       no cap / internal scroll, no column offset */
+                .hp-sidebar {
+                    position: static;
+                    left: auto;
+                    max-height: none;
+                    width: 100%;
+                }
+                body.rh-side-collapsed .host-content,
+                .host-content {
+                    margin-left: 0;
+                }
+                .host-layout {
+                    flex-direction: column;
+                    padding: 90px 16px 40px;
+                }
+            }
+
+            /* ---- Dark mode ---- */
+            body[data-theme="dark"] {
+                background: #0d1218;
+                color: #e8ecf1;
+            }
+            body[data-theme="dark"] .hp-side-toggle:hover {
+                background: #1a222b;
+            }
+            body[data-theme="dark"] .hp-sidebar {
+                background: #141b24;
+                border-color: #1a222b;
+                scrollbar-color: #2c3742 transparent;
+            }
+            body[data-theme="dark"] .hp-sidebar::-webkit-scrollbar-thumb {
+                background: #2c3742;
+            }
+            body[data-theme="dark"] .hp-sidebar::-webkit-scrollbar-thumb:hover {
+                background: #3a4653;
+            }
+            body[data-theme="dark"] .hp-side-link {
+                color: #8d99a5;
+            }
+            body[data-theme="dark"] .hp-side-link:hover {
+                background: #1a222b;
+                color: #e8ecf1;
+            }
+            body[data-theme="dark"] .hp-side-link.active {
+                background: rgba(237, 164, 35, 0.15);
+                color: #f6c04e;
+            }
+            body[data-theme="dark"] .hp-side-heading {
+                color: #6b7684;
+            }
+            body[data-theme="dark"] .hp-side-quit {
+                color: #f28b82;
+            }
+            body[data-theme="dark"] .hp-side-quit:hover {
+                background: rgba(226, 74, 61, 0.15);
+            }
+            body[data-theme="dark"] .hp-card {
+                background: #141b24;
+                border-color: #1a222b;
+            }
+            body[data-theme="dark"] .hp-card-header h3 {
+                color: #e8ecf1;
+            }
+            body[data-theme="dark"] .hp-muted {
+                color: #8d99a5;
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .hp-sidebar,
+                .host-content,
+                .hp-side-toggle .icon,
+                .hp-side-link {
+                    transition: none;
+                }
+            }
+        </style>
+        {% block styles %}{% endblock %}
+    </head>
+    <body>
+
+        {# ============ SHARED SITE NAVBAR (port of includes/navbar.php) ============
+           Same header as user pages: logo, menu, bell + unread badge,
+           MY PROFILE dropdown (first entry reads "Host Dashboard" for
+           hosts → /host/profile). The host's avatar photo is forwarded
+           so the navbar shows the real photo instead of the fallback
+           icon. #}
+        {% set nav_avatar = host.avatar|default('') %}
+        {% include 'partials/navbar.html.twig' %}
+
+        <div class="host-layout">
+
+            {# ============ COLLAPSIBLE HOST SIDEBAR ============ #}
+            <aside class="hp-sidebar" id="hpSidebar">
+
+                {# Expand / Collapse toggle #}
+                <button type="button" class="hp-side-toggle" id="hpSidebarToggle" aria-expanded="true" aria-label="Collapse sidebar">
+                    {{ ui.icon('chevron-left') }}
+                </button>
+
+                {# Main links — start flush at the top, user-sidebar style #}
+                {% for item in side_main %}
+                    <a
+                        href="{{ item.href }}"
+                        class="hp-side-link{{ active_nav|default('') == item.key ? ' active' : '' }}"
+                    >
+                        {{ ui.icon(item.icon) }}
+                        <span class="hp-side-label">{{ item.label }}</span>
+                        {% if (side_badges[item.key] ?? 0) > 0 %}
+                            <span class="hp-side-badge">{{ side_badges[item.key] }}</span>
+                        {% endif %}
+                    </a>
+                {% endfor %}
+
+                {# Settings group #}
+                <span class="hp-side-heading">Settings</span>
+                {% for item in side_settings %}
+                    <a
+                        href="{{ item.href }}"
+                        class="hp-side-link{{ (item.key == 'quithosting' ? ' hp-side-quit' : '') }}{{ active_nav|default('') == item.key ? ' active' : '' }}"
+                    >
+                        {{ ui.icon(item.icon) }}
+                        <span class="hp-side-label">{{ item.label }}</span>
+                        {% if (side_badges[item.key] ?? 0) > 0 %}
+                            <span class="hp-side-badge">{{ side_badges[item.key] }}</span>
+                        {% endif %}
+                    </a>
+                {% endfor %}
+
+                {# Footer #}
+                {% for item in side_footer %}
+                    <a
+                        href="{{ item.href }}"
+                        class="hp-side-link{{ active_nav|default('') == item.key ? ' active' : '' }}"
+                    >
+                        {{ ui.icon(item.icon) }}
+                        <span class="hp-side-label">{{ item.label }}</span>
+                        {% if (side_badges[item.key] ?? 0) > 0 %}
+                            <span class="hp-side-badge">{{ side_badges[item.key] }}</span>
+                        {% endif %}
+                    </a>
+                {% endfor %}
+
+                <a href="/logout" class="hp-side-link hp-side-logout">
+                    {{ ui.icon('logout') }}
+                    <span class="hp-side-label">Log Out</span>
+                </a>
+
+            </aside>
+
+            {# ============ CONTENT COLUMN ============ #}
+            <div class="host-content">
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+
+        <script>
+            /* =====================================================
+                                                                                       SHARED HOST UI SCRIPT — dark mode apply + SIDEBAR
+                                                                                       COLLAPSE (own localStorage key, separate from the
+                                                                                       user sidebar's; the toggle also mirrors its state
+                                                                                       onto <body> as rh-side-collapsed so the fixed
+                                                                                       rail's content column re-aligns in CSS).
+                                                                                       The chip dropdown and theme-toggle click handler
+                                                                                       were removed with the placeholder topbar: the
+                                                                                       navbar has its own dropdown, and the theme toggle
+                                                                                       lives on the settings page (legacy).
+                                                                                    ====================================================== */
+            (function () {
+                "use strict";
+
+                /* ---- Dark mode: apply saved theme on load ---- */
+                try {
+                    if (localStorage.getItem("rhTheme") === "dark") {
+                        document.body.setAttribute("data-theme", "dark");
+                        document.documentElement.removeAttribute("data-theme-preview");
+                    }
+                } catch (e) {}
+
+                /* ---- Sidebar collapse (ported from host_sidebar.php) ----
+                                                                                           Same behavior as the user sidebar but with its OWN
+                                                                                           localStorage key. */
+                var sidebar = document.getElementById("hpSidebar");
+                var sideToggle = document.getElementById("hpSidebarToggle");
+                if (sidebar && sideToggle) {
+                    var STORAGE_KEY = "roomhive_host_sidebar_collapsed";
+                    var links = sidebar.querySelectorAll(".hp-side-link");
+
+                    function updateTitles(collapsed) {
+                        links.forEach(function (link) {
+                            var label = link.querySelector(".hp-side-label");
+                            if (collapsed) {
+                                link.setAttribute("title", label ? label.textContent : "");
+                            } else {
+                                link.removeAttribute("title");
+                            }
+                        });
+                    }
+
+                    function applyState(collapsed) {
+                        sidebar.classList.toggle("collapsed", collapsed);
+                        /* mirror onto <body> so the content column
+                                                               shifts back in sync while the rail narrows */
+                        document.body.classList.toggle("rh-side-collapsed", collapsed);
+                        sideToggle.setAttribute(
+                            "aria-expanded",
+                            collapsed ? "false" : "true",
+                        );
+                        sideToggle.setAttribute(
+                            "aria-label",
+                            collapsed ? "Expand sidebar" : "Collapse sidebar",
+                        );
+                        updateTitles(collapsed);
+                    }
+
+                    var savedCollapsed = false;
+                    try {
+                        savedCollapsed = localStorage.getItem(STORAGE_KEY) === "1";
+                    } catch (e) {}
+                    applyState(savedCollapsed);
+
+                    sideToggle.addEventListener("click", function () {
+                        var nowCollapsed = !sidebar.classList.contains("collapsed");
+                        applyState(nowCollapsed);
+                        try {
+                            localStorage.setItem(STORAGE_KEY, nowCollapsed ? "1" : "0");
+                        } catch (e) {}
+                    });
+                }
+            })();
+        </script>
+        {% block scripts %}{% endblock %}
+        {# Lucide is loaded once by the navbar's guarded loader
+           (window.__rhNavbarLucide) — no second copy here. #}
+    </body>
+</html>

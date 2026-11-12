@@ -1,0 +1,1495 @@
+<?php
+
+namespace App\Controller;
+
+use Doctrine\DBAL\Connection;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\Session\SessionInterface;
+use Symfony\Component\Routing\Attribute\Route;
+
+/**
+ * RoomHive — unified payment controller (history + listing payment + receipt).
+ *
+ *   GET  /payments                        → payment history (user/payments.html.twig)
+ *   GET  /listings/{id}/payment           → LISTING PAYMENT (Inquiry Step 2) — 1:1
+ *                                           port of legacy listingpayment.php,
+ *                                           renders listings/payment.html.twig.
+ *                                           Reads ?checkin_date ?checkout_date
+ *                                           ?months (1-12) ?long_term=1
+ *                                           ?guests=1|2|3|4+ and
+ *                                           ?pay_balance={bookingId} (balance
+ *                                           mode — the payments history page
+ *                                           links exactly this URL). The form
+ *                                           POSTs to /booking/process-payment.
+ *                                           50% RESERVE REMOVED (product
+ *                                           change): guests always pay the
+ *                                           FULL total up front — the
+ *                                           ?pay_full=1 mode no longer
+ *                                           exists.
+ *   POST /payment/review                  → legacy 4-step review (dormant — the
+ *                                           chooser step that posted here was
+ *                                           replaced by the listingpayment.php
+ *                                           port; route kept so nothing else
+ *                                           breaks)
+ *   POST /payment/confirm                 → step 3 · confirm (transactional)
+ *   GET  /payment/confirmation/{booking}  → step 4 · receipt — PORTED to
+ *                                           PaymentConfirmationController
+ *                                           (1:1 port of legacy
+ *                                           booking/payment-confirmation.php;
+ *                                           linked from PaymentController
+ *                                           ::confirm, ProcessPaymentController
+ *                                           ::process, HostPendingTenants,
+ *                                           and HostBookings).
+ *
+ * Redirect mapping for the listing-payment port (URL-for-URL where the
+ * target page exists, TODO-URL where it does not — matching what
+ * HostBookingsController documents):
+ *
+ *   auth/loginform.php                   → app_login
+ *   Listings/listing.php                 → app_listings
+ *   Listings/listing-detail.php?id&flag  → app_listing_detail
+ *                                          (?alreadylisted=1 / ?unavailable=1 —
+ *                                          both flags already render in
+ *                                          detail.html.twig)
+ *   booking/userbookings.php             → app_payments (user bookings page
+ *                                          not pasted yet; the payments
+ *                                          history lists the same bookings
+ *                                          with Pay Balance links)
+ *   booking/booking-details.php?id=N     → /booking/details/N (TODO URL —
+ *                                          404s until that file is ported)
+ *
+ * Wallet: legacy read wallets.balance inside a try/catch and told the
+ * porter to "adjust the query if your schema differs" — this port reads
+ * users.wallet_balance, the same column WalletController and
+ * walletCharge() already use, so no schema change is needed.
+ */
+class PaymentController extends AbstractController
+{
+    private const USER_REDIRECT = '/';
+    private const CSRF_CHOOSE   = 'pay_choose';
+    private const CSRF_CONFIRM  = 'pay_confirm';
+    private const VALID_METHODS = ['wallet', 'gcash', 'maya', 'card'];
+
+    /** Listing publish fee charged to owners (adjust to match the legacy amount). */
+    private const LISTING_FEE = 500.00;
+
+    public function __construct(private readonly Connection $db)
+    {
+    }
+
+    /* =====================================================================
+     |  PAYMENT HISTORY — GET /payments
+     | ================================================================== */
+
+    #[Route('/payments', name: 'app_payments', methods: ['GET'], priority: 2)]
+    public function index(Request $request): Response
+    {
+        $session = $request->getSession();
+        $userId  = (int)$session->get('user_id');
+        if (!$session->get('logged_in') || $userId <= 0) {
+            return $this->redirectToRoute('app_login');
+        }
+        if ($session->get('is_host')) {
+            return new RedirectResponse('/host/profile');
+        }
+
+        $user = $this->db->fetchAssociative(
+            'SELECT id, name, email, avatar_path, is_host, wallet_balance
+               FROM users WHERE id = :id LIMIT 1',
+            ['id' => $userId]
+        );
+        if (!$user) {
+            $session->clear();
+            return new RedirectResponse(self::USER_REDIRECT);
+        }
+        $user['id'] = (int)$user['id'];
+
+        /* ---- booking history: primary query, graceful fallback if a column is missing ---- */
+        try {
+            $rows = $this->db->fetchAllAssociative(
+                "SELECT b.id, b.total, b.amount_paid, b.status, b.payment_status,
+                        b.booked_at,
+                        COALESCE(l.title, 'Listing removed') AS title
+                   FROM bookings b
+                   LEFT JOIN listings l ON l.id = b.listing_id
+                  WHERE b.user_id = :id
+                  ORDER BY b.booked_at DESC",
+                ['id' => $userId]
+            );
+        } catch (\Throwable $e) {
+            error_log('payments: primary query failed: ' . $e->getMessage());
+            try {
+                $rows = $this->db->fetchAllAssociative(
+                    "SELECT b.id, b.total, b.amount_paid, b.status,
+                            b.refunded_amount, b.booked_at,
+                            COALESCE(l.title, 'Listing removed') AS title
+                       FROM bookings b LEFT JOIN listings l ON l.id = b.listing_id
+                      WHERE b.user_id = :id ORDER BY b.booked_at DESC",
+                    ['id' => $userId]
+                );
+                foreach ($rows as &$r) {
+                    $r['payment_status'] = ((float)($r['refunded_amount'] ?? 0)) > 0.005 ? 'refunded' : '';
+                }
+                unset($r);
+            } catch (\Throwable $e2) {
+                error_log('payments: fallback query failed: ' . $e2->getMessage());
+                $rows = [];
+            }
+        }
+
+        /* ---- build rows + totals (1:1 with legacy userpayments.php,
+           React-island edition: the rows array is JSON-fed to
+           #react-payments-props; Hive Club was removed upstream and
+           this port never carried a membership query) ---- */
+        $weekAgo       = strtotime('-7 days');
+        $history       = [];
+        $refundedTotal = 0.0;
+        $pendingToPay  = 0.0;
+        $allTime       = 0.0;
+        $thisWeek      = 0.0;
+        $refundedCount = 0;
+
+        foreach ($rows as $row) {
+            $total     = (float)$row['total'];
+            $paid      = (float)($row['amount_paid'] ?? 0);
+            $remaining = round(max(0, $total - $paid), 2);
+            $refunded  = ((string)($row['payment_status'] ?? '') === 'refunded');
+
+            if ($refunded) {
+                $payState = 'refunded';
+            } elseif ($paid > 0.005 && $remaining <= 0.005) {
+                $payState = 'paid';
+            } elseif ($paid > 0.005) {
+                $payState = 'partial';
+            } else {
+                $payState = 'unpaid';
+            }
+
+            $bid   = (int)$row['id'];
+            $ts    = strtotime((string)($row['booked_at'] ?? '')) ?: 0;
+            $title = (string)($row['title'] ?? 'Listing removed');
+
+            $history[] = [
+                /* legacy row shape */
+                'cat'        => 'booking',
+                'type'       => 'Booking',
+                'label'      => $title,
+                'ref'        => 'Booking #' . $bid,
+                'link'       => '/booking/' . $bid,
+                'total'      => $total,
+                'paid'       => $paid,
+                'remaining'  => $remaining,
+                'date'       => (string)($row['booked_at'] ?? ''),
+                'date_label' => $ts ? date('M j, Y', $ts) : '',
+                'status'     => (string)($row['status'] ?? ''),
+                'pay_status' => (string)($row['payment_status'] ?? ''),
+                'pay_state'  => $payState,
+                /* extras the Symfony template / sorting rely on */
+                'id'         => $bid,
+                'title'      => $title,
+                'booked_at'  => (string)($row['booked_at'] ?? ''),
+                'ts'         => $ts,
+            ];
+
+            /* totals — real money movement (legacy rules) */
+            if ($payState === 'refunded') {
+                $refundedTotal += $paid;   // legacy: refunded rows count their paid amount
+                $refundedCount++;          // island computes tab counts itself; kept for the current template
+                continue;
+            }
+
+            $allTime += $paid;
+            if ($ts >= $weekAgo) {
+                $thisWeek += $paid;
+            }
+
+            if ($payState === 'unpaid' || $payState === 'partial') {
+                /* legacy checks the raw status (cat is always 'booking' now) */
+                $status = (string)($row['status'] ?? '');
+                if (!in_array($status, ['cancelled', 'rejected'], true)) {
+                    $pendingToPay += $remaining;
+                }
+            }
+        }
+
+        usort($history, fn ($a, $b) => $b['ts'] <=> $a['ts']);
+
+        /* =====================================================
+           RECEIPT RECORD + WAITING LIST — the FILE is the source
+           of truth, same convention as
+           PaymentConfirmationController::confirmation():
+           public/uploads/signatures/booking-{id}.png is written by
+           SignReceiptController the moment the host signs (sign →
+           accept on the host side) and booking-{id}.json carries
+           signed_at (PNG mtime as fallback).
+
+           - signature file EXISTS  → the receipt is RECORDED: the
+             card shows the host's signature thumbnail + a View
+             Receipt link to /payment/confirmation/{id}.
+           - signature file MISSING → the receipt is not recorded
+             yet; while the booking is still active (pending /
+             confirmed) it lands in the WAITING LIST — "Waiting for
+             host to sign". Cancelled / rejected bookings never
+             wait: there is nothing left to wait for.
+        ====================================================== */
+        $sigDir = ((string) $this->getParameter('kernel.project_dir'))
+            . '/public/uploads/signatures';
+
+        $receiptRows = [];
+        $waitingRows = [];
+
+        foreach ($rows as $row) {
+            $bid    = (int) $row['id'];
+            $status = (string) ($row['status'] ?? '');
+
+            $sigFile = $sigDir . '/booking-' . $bid . '.png';
+            $sigJson = $sigDir . '/booking-' . $bid . '.json';
+
+            if (is_file($sigFile)) {
+                $sigTs = (int) filemtime($sigFile);
+                if (is_file($sigJson)) {
+                    $j = json_decode((string) file_get_contents($sigJson), true);
+                    if (!empty($j['signed_at'])) {
+                        $t = strtotime((string) $j['signed_at']);
+                        if ($t) {
+                            $sigTs = $t;
+                        }
+                    }
+                }
+
+                $receiptRows[] = [
+                    'id'          => $bid,
+                    'title'       => (string) ($row['title'] ?? 'Listing removed'),
+                    'ref'         => 'Booking #' . $bid,
+                    'amount'      => round((float) ($row['total'] ?? 0), 2),
+                    'status'      => $status,
+                    'ts'          => $sigTs,
+                    'signed_at'   => date('M j, Y \a\t g:i A', $sigTs),
+                    'sig_url'     => '/uploads/signatures/booking-' . $bid . '.png?v=' . (int) filemtime($sigFile),
+                    'receipt_url' => '/payment/confirmation/' . $bid,
+                ];
+            } elseif (in_array($status, ['pending', 'confirmed'], true)) {
+                $reqTs = strtotime((string) ($row['booked_at'] ?? '')) ?: 0;
+
+                $waitingRows[] = [
+                    'id'          => $bid,
+                    'title'       => (string) ($row['title'] ?? 'Listing removed'),
+                    'ref'         => 'Booking #' . $bid,
+                    'amount'      => round((float) ($row['total'] ?? 0), 2),
+                    'status'      => $status,
+                    'ts'          => $reqTs,
+                    'requested'   => $reqTs ? date('M j, Y', $reqTs) : '',
+                    'receipt_url' => '/payment/confirmation/' . $bid,
+                ];
+            }
+        }
+
+        /* newest first inside each group */
+        usort($receiptRows, fn ($a, $b) => $b['ts'] <=> $a['ts']);
+        usort($waitingRows, fn ($a, $b) => $b['ts'] <=> $a['ts']);
+
+        return $this->render('user/payments.html.twig', [
+            'user'            => $user,
+            'wallet'          => round((float)($user['wallet_balance'] ?? 0), 2),
+            'history'         => $history,
+            'history_total'   => count($history),
+            'receipt_rows'    => $receiptRows,
+            'waiting_rows'    => $waitingRows,
+            'refunded_count'  => $refundedCount,
+            'pending_to_pay'  => round($pendingToPay, 2),
+            'all_time'        => round($allTime, 2),
+            'this_week'       => round($thisWeek, 2),
+            'refunded_total'  => round($refundedTotal, 2),
+            'notif_count'     => $this->notifCount($userId),
+            'payment_methods' => [],
+            /* legacy-name aliases (harmless extras) */
+            'spent_this_week' => round($thisWeek, 2),
+            'spent_all_time'  => round($allTime, 2),
+            'historyTotal'    => count($history),
+        ]);
+    }
+
+    /* =====================================================================
+     |  LISTING PAYMENT (Inquiry Step 2) — GET /listings/{id}/payment
+     |  1:1 port of legacy listingpayment.php. The previous "chooser"
+     |  step that rendered payment/choose.html.twig was a stand-in from a
+     |  different flow and is gone — this page IS the target of the
+     |  Reserve form on listings/detail.html.twig and of the Pay Balance
+     |  links on the payments history page.
+     | ================================================================== */
+
+    #[Route('/listings/{id}/payment', name: 'app_listing_payment', methods: ['GET'], priority: 2, requirements: ['id' => '\d+'])]
+    public function choose(Request $request, int $id): Response
+    {
+        $session = $request->getSession();
+        $userId  = (int)$session->get('user_id');
+        if (!$session->get('logged_in') || $userId <= 0) {
+            return $this->redirectToRoute('app_login');
+        }
+
+        /* Legacy also computed $isLoggedIn/$navAvatar here — this page
+           renders no navbar, nothing consumes them. */
+
+        /* The listing id comes from the route (legacy: ?listing_id=). */
+        $listingId = $id;
+
+        /* ---- valid dates (legacy payment_valid_date()) ---- */
+        $checkin  = $this->validDate((string)$request->query->get('checkin_date', '')) ?? '';
+        $checkout = $this->validDate((string)$request->query->get('checkout_date', '')) ?? '';
+
+        /* MONTHLY RENTAL — duration in months (1-12); total = monthly x months */
+        $allowedDurations = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        $durationMonths = (int)$request->query->get('months', 1);
+        if (!in_array($durationMonths, $allowedDurations, true)) {
+            $durationMonths = 1;
+        }
+
+        $longTerm = $request->query->get('long_term') === '1';
+
+        /* LONG TERM — month-to-month: pay is ONE month at a time,
+           no move-out date. Force duration to 1 month. */
+        if ($longTerm) {
+            $durationMonths = 1;
+            $checkout = '';
+        }
+
+        $durationLabel = $longTerm
+            ? 'Long Term'
+            : ($durationMonths === 1 ? '1 Month' : $durationMonths . ' Months');
+
+        $allowedGuestOptions = ['1', '2', '3', '4+'];
+        $guestsInput = $request->query->get('guests');
+        $guests = in_array($guestsInput, $allowedGuestOptions, true) ? (string)$guestsInput : '1';
+
+        /* 50% RESERVE REMOVED — every reservation pays the full
+           total up front, so there is no ?pay_full=1 mode anymore. */
+
+        /* ---- PAY-REMAINING-BALANCE MODE ---- */
+        $payBalanceRaw = $request->query->get('pay_balance');
+        $payBalanceBookingId = is_numeric($payBalanceRaw) ? (int)$payBalanceRaw : null;
+        $balanceBooking = null;
+        $remaining = 0.0;
+
+        if ($payBalanceBookingId !== null) {
+            $balanceBooking = $this->db->fetchAssociative(
+                'SELECT id, user_id, listing_id, total, amount_paid, status,
+                        checkin_date, checkout_date, guests
+                   FROM bookings
+                  WHERE id = :id
+                  LIMIT 1',
+                ['id' => $payBalanceBookingId]
+            );
+
+            $balanceIsValid = $balanceBooking !== false
+                && (int)$balanceBooking['user_id'] === $userId
+                && (int)$balanceBooking['listing_id'] === $listingId
+                && in_array($balanceBooking['status'], ['pending', 'confirmed'], true);
+
+            if (!$balanceIsValid) {
+                /* legacy → booking/userbookings.php — not ported yet;
+                   the payments history page carries the same bookings
+                   (and their Pay Balance links) */
+                return $this->redirectToRoute('app_payments');
+            }
+
+            $remaining = round(
+                (float)$balanceBooking['total'] - (float)$balanceBooking['amount_paid'],
+                2
+            );
+
+            if ($remaining <= 0.005) {
+                /* legacy → booking/booking-details.php?id=N — TODO URL,
+                   404s until that file is ported */
+                return new RedirectResponse('/booking/details/' . $payBalanceBookingId);
+            }
+
+            $checkin  = $balanceBooking['checkin_date'] ?? $checkin;
+            $checkout = $balanceBooking['checkout_date'] ?? $checkout;
+            $guests   = in_array($balanceBooking['guests'] ?? '', $allowedGuestOptions, true)
+                ? (string)$balanceBooking['guests']
+                : $guests;
+        }
+
+        /* ---- LISTING FETCH (same SELECT as legacy) ---- */
+        $listing = $this->db->fetchAssociative(
+            "SELECT l.id, l.title, l.location, l.exact_address, l.category, l.property_type, l.price,
+                    l.user_id AS host_id,
+                    l.status,
+                    l.latitude, l.longitude,
+                    l.bedrooms, l.bathrooms, l.size_sqm, l.floor, l.parking,
+                    u.name AS host_name, u.avatar_path AS host_avatar, u.created_at AS host_since,
+                    p.photo_path AS cover_photo
+               FROM listings l
+               JOIN users u ON u.id = l.user_id
+               LEFT JOIN listing_photos p ON p.listing_id = l.id AND p.photo_type = 'cover'
+              WHERE l.id = :id
+              LIMIT 1",
+            ['id' => $listingId]
+        );
+
+        if ($listing === false) {
+            return $this->redirectToRoute('app_listings');
+        }
+
+        /* ---- LISTING STATUS GUARDS (skipped entirely in balance mode — 1:1) ---- */
+        $isListingOwner = ((int)$listing['host_id'] === $userId);
+        $listingStatus  = (string)($listing['status'] ?? '');
+
+        if ($balanceBooking === null) {
+            if ($isListingOwner && $listingStatus === 'approved') {
+                return $this->redirectToRoute('app_listing_detail', ['id' => $listingId, 'alreadylisted' => 1]);
+            }
+            if (!$isListingOwner && $listingStatus !== 'approved') {
+                return $this->redirectToRoute('app_listing_detail', ['id' => $listingId, 'unavailable' => 1]);
+            }
+        }
+
+        /* ---- VERIFICATION GATE - new enquiries only. An
+           unverified renter cannot reach the payment step:
+           bounced back to the detail page with ?needverify=1
+           (the notice at the top of that page explains it).
+           Paying the REMAINING balance of an existing booking
+           stays open, and the listing owner is exempt - the
+           same exemptions the detail-page lock uses. ---- */
+        if ($balanceBooking === null && !$isListingOwner && !$this->isUserVerified($userId)) {
+            return $this->redirectToRoute('app_listing_detail', ['id' => $listingId, 'needverify' => 1]);
+        }
+
+        /* ---- ONE ACTIVE APPLICATION PER TENANT - a renter with a
+           still-pending booking request anywhere cannot start another
+           one ("can't duplicate"). Bounced back to the detail page
+           with ?oneactive=1 (the notice at the top of that page
+           explains it). Balance mode is exempt - it settles an
+           existing booking instead of creating one - and the listing
+           owner is exempt (they're paying the publish fee, not
+           applying to stay). Cancelled / rejected / completed
+           bookings never block. ---- */
+        if ($balanceBooking === null && !$isListingOwner) {
+            $ownPending = $this->db->fetchOne(
+                "SELECT id FROM bookings
+                  WHERE user_id = :user_id AND status = 'pending'
+                  LIMIT 1",
+                ['user_id' => $userId]
+            );
+            if ($ownPending !== false) {
+                return $this->redirectToRoute('app_listing_detail', ['id' => $listingId, 'oneactive' => 1]);
+            }
+        }
+
+        /* ---- RATINGS ---- */
+        $listingRatings = array_map('floatval', array_column(
+            $this->db->fetchAllAssociative(
+                'SELECT rating FROM reviews WHERE listing_id = :id',
+                ['id' => $listingId]
+            ),
+            'rating'
+        ));
+        $listingRatingAvg   = count($listingRatings) > 0 ? round(array_sum($listingRatings) / count($listingRatings), 1) : 0;
+        $listingRatingCount = count($listingRatings);
+
+        $hostRatings = array_map('floatval', array_column(
+            $this->db->fetchAllAssociative(
+                'SELECT r.rating
+                   FROM reviews r
+                   JOIN listings l2 ON l2.id = r.listing_id
+                  WHERE l2.user_id = :host_id',
+                ['host_id' => $listing['host_id']]
+            ),
+            'rating'
+        ));
+        $hostRatingAvg   = count($hostRatings) > 0 ? round(array_sum($hostRatings) / count($hostRatings), 1) : 0;
+        $hostRatingCount = count($hostRatings);
+
+        $isSuperhost = $hostRatingCount >= 5 && $hostRatingAvg >= 4.8;
+
+        /* ---- MONTHLY PRICING — Hive Club removed upstream (base price only).
+                50% RESERVE REMOVED — due today = the full total. ---- */
+        $monthlyRent       = (float)$listing['price'];
+        $discountedMonthly = $monthlyRent; /* legacy remnant, unused since Hive Club came out */
+        $discountedTotal   = round($monthlyRent * $durationMonths, 2);
+
+        if ($balanceBooking !== null) {
+            $totalDueToday   = $remaining;
+            $bookingTotal    = (float)$balanceBooking['total'];
+            $amountPaidSoFar = (float)$balanceBooking['amount_paid'];
+        } else {
+            $totalDueToday   = $discountedTotal;
+            $bookingTotal    = null;
+            $amountPaidSoFar = null;
+        }
+
+        $paidPct = ($balanceBooking !== null && $bookingTotal > 0)
+            ? max(0, min(100, (int)round(($amountPaidSoFar / $bookingTotal) * 100)))
+            : 0;
+
+        /* ---- MAP PIN COORDINATES ---- */
+        $pinLatitude  = $listing['latitude'] !== null ? (float)$listing['latitude'] : null;
+        $pinLongitude = $listing['longitude'] !== null ? (float)$listing['longitude'] : null;
+        $hasMapPin    = ($pinLatitude !== null && $pinLongitude !== null);
+
+        /* ---- ROOMHIVE WALLET — legacy read wallets.balance in a try/catch
+           and said "adjust the query if your schema differs"; this port's
+           schema carries the balance on users.wallet_balance (same column
+           WalletController and walletCharge() use) ---- */
+        try {
+            $walletBalance = $this->walletBalance($userId);
+        } catch (\Throwable) {
+            /* Wallet column missing/unavailable → treat as zero balance */
+            $walletBalance = 0.0;
+        }
+
+        /* 0.005 absorbs float noise */
+        $walletCoversPayment = ($walletBalance + 0.005 >= $totalDueToday);
+        $walletShort         = !$walletCoversPayment;
+
+        if ($balanceBooking !== null) {
+            $walletDesc = 'Balance: ₱' . number_format($walletBalance, 2)
+                . ($walletCoversPayment ? '' : ' — insufficient for this payment');
+        } elseif ($walletCoversPayment) {
+            $walletDesc = 'Balance: ₱' . number_format($walletBalance, 2) . ' — covers this payment';
+        } else {
+            $walletDesc = 'Balance: ₱' . number_format($walletBalance, 2) . ' — insufficient, top up required';
+        }
+
+        /* ---- PAYMENT METHODS OFFERED (icon paths mapped onto public/images/) ---- */
+        $paymentMethods = [
+            [
+                'id'          => 'wallet',
+                'label'       => 'RoomHive Wallet',
+                'description' => $walletDesc,
+                'icon'        => '',
+                'svg'         => true,
+                'recommended' => false,
+            ],
+            [
+                'id'          => 'gcash',
+                'label'       => 'GCash',
+                'description' => 'Pay securely with GCash',
+                'icon'        => '/images/GCashIcon.png',
+                'svg'         => false,
+                'recommended' => true,
+            ],
+            [
+                'id'          => 'maya',
+                'label'       => 'Maya',
+                'description' => 'Pay with Maya',
+                'icon'        => '/images/paymayaicon.png',
+                'svg'         => false,
+                'recommended' => false,
+            ],
+            [
+                'id'          => 'card',
+                'label'       => 'Credit/Debit Card',
+                'description' => 'Visa, Mastercard, JCB and more.',
+                'icon'        => '/images/paymentsicon-userprofile.png',
+                'svg'         => false,
+                'recommended' => false,
+            ],
+        ];
+
+        /* ---- MAPS ---- */
+        $mapsQuery = $hasMapPin
+            ? $pinLatitude . ',' . $pinLongitude
+            : trim($listing['exact_address'] . ', ' . $listing['location']);
+        $mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' . urlencode($mapsQuery);
+
+        /* The embed src the legacy page built inline inside the iframe */
+        $mapsEmbedUrl = $hasMapPin
+            ? 'https://www.google.com/maps?q=' . $pinLatitude . ',' . $pinLongitude . '&output=embed'
+            : 'https://www.google.com/maps?q=' . rawurlencode($mapsQuery) . '&output=embed';
+
+        /* Back-to-listing query for the in-form link (legacy builds it inline) */
+        $backQuery = $longTerm ? '?long_term=1' : '?months=' . $durationMonths;
+
+        /* Hosting-since label — legacy date('F Y', strtotime(...)); with no
+           value strtotime(null) hits the epoch, so mirror that exactly. */
+        $hostSinceLabel = $listing['host_since']
+            ? date('F Y', strtotime((string)$listing['host_since']))
+            : 'January 1970';
+
+        /* Legacy ran the unread-bell query even though this page renders
+           no navbar — kept for fidelity, passed but unused. */
+        $notifCount = $this->notifCount($userId);
+
+        return $this->render('listings/payment.html.twig', [
+            'balance_mode'         => $balanceBooking !== null,
+            'pay_balance_id'       => $payBalanceBookingId ?? 0,
+            'listing_id'           => $listingId,
+            'checkin'              => (string)$checkin,
+            'checkout'             => (string)$checkout,
+            'months'               => $durationMonths,
+            'long_term'            => $longTerm,
+            'duration_label'       => $durationLabel,
+            'guests'               => $guests,
+            'back_query'           => $backQuery,
+            'listing'              => $listing,
+            'cover_photo'          => $this->resolvePhoto((string)($listing['cover_photo'] ?? ''), '/images/ListingPlaceholder.png'),
+            'host_name'            => (string)$listing['host_name'],
+            'host_avatar'          => $this->resolvePhoto((string)($listing['host_avatar'] ?? ''), '/images/default-avatar.png'),
+            'host_since_label'     => $hostSinceLabel,
+            'listing_rating_avg'   => $listingRatingAvg,
+            'listing_rating_count' => $listingRatingCount,
+            'host_rating_avg'      => $hostRatingAvg,
+            'host_rating_count'    => $hostRatingCount,
+            'is_superhost'         => $isSuperhost,
+            'monthly_rent'         => $monthlyRent,
+            'discounted_total'     => $discountedTotal,
+            'total_due_today'      => $totalDueToday,
+            'booking_total'        => $bookingTotal ?? 0.0,
+            'amount_paid_so_far'   => $amountPaidSoFar ?? 0.0,
+            'paid_pct'             => $paidPct,
+            'has_map_pin'          => $hasMapPin,
+            'maps_embed_url'       => $mapsEmbedUrl,
+            'maps_url'             => $mapsUrl,
+            'wallet_balance'       => $walletBalance,
+            'wallet_short'         => $walletShort,
+            'methods'              => $paymentMethods,
+            'notif_count'          => $notifCount,
+        ]);
+    }
+
+    /* =====================================================================
+     |  STEP 2 · REVIEW — POST /payment/review
+     | ================================================================== */
+
+    #[Route('/payment/review', name: 'app_payment_review', methods: ['POST'], priority: 2)]
+    public function review(Request $request): Response
+    {
+        $session = $request->getSession();
+        $userId  = (int)$session->get('user_id');
+        if (!$session->get('logged_in') || $userId <= 0) {
+            return $this->redirectToRoute('app_login');
+        }
+
+        $params = $this->bookingParams($request);
+
+        /* ---- balance mode review ---- */
+        if ($params['pay_balance'] > 0) {
+            $booking = $this->chooseBalance($params['pay_balance'], $userId);
+            if (!$booking) {
+                return $this->redirectToRoute('app_payments');
+            }
+            $balance = $this->balanceContext($booking);
+
+            $error = '';
+            if (!$this->csrfValid($session, self::CSRF_CHOOSE, $this->postedToken($request))) {
+                $error = 'Your session expired. Please try again.';
+            } elseif (!in_array($params['method'], self::VALID_METHODS, true)) {
+                $error = 'Choose a payment method.';
+            } else {
+                $fieldErrors = $this->methodFieldErrors($request->request->all());
+                if ($fieldErrors) {
+                    return $this->renderReviewWithError($request, $userId, $params, 'balance', $balance, 'Please check the highlighted fields.', $fieldErrors);
+                }
+            }
+            if ($error !== '') {
+                return $this->renderReviewWithError($request, $userId, $params, 'balance', $balance, $error);
+            }
+
+            return $this->renderReview($request, $userId, $params, 'balance', $balance);
+        }
+
+        /* ---- booking / fee mode review ---- */
+        $listing = $this->db->fetchAssociative(
+            'SELECT id, user_id, title, price, location, exact_address, status
+               FROM listings WHERE id = :id',
+            ['id' => $params['listing_id']]
+        );
+        if (!$listing) {
+            return $this->redirectToRoute('app_listings');
+        }
+
+        $isOwner = (int)$listing['user_id'] === $userId;
+        $status  = strtolower((string)$listing['status']);
+        if ($isOwner && $status === 'approved') {
+            return $this->redirectToRoute('app_listing_detail', ['id' => $params['listing_id']]);
+        }
+        if (!$isOwner && $status !== 'approved') {
+            return $this->redirectToRoute('app_listing_detail', ['id' => $params['listing_id']]);
+        }
+        $mode = $isOwner ? 'fee' : 'booking';
+
+        $error = '';
+        if (!$this->csrfValid($session, self::CSRF_CHOOSE, $this->postedToken($request))) {
+            $error = 'Your session expired. Please try again.';
+        }
+
+        if ($error === '' && $mode === 'booking') {
+            $view = $params['view'];
+            if ($view['checkin'] === '' || $view['checkout'] === '') {
+                $error = 'Choose your check-in and check-out dates.';
+            } elseif ($view['checkout'] <= $view['checkin']) {
+                $error = 'Check-out must be after check-in.';
+            } elseif ($view['checkin'] < date('Y-m-d')) {
+                $error = 'Check-in cannot be in the past.';
+            }
+        }
+
+        if ($error === '' && !in_array($params['method'], self::VALID_METHODS, true)) {
+            $error = 'Choose a payment method.';
+        }
+
+        if ($error === '') {
+            $fieldErrors = $this->methodFieldErrors($request->request->all());
+            if ($fieldErrors) {
+                return $this->renderReviewWithError($request, $userId, $params, $mode, null, 'Please check the highlighted fields.', $fieldErrors);
+            }
+        }
+
+        if ($error !== '') {
+            return $this->renderReviewWithError($request, $userId, $params, $mode, null, $error);
+        }
+
+        return $this->renderReview($request, $userId, $params, $mode, null);
+    }
+
+    /* =====================================================================
+     |  STEP 3 · CONFIRM — POST /payment/confirm  (transactional)
+     | ================================================================== */
+
+    #[Route('/payment/confirm', name: 'app_payment_confirm', methods: ['POST'], priority: 2)]
+    public function confirm(Request $request): Response
+    {
+        $session = $request->getSession();
+        $userId  = (int)$session->get('user_id');
+        if (!$session->get('logged_in') || $userId <= 0) {
+            return $this->redirectToRoute('app_login');
+        }
+
+        $user   = $this->fetchUser($userId);
+        $params = $this->bookingParams($request);
+
+        /* ------------------------- balance mode ------------------------- */
+        if ($params['pay_balance'] > 0) {
+            $booking = $this->chooseBalance($params['pay_balance'], $userId);
+            if (!$booking) {
+                return $this->redirectToRoute('app_payments');
+            }
+            $balance = $this->balanceContext($booking);
+
+            $error = '';
+            if (!$this->csrfValid($session, self::CSRF_CONFIRM, $this->postedToken($request))) {
+                $error = 'Your session expired. Please confirm your payment again.';
+            } elseif (!in_array($params['method'], self::VALID_METHODS, true)) {
+                $error = 'Choose a payment method.';
+            } else {
+                $fieldErrors = $this->methodFieldErrors($request->request->all());
+                if ($fieldErrors) {
+                    return $this->renderReviewWithError($request, $userId, $params, 'balance', $balance, 'Please check the highlighted fields.', $fieldErrors);
+                }
+            }
+            if ($error !== '') {
+                return $this->renderReviewWithError($request, $userId, $params, 'balance', $balance, $error);
+            }
+
+            $amount = (float)$balance['remaining'];
+            $this->db->beginTransaction();
+            try {
+                $done = $this->confirmBalance($booking, $userId, $amount, $params['method'], $this->walletRef());
+                if (($done['ok'] ?? false) !== true) {
+                    $this->db->rollBack();
+                    $msg = ($done['error'] ?? '') === 'insufficient_funds'
+                        ? 'Insufficient wallet balance. Top up your wallet and try again.'
+                        : 'This booking can no longer be paid.';
+                    return $this->renderReviewWithError($request, $userId, $params, 'balance', $balance, $msg);
+                }
+                $this->db->commit();
+            } catch (\Throwable $e) {
+                if ($this->db->isTransactionActive()) {
+                    $this->db->rollBack();
+                }
+                error_log('payment/confirm (balance): ' . $e->getMessage());
+                return $this->renderReviewWithError($request, $userId, $params, 'balance', $balance, 'We could not process your payment. Please try again.');
+            }
+
+            return $this->redirectToRoute('app_payment_confirmation', [
+                'booking' => (int)$balance['booking_id'],
+                'amt'     => $amount,
+                'pm'      => $params['method'],
+                'balance' => 1,
+            ]);
+        }
+
+        /* ---------------------- booking / fee mode ---------------------- */
+        $listing = $this->db->fetchAssociative(
+            'SELECT id, user_id, title, price, location, exact_address, status
+               FROM listings WHERE id = :id',
+            ['id' => $params['listing_id']]
+        );
+        if (!$listing) {
+            return $this->redirectToRoute('app_listings');
+        }
+
+        $isOwner = (int)$listing['user_id'] === $userId;
+        $status  = strtolower((string)$listing['status']);
+        if ($isOwner && $status === 'approved') {
+            return $this->redirectToRoute('app_listing_detail', ['id' => $params['listing_id']]);
+        }
+        if (!$isOwner && $status !== 'approved') {
+            return $this->redirectToRoute('app_listing_detail', ['id' => $params['listing_id']]);
+        }
+        $mode = $isOwner ? 'fee' : 'booking';
+
+        $error = '';
+        if (!$this->csrfValid($session, self::CSRF_CONFIRM, $this->postedToken($request))) {
+            $error = 'Your session expired. Please confirm your payment again.';
+        }
+
+        if ($error === '' && $mode === 'booking') {
+            $view = $params['view'];
+            if ($view['checkin'] === '' || $view['checkout'] === '') {
+                $error = 'Choose your check-in and check-out dates.';
+            } elseif ($view['checkout'] <= $view['checkin']) {
+                $error = 'Check-out must be after check-in.';
+            } elseif ($view['checkin'] < date('Y-m-d')) {
+                $error = 'Check-in cannot be in the past.';
+            }
+        }
+        if ($error === '' && !in_array($params['method'], self::VALID_METHODS, true)) {
+            $error = 'Choose a payment method.';
+        }
+        if ($error === '') {
+            $fieldErrors = $this->methodFieldErrors($request->request->all());
+            if ($fieldErrors) {
+                $error = 'Please check the highlighted fields.';
+            }
+        }
+        if ($error !== '') {
+            return $this->renderReviewWithError($request, $userId, $params, $mode, null, $error, $fieldErrors ?? []);
+        }
+
+        $view    = $params['view'];
+        $pricing = $this->pricing($listing, $view, $isOwner);
+        $dueNow  = (float)$pricing['due_now'];
+
+        $this->db->beginTransaction();
+        try {
+            /* lock the listing row to serialize payments for the same unit */
+            $locked = $this->db->fetchAssociative(
+                'SELECT id, user_id, status FROM listings WHERE id = :id FOR UPDATE',
+                ['id' => (int)$listing['id']]
+            );
+            if (!$locked) {
+                $this->db->rollBack();
+                return $this->renderReviewWithError($request, $userId, $params, $mode, null, 'Listing not found.');
+            }
+
+            if ($isOwner) {
+                /* owner pays the listing fee → listing gets approved */
+                if (strtolower((string)$locked['status']) === 'approved') {
+                    $this->db->rollBack();
+                    return $this->renderReviewWithError($request, $userId, $params, $mode, null, 'This listing is already approved.');
+                }
+                if ($params['method'] === 'wallet') {
+                    $after = $this->walletCharge($userId, self::LISTING_FEE, $this->walletRef());
+                    if ($after === null) {
+                        $this->db->rollBack();
+                        return $this->renderReviewWithError($request, $userId, $params, $mode, null, 'Insufficient wallet balance. Top up your wallet and try again.');
+                    }
+                }
+                $this->db->update('listings', ['status' => 'approved'], ['id' => (int)$locked['id']]);
+                $this->db->insert('bookings', [
+                    'user_id'         => $userId,
+                    'listing_id'      => (int)$locked['id'],
+                    'checkin_date'    => null,
+                    'checkout_date'   => null,
+                    'guests'          => 0,
+                    'total'           => self::LISTING_FEE,
+                    'amount_paid'     => self::LISTING_FEE,
+                    'refunded_amount' => 0,
+                    'status'          => 'completed',
+                    'payment_status'  => 'paid',
+                    'booked_at'       => date('Y-m-d H:i:s'),
+                ]);
+                $bookingId = (int)$this->db->lastInsertId();
+                $this->db->commit();
+
+                return $this->redirectToRoute('app_payment_confirmation', [
+                    'booking' => $bookingId,
+                    'amt'     => self::LISTING_FEE,
+                    'pm'      => $params['method'],
+                ]);
+            }
+
+            /* guest booking: block overlapping pending/confirmed bookings */
+            $clash = $this->db->fetchOne(
+                "SELECT id FROM bookings
+                  WHERE listing_id = :lid
+                    AND status IN ('pending', 'confirmed')
+                    AND checkin_date IS NOT NULL
+                    AND checkin_date < :checkout
+                    AND checkout_date > :checkin
+                  LIMIT 1",
+                [
+                    'lid'      => (int)$locked['id'],
+                    'checkin'  => $view['checkin'],
+                    'checkout' => $view['checkout'],
+                ]
+            );
+            if ($clash) {
+                $this->db->rollBack();
+                return $this->renderReviewWithError($request, $userId, $params, $mode, null, 'Those dates were just booked by someone else. Please pick different dates.');
+            }
+
+            /* ONE ACTIVE APPLICATION PER TENANT - same rule the payment
+               page enforces on entry (and the Pending Tenants page
+               enforces on accept: accepting one application
+               auto-declines the tenant's others). Runs INSIDE the
+               transaction, BEFORE any money moves, so a hand-crafted
+               POST cannot sneak a second application past the page
+               gate. */
+            $ownPending = $this->db->fetchOne(
+                "SELECT id FROM bookings
+                  WHERE user_id = :user_id AND status = 'pending'
+                  LIMIT 1",
+                ['user_id' => $userId]
+            );
+            if ($ownPending !== false) {
+                $this->db->rollBack();
+                return $this->renderReviewWithError($request, $userId, $params, $mode, null, 'You already have an active booking request. You can only have one at a time. Wait for the host\'s decision or cancel it from My Bookings first.');
+            }
+
+            if ($params['method'] === 'wallet') {
+                $after = $this->walletCharge($userId, $dueNow, $this->walletRef());
+                if ($after === null) {
+                    $this->db->rollBack();
+                    return $this->renderReviewWithError($request, $userId, $params, $mode, null, 'Insufficient wallet balance. Top up your wallet and try again.');
+                }
+            }
+
+            $this->db->insert('bookings', [
+                'user_id'         => $userId,
+                'listing_id'      => (int)$locked['id'],
+                'checkin_date'    => $view['checkin'],
+                'checkout_date'   => $view['checkout'],
+                'guests'          => (int)$view['guests'],
+                'total'           => $pricing['total'],
+                'amount_paid'     => $dueNow,
+                'refunded_amount' => 0,
+                'status'          => 'pending',
+                'payment_status'  => ($dueNow >= (float)$pricing['total'] - 0.005) ? 'paid' : 'partial',
+                'booked_at'       => date('Y-m-d H:i:s'),
+            ]);
+            $bookingId = (int)$this->db->lastInsertId();
+
+            $this->db->insert('notifications', [
+                'user_id'    => (int)$locked['user_id'],
+                'message'    => ($user['name'] ?? 'A guest') . ' booked "' . $listing['title'] . '" from ' . $view['checkin'] . ' to ' . $view['checkout'] . '.',
+                'link'       => '/host/bookings',
+                'is_read'    => 0,
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            if ($this->db->isTransactionActive()) {
+                $this->db->rollBack();
+            }
+            error_log('payment/confirm: ' . $e->getMessage());
+            return $this->renderReviewWithError($request, $userId, $params, $mode, null, 'We could not process your payment. Please try again.');
+        }
+
+        return $this->redirectToRoute('app_payment_confirmation', [
+            'booking' => $bookingId,
+            'amt'     => $dueNow,
+            'pm'      => $params['method'],
+        ]);
+    }
+
+    /* =====================================================================
+     |  PRIVATE HELPERS
+     | ================================================================== */
+
+    /**
+     * Shared context for the chooser and review templates.
+     * NOTE: chooseQuery() receives $params['view'] (the fix — passing the
+     * full $params dropped the date parameters from back-links).
+     */
+    private function baseCtx(Request $request, int $userId, array $params, string $mode, ?array $balance): array
+    {
+        $listing = $this->db->fetchAssociative(
+            'SELECT id, user_id, title, price, location, exact_address, status
+               FROM listings WHERE id = :id',
+            ['id' => (int)$params['listing_id']]
+        );
+        if (!$listing) {
+            $listing = [
+                'id'            => (int)$params['listing_id'],
+                'user_id'       => 0,
+                'title'         => 'Listing removed',
+                'price'         => 0,
+                'location'      => '',
+                'exact_address' => '',
+                'status'        => '',
+            ];
+        }
+
+        $pricing = $mode === 'balance'
+            ? [
+                'months'   => 0,
+                'days'     => 0,
+                'total'    => round((float)($balance['total'] ?? 0), 2),
+                'reserve'  => 0.0,
+                'due_now'  => round((float)($balance['remaining'] ?? 0), 2),
+                'pay_full' => false,
+            ]
+            : $this->pricing($listing, $params['view'], (int)$listing['user_id'] === $userId);
+
+        return [
+            'user'         => $this->fetchUser($userId),
+            'notif_count'  => $this->notifCount($userId),
+            'wallet'       => $this->walletBalance($userId),
+            'listing'      => $listing,
+            'cover'        => $this->photoUrl((int)$params['listing_id']),
+            'mode'         => $mode,
+            'balance'      => $balance ?? [],
+            'pricing'      => $pricing,
+            'methods'      => self::VALID_METHODS,
+            'params'       => $params,
+            'csrf_choose'  => $this->ensureCsrfToken($request->getSession(), self::CSRF_CHOOSE),
+            'csrf_confirm' => $this->ensureCsrfToken($request->getSession(), self::CSRF_CONFIRM),
+            'qs'           => $this->chooseQuery($params['view']),
+        ];
+    }
+
+    /** Render the review page (booking / fee / balance modes). */
+    private function renderReview(Request $request, int $userId, array $params, string $mode, ?array $balance): Response
+    {
+        $ctx = $this->baseCtx($request, $userId, $params, $mode, $balance);
+        $ctx['errors']       = ['general' => '', 'fields' => []];
+        $ctx['error']        = '';
+        $ctx['method']       = $params['method'];
+        $ctx['method_label'] = $this->methodLabel($params['method']);
+        return $this->render('payment/review.html.twig', $ctx);
+    }
+
+    /** Re-render the chooser with an error + sticky inputs (validation failures). */
+    private function renderReviewWithError(Request $request, int $userId, array $params, string $mode, ?array $balance, string $general, array $fieldErrors = []): Response
+    {
+        $ctx = $this->baseCtx($request, $userId, $params, $mode, $balance);
+        $ctx['errors'] = ['general' => $general, 'fields' => $fieldErrors];
+        $ctx['error']  = $general;
+        return $this->render('payment/choose.html.twig', $ctx);
+    }
+
+    /** Validate + load the booking being paid in balance mode (?pay_balance=ID). */
+    private function chooseBalance(int $bookingId, int $userId): ?array
+    {
+        if ($bookingId <= 0) {
+            return null;
+        }
+        $b = $this->db->fetchAssociative(
+            'SELECT id, user_id, listing_id, total, amount_paid, refunded_amount,
+                    status, payment_status, checkin_date, checkout_date, guests, booked_at
+               FROM bookings
+              WHERE id = :id AND user_id = :uid',
+            ['id' => $bookingId, 'uid' => $userId]
+        );
+        if (!$b) {
+            return null;
+        }
+        if (in_array(strtolower((string)$b['status']), ['cancelled', 'rejected'], true)) {
+            return null;
+        }
+        if ((string)$b['payment_status'] === 'refunded') {
+            return null;
+        }
+        $remaining = round(max(((float)$b['total']) - ((float)$b['amount_paid']), 0.0), 2);
+        if ($remaining <= 0.005) {
+            return null;
+        }
+        $b['remaining'] = $remaining;
+        return $b;
+    }
+
+    /** Build the display context shown on the chooser for a balance payment. */
+    private function balanceContext(array $booking): array
+    {
+        $l = $this->db->fetchAssociative(
+            'SELECT id, title, location, price FROM listings WHERE id = :id',
+            ['id' => (int)$booking['listing_id']]
+        );
+
+        return [
+            'booking_id' => (int)$booking['id'],
+            'listing_id' => (int)$booking['listing_id'],
+            'title'      => (string)($l['title'] ?? 'Listing removed'),
+            'location'   => (string)($l['location'] ?? ''),
+            'checkin'    => (string)$booking['checkin_date'],
+            'checkout'   => (string)$booking['checkout_date'],
+            'guests'     => (int)$booking['guests'],
+            'total'      => round((float)$booking['total'], 2),
+            'paid'       => round((float)$booking['amount_paid'], 2),
+            'remaining'  => (float)$booking['remaining'],
+        ];
+    }
+
+    /**
+     * Apply a balance payment to an existing booking. Runs inside the open
+     * transaction; locks the booking row and charges the wallet when needed.
+     */
+    private function confirmBalance(array $booking, int $userId, float $amount, string $method, string $reference): array
+    {
+        $row = $this->db->fetchAssociative(
+            'SELECT id, total, amount_paid, status, payment_status
+               FROM bookings WHERE id = :id AND user_id = :uid FOR UPDATE',
+            ['id' => (int)$booking['id'], 'uid' => $userId]
+        );
+        if (!$row) {
+            return ['ok' => false, 'error' => 'unavailable'];
+        }
+        if (in_array(strtolower((string)$row['status']), ['cancelled', 'rejected'], true)
+            || (string)$row['payment_status'] === 'refunded') {
+            return ['ok' => false, 'error' => 'unavailable'];
+        }
+
+        $total     = (float)$row['total'];
+        $paid      = (float)$row['amount_paid'];
+        $remaining = round(max($total - $paid, 0.0), 2);
+        $amount    = round($amount, 2);
+        if ($remaining <= 0.005) {
+            return ['ok' => false, 'error' => 'unavailable'];
+        }
+
+        if ($method === 'wallet') {
+            $balanceAfter = $this->walletCharge($userId, $amount, $reference);
+            if ($balanceAfter === null) {
+                return ['ok' => false, 'error' => 'insufficient_funds'];
+            }
+        }
+
+        $newPaid   = round(min($paid + $amount, $total), 2);
+        $fullyPaid = ($total - $newPaid) <= 0.005;
+
+        $this->db->update('bookings', [
+            'amount_paid'    => $newPaid,
+            'payment_status' => $fullyPaid ? 'paid' : 'partial',
+        ], ['id' => (int)$row['id']]);
+
+        return [
+            'ok'         => true,
+            'paid'       => $amount,
+            'remaining'  => round(max($total - $newPaid, 0.0), 2),
+            'fully_paid' => $fullyPaid,
+        ];
+    }
+
+    /** Field-level validation for GCash / Maya / card inputs (wallet needs none). */
+    private function methodFieldErrors(array $post): array
+    {
+        $errors = [];
+        $method = strtolower(trim((string)($post['method'] ?? '')));
+
+        if ($method === 'gcash') {
+            $phone = preg_replace('/\D+/', '', (string)($post['gcash_phone'] ?? ''));
+            if (!preg_match('/^09\d{9}$/', (string)$phone)) {
+                $errors['gcash_phone'] = 'Enter a valid GCash mobile number (09XXXXXXXXX).';
+            }
+        } elseif ($method === 'maya') {
+            $phone = preg_replace('/\D+/', '', (string)($post['maya_phone'] ?? ''));
+            if (!preg_match('/^09\d{9}$/', (string)$phone)) {
+                $errors['maya_phone'] = 'Enter a valid Maya mobile number (09XXXXXXXXX).';
+            }
+        } elseif ($method === 'card') {
+            $num = preg_replace('/[\s-]+/', '', (string)($post['card_number'] ?? ''));
+            if (!preg_match('/^\d{16}$/', (string)$num)) {
+                $errors['card_number'] = 'Card number must be 16 digits.';
+            }
+            if (trim((string)($post['card_name'] ?? '')) === '') {
+                $errors['card_name'] = 'Name on card is required.';
+            }
+            $exp = trim((string)($post['card_expiry'] ?? ''));
+            if (!preg_match('/^(0[1-9]|1[0-2])\/\d{2}$/', $exp)) {
+                $errors['card_expiry'] = 'Use MM/YY format.';
+            }
+            $cvv = trim((string)($post['card_cvv'] ?? ''));
+            if (!preg_match('/^\d{3,4}$/', (string)$cvv)) {
+                $errors['card_cvv'] = 'CVV must be 3-4 digits.';
+            }
+        }
+
+        return $errors;
+    }
+
+    /** Read + normalize all incoming params (GET for choose, POST for review/confirm). */
+    private function bookingParams(Request $request): array
+    {
+        $in = $request->isMethod('POST') ? $request->request->all() : $request->query->all();
+
+        return [
+            'listing_id'  => (int)($in['listing_id'] ?? 0),
+            'pay_balance' => (int)($in['pay_balance'] ?? 0),
+            'method'      => strtolower(trim((string)($in['method'] ?? ''))),
+            'view'        => [
+                'checkin'  => $this->validDate((string)($in['checkin'] ?? '')) ?? '',
+                'checkout' => $this->validDate((string)($in['checkout'] ?? '')) ?? '',
+                'guests'   => max(1, min(20, (int)($in['guests'] ?? 1))),
+                'pay_full' => !empty($in['pay_full']),
+            ],
+            'gcash_phone' => trim((string)($in['gcash_phone'] ?? '')),
+            'maya_phone'  => trim((string)($in['maya_phone'] ?? '')),
+            'card_name'   => trim((string)($in['card_name'] ?? '')),
+            'card_number' => preg_replace('/[\s-]+/', '', (string)($in['card_number'] ?? '')),
+            'card_expiry' => trim((string)($in['card_expiry'] ?? '')),
+            'card_cvv'    => trim((string)($in['card_cvv'] ?? '')),
+        ];
+    }
+
+    /**
+     * Pricing: monthly price × months (30-day months). 50% RESERVE
+     * REMOVED — due_now is always the full total. Owner flow = listing fee.
+     */
+    private function pricing(array $listing, array $view, bool $isOwner): array
+    {
+        if ($isOwner) {
+            return [
+                'months'   => 0,
+                'days'     => 0,
+                'total'    => self::LISTING_FEE,
+                'reserve'  => self::LISTING_FEE,
+                'due_now'  => self::LISTING_FEE,
+                'pay_full' => true,
+            ];
+        }
+
+        $checkin  = (string)($view['checkin'] ?? '');
+        $checkout = (string)($view['checkout'] ?? '');
+        $days     = 1;
+        if ($checkin !== '' && $checkout !== '' && $checkout > $checkin) {
+            $days = max(1, (int)ceil((strtotime($checkout) - strtotime($checkin)) / 86400));
+        }
+        $months  = max(1, (int)ceil($days / 30));
+        $total   = round(((float)($listing['price'] ?? 0)) * $months, 2);
+
+        return [
+            'months'   => $months,
+            'days'     => $days,
+            'total'    => $total,
+            'reserve'  => $total,
+            'due_now'  => $total,
+            'pay_full' => true,
+        ];
+    }
+
+    /** Strict Y-m-d validation; returns the normalized date or null. */
+    private function validDate(?string $s): ?string
+    {
+        $s = trim((string)$s);
+        if ($s === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $s)) {
+            return null;
+        }
+        [$y, $m, $d] = array_map('intval', explode('-', $s));
+        if (!checkdate($m, $d, $y)) {
+            return null;
+        }
+        return $s;
+    }
+
+    /** Legacy is_user_verified(): at least one 'verified' (or
+        legacy 'approved') row in user_id_documents - the same
+        rule ProfileController uses for the Verified badge on the
+        profile page. try/catch: a missing table = unverified. */
+    private function isUserVerified(int $userId): bool
+    {
+        try {
+            return (int) $this->db->fetchOne(
+                "SELECT COUNT(*) FROM user_id_documents
+                  WHERE user_id = :u AND status IN ('verified', 'approved')",
+                ['u' => $userId]
+            ) > 0;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /** Cover photo for a listing, with a safe placeholder fallback. */
+    private function photoUrl(?int $listingId): string
+    {
+        if ($listingId && $listingId > 0) {
+            $p = $this->db->fetchOne(
+                "SELECT photo_path FROM listing_photos
+                  WHERE listing_id = :id AND photo_type = 'cover'
+                  ORDER BY id ASC LIMIT 1",
+                ['id' => $listingId]
+            );
+            if ($p) {
+                $path = (string)$p;
+                if (preg_match('#^https?://#i', $path)) {
+                    return $path;
+                }
+                return '/' . ltrim($path, '/');
+            }
+        }
+        return '/assets/img/room-placeholder.jpg';
+    }
+
+    private function walletBalance(int $userId): float
+    {
+        $v = $this->db->fetchOne('SELECT wallet_balance FROM users WHERE id = :id', ['id' => $userId]);
+        return $v === false ? 0.0 : (float)$v;
+    }
+
+    /**
+     * Atomic wallet charge. MUST be called inside an open transaction.
+     * Returns the new balance, or null when funds are insufficient.
+     */
+    private function walletCharge(int $userId, float $amount, string $reference): ?float
+    {
+        $amount = round($amount, 2);
+        if ($amount <= 0) {
+            return null;
+        }
+
+        $updated = $this->db->executeStatement(
+            'UPDATE users SET wallet_balance = wallet_balance - :amt
+              WHERE id = :id AND wallet_balance >= :amt',
+            ['amt' => $amount, 'id' => $userId]
+        );
+        if ($updated === 0) {
+            return null;
+        }
+
+        $balance = (float)$this->db->fetchOne('SELECT wallet_balance FROM users WHERE id = :id', ['id' => $userId]);
+
+        $this->db->insert('wallet_transactions', [
+            'user_id'       => $userId,
+            'type'          => 'spend',
+            'amount'        => $amount,
+            'balance_after' => $balance,
+            'reference'     => $reference,
+            'created_at'    => date('Y-m-d H:i:s'),
+        ]);
+
+        return $balance;
+    }
+
+    /** Wallet ledger reference, e.g. WH260126-3FA9. */
+    private function walletRef(): string
+    {
+        return 'WH' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(2)));
+    }
+
+    /** Query string that preserves the chosen dates for links back to the chooser. */
+    private function chooseQuery(array $view): string
+    {
+        $parts = [];
+        if (!empty($view['checkin'])) {
+            $parts[] = 'checkin=' . urlencode((string)$view['checkin']);
+        }
+        if (!empty($view['checkout'])) {
+            $parts[] = 'checkout=' . urlencode((string)$view['checkout']);
+        }
+        if (!empty($view['guests'])) {
+            $parts[] = 'guests=' . (int)$view['guests'];
+        }
+        return $parts ? '?' . implode('&', $parts) : '';
+    }
+
+    private function ensureCsrfToken(SessionInterface $session, string $key): string
+    {
+        $tokens = $session->get('_rh_csrf_tokens', []);
+        if (!isset($tokens[$key])) {
+            $tokens[$key] = bin2hex(random_bytes(16));
+            $session->set('_rh_csrf_tokens', $tokens);
+        }
+        return (string)$tokens[$key];
+    }
+
+    private function csrfValid(SessionInterface $session, string $key, ?string $token): bool
+    {
+        $tokens = $session->get('_rh_csrf_tokens', []);
+        return isset($tokens[$key]) && is_string($token) && hash_equals((string)$tokens[$key], $token);
+    }
+
+    /** Accepts both csrf_token and _token form field names. */
+    private function postedToken(Request $request): ?string
+    {
+        $t = $request->request->get('csrf_token');
+        if (!is_string($t) || $t === '') {
+            $t = $request->request->get('_token');
+        }
+        return is_string($t) ? $t : null;
+    }
+
+    private function methodLabel(string $method): string
+    {
+        return match ($method) {
+            'wallet' => 'RoomHive Wallet',
+            'gcash'  => 'GCash',
+            'maya'   => 'Maya',
+            'card'   => 'Credit / Debit Card',
+            default  => ucfirst($method),
+        };
+    }
+
+    private function fetchUser(int $userId): array
+    {
+        $u = $this->db->fetchAssociative(
+            'SELECT id, name, email, avatar_path, wallet_balance FROM users WHERE id = :id',
+            ['id' => $userId]
+        );
+        if (!$u) {
+            return ['id' => 0, 'name' => 'Guest', 'email' => '', 'avatar_path' => '', 'wallet_balance' => 0];
+        }
+        $u['id'] = (int)$u['id'];
+        return $u;
+    }
+
+    private function notifCount(int $userId): int
+    {
+        try {
+            return (int)$this->db->fetchOne(
+                'SELECT COUNT(*) FROM notifications WHERE user_id = :id AND is_read = 0',
+                ['id' => $userId]
+            );
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
+    /* =====================================================================
+     *  PHOTO PATH RESOLVER — same mapping every other ported controller
+     *  uses (HostPublicProfileController / ListingsController style):
+     *  http(s) stays as-is, legacy 'webprogg/' prefixes are stripped and
+     *  bare filenames land under public/uploads/listing_photos/.
+     *  Legacy resolve_photo() echoed '/webprogg/'-prefixed paths verbatim;
+     *  here those prefixes are remapped onto public/, not echoed.
+     * ================================================================= */
+
+    private function resolvePhoto(string $path, string $fallback = '/images/ListingPlaceholder.png'): string
+    {
+        $path = trim($path);
+
+        if ($path === '') {
+            return $fallback;
+        }
+        if (preg_match('#^https?://#i', $path)) {
+            return $path; /* external URL — works as-is */
+        }
+
+        $path = str_replace('\\', '/', $path);
+        $path = ltrim($path, '/');
+
+        /* Strip legacy project prefixes — the files now live
+           directly under public/uploads/ */
+        if (stripos($path, 'webprogg/') === 0) {
+            $path = substr($path, strlen('webprogg/'));
+        }
+        if (stripos($path, 'host/') === 0) {
+            $path = substr($path, strlen('host/'));
+        }
+
+        /* Whatever remains is either uploads/... or a bare filename */
+        if (stripos($path, 'uploads/') === 0) {
+            return '/' . $path;
+        }
+        if (stripos($path, 'cover_') === 0) {
+            return '/uploads/listing_photos/cover/' . basename($path);
+        }
+
+        return '/uploads/listing_photos/' . $path;
+    }
+}

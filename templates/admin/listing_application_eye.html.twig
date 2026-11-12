@@ -1,0 +1,417 @@
+{# roomhive/admin/listing_application_eye.html.twig
+   Admin › Listing Application Eye — full-detail viewer.
+   Extends admin/base.html.twig.
+
+   Shows everything the host filled in across the listing wizard
+   (Step 2 "Add Your Space" + Step 3 "Upload Photos") with the
+   actual images shown inline. Includes approve/reject forms when
+   the listing is still pending; otherwise shows a "this listing
+   has already been [status]" note.
+#}
+{% extends 'admin/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'Listings Application' %}
+{% set page_title = listing.title ~ ' — RoomHive Admin' %}
+{% set page_heading = listing.title %}
+{% set page_subheading = 'Everything the host filled in on "Add Your Space" and "Upload Photos".' %}
+
+{% block page_heading_extra %}
+    <span class="badge {{ badge_class_map[status_label] ?? '' }}">{{ status_label }}</span>
+{% endblock %}
+
+{% block styles %}
+<style>
+    /* ---- Back link ---- */
+    .eye-back-link {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 13px; font-weight: 600;
+        color: #8B93A6; text-decoration: none;
+        margin-bottom: 14px;
+    }
+    .eye-back-link:hover { color: #d99218; }
+    .eye-back-link .icon { width: 15px; height: 15px; }
+
+    /* ---- Page heading (override base's plain H1 to add status badge inline) ---- */
+    .page-heading h1 {
+        display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .badge {
+        font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 999px;
+        display: inline-block;
+    }
+
+    /* ---- Two-pane layout (details + photos) ---- */
+    .eye-layout {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        align-items: start;
+        max-width: 1200px;
+    }
+    @media (max-width: 1100px) {
+        .eye-layout { grid-template-columns: 1fr; }
+    }
+
+    .eye-panel {
+        background: #fff;
+        border: 1px solid #EEF1F6;
+        border-radius: 14px;
+        padding: 22px;
+    }
+    .eye-panel h3 {
+        margin: 0 0 14px;
+        font-size: 15px; font-weight: 700; color: #14142B;
+        display: flex; align-items: center; gap: 8px;
+    }
+    .eye-panel h3 .icon { width: 16px; height: 16px; }
+
+    /* ---- Host header ---- */
+    .eye-applicant-header {
+        display: flex; align-items: center; gap: 14px;
+        margin-bottom: 18px;
+    }
+    .eye-avatar {
+        width: 52px; height: 52px; border-radius: 50%;
+        background: #EDA423; color: #fff;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 700; font-size: 18px; flex-shrink: 0;
+    }
+    .eye-applicant-name {
+        font-size: 17px; font-weight: 700; color: #14142B;
+        margin: 0 0 4px;
+    }
+
+    /* ---- Info grid (Step 2 fields) ---- */
+    .eye-info-grid {
+        display: grid; grid-template-columns: 1fr 1fr 1fr;
+        gap: 14px 18px; margin-top: 4px;
+    }
+    @media (max-width: 700px) {
+        .eye-info-grid { grid-template-columns: 1fr 1fr; }
+    }
+    .eye-info-item .info-label {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 11px; color: #8B93A6; font-weight: 600;
+    }
+    .eye-info-item .info-label .icon { width: 13px; height: 13px; }
+    .eye-info-item .info-value {
+        display: block; font-size: 13px; color: #14142B; font-weight: 600;
+        margin-top: 2px;
+    }
+    .eye-info-item.full-width { grid-column: 1 / -1; }
+
+    /* ---- Detail sections ---- */
+    .eye-detail-section {
+        margin-top: 18px; padding-top: 16px;
+        border-top: 1px solid #EEF1F6;
+    }
+    .eye-detail-section h4 {
+        margin: 0 0 8px;
+        font-size: 13px; font-weight: 700; color: #14142B;
+    }
+    .eye-detail-text {
+        font-size: 13.5px; line-height: 1.6; color: #5B6172;
+        white-space: pre-line; margin: 0;
+    }
+
+    .amenity-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+    .amenity-tag {
+        background: #FFF4E0; color: #C77A00;
+        font-size: 12.5px; font-weight: 600;
+        padding: 6px 12px; border-radius: 999px;
+    }
+
+    /* ---- Photo gallery ---- */
+    .eye-cover-wrap {
+        position: relative;
+        border: 1px solid #EEF1F6;
+        border-radius: 10px;
+        overflow: hidden;
+        background: #FFF4E0;
+        margin-bottom: 18px;
+    }
+    .eye-cover-photo {
+        width: 100%; max-height: 380px; object-fit: cover; display: block;
+        background: #fff;
+    }
+    .eye-cover-label {
+        position: absolute; top: 10px; left: 10px;
+        background: rgba(15,15,20,.65); color: #fff;
+        font-size: 12px; font-weight: 600;
+        padding: 5px 10px; border-radius: 999px;
+    }
+    .eye-photo-expand, .eye-cover-expand {
+        position: absolute; top: 10px; right: 10px;
+        background: rgba(15,15,20,.65); color: #fff;
+        border-radius: 999px; padding: 6px 10px;
+        font-size: 12px; font-weight: 600;
+        display: flex; align-items: center; gap: 5px;
+        text-decoration: none;
+    }
+    .eye-photo-expand:hover, .eye-cover-expand:hover { background: rgba(15,15,20,.85); }
+    .eye-photo-expand .icon, .eye-cover-expand .icon { width: 12px; height: 12px; }
+
+    .eye-photo-missing {
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        gap: 8px; padding: 60px 12px;
+        color: #8B93A6; font-size: 13px;
+    }
+    .eye-photo-missing .icon { width: 26px; height: 26px; }
+
+    .eye-photo-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 12px;
+    }
+    .eye-photo-thumb {
+        position: relative;
+        border: 1px solid #EEF1F6;
+        border-radius: 10px;
+        overflow: hidden;
+        aspect-ratio: 1 / 1;
+        background: #FFF4E0;
+        display: block;
+    }
+    .eye-photo-thumb img {
+        width: 100%; height: 100%; object-fit: cover; display: block;
+    }
+    .eye-photo-count {
+        font-size: 12.5px; font-weight: 600; color: #8B93A6;
+        margin-bottom: 12px;
+    }
+
+    .eye-submitted-row {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-top: 16px; padding-top: 14px;
+        border-top: 1px solid #EEF1F6;
+        font-size: 13px;
+    }
+
+    .detail-actions { display: flex; gap: 10px; margin-top: 18px; }
+    .detail-actions form { flex: 1; margin: 0; }
+    .btn-approve, .btn-reject {
+        width: 100%;
+        border: none; padding: 10px;
+        border-radius: 9px;
+        font-size: 13px; font-weight: 700; cursor: pointer;
+        font-family: inherit;
+    }
+    .btn-approve { background: #2FA84F; color: #fff; }
+    .btn-approve:hover { background: #289043; }
+    .btn-reject { background: #fff; color: #E14B4B; border: 1px solid #E14B4B; }
+    .btn-reject:hover { background: #FCEAEA; }
+
+    .detail-note {
+        display: flex; align-items: flex-start; gap: 6px;
+        font-size: 12.5px; color: #8B93A6; margin-top: 10px;
+        line-height: 1.5;
+    }
+    .detail-note .icon { width: 13px; height: 13px; flex-shrink: 0; margin-top: 1px; }
+
+    /* ---- Flash banner ---- */
+    .flash-banner {
+        display: flex; align-items: center; gap: 10px;
+        padding: 12px 16px; border-radius: 10px;
+        font-size: 13px; font-weight: 500; margin-bottom: 16px;
+    }
+    .flash-banner.success { background: #E7F7EC; color: #2FA84F; }
+    .flash-banner.error { background: #FCEAEA; color: #E14B4B; }
+    .flash-banner .icon { width: 18px; height: 18px; flex-shrink: 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% if flash %}
+    <div class="flash-banner {{ flash.type }}">
+        {{ ui.icon(flash.type == 'success' ? 'check-circle' : 'alert-triangle') }}
+        <span>{{ flash.text }}</span>
+    </div>
+{% endif %}
+
+<a href="{{ path('app_admin_listing_applications') }}?{{ {filter: filter, page: page, id: listing.id}|url_encode }}"
+   class="eye-back-link">
+    {{ ui.icon('arrow-left') }} Back to Listings Application
+</a>
+
+{# Status badge rendered inline in the H1 — base template prints
+   the H1 via page_heading block, so we override it here to append
+   the badge. #}
+
+<div class="eye-layout">
+    {# ============ HOST + PROPERTY DETAILS (Step 2) ============ #}
+    <div class="eye-panel">
+        <div class="eye-applicant-header">
+            <div class="eye-avatar">{{ listing.host_name|slice(0, 1)|upper }}</div>
+            <div>
+                <p class="eye-applicant-name">Hosted by {{ listing.host_name }}</p>
+            </div>
+        </div>
+
+        <div class="eye-info-grid">
+            <div class="eye-info-item">
+                <span class="info-label">{{ ui.icon('mail') }} Host Email</span>
+                <span class="info-value">{{ listing.host_email }}</span>
+            </div>
+            <div class="eye-info-item">
+                <span class="info-label">{{ ui.icon('phone') }} Host Phone</span>
+                <span class="info-value">{{ listing.host_phone is not empty ? listing.host_phone : '—' }}</span>
+            </div>
+            <div class="eye-info-item">
+                <span class="info-label">Category</span>
+                <span class="info-value">{{ listing.category|replace({'-': ' '})|title }}</span>
+            </div>
+
+            <div class="eye-info-item">
+                <span class="info-label">Property Type</span>
+                <span class="info-value">{{ listing.property_type|replace({'-': ' '})|title }}</span>
+            </div>
+            <div class="eye-info-item">
+                <span class="info-label">Price</span>
+                <span class="info-value">₱{{ listing.price|number_format(2) }} / month</span>
+            </div>
+            <div class="eye-info-item">
+                <span class="info-label">Capacity</span>
+                <span class="info-value">{{ listing.capacity }} Guest(s)</span>
+            </div>
+
+            <div class="eye-info-item">
+                <span class="info-label">Bedrooms</span>
+                <span class="info-value">{{ listing.bedrooms }}</span>
+            </div>
+            <div class="eye-info-item">
+                <span class="info-label">Bathrooms</span>
+                <span class="info-value">{{ listing.bathrooms }}</span>
+            </div>
+            <div class="eye-info-item">
+                <span class="info-label">Size</span>
+                <span class="info-value">{{ listing.size_sqm }} sqm</span>
+            </div>
+
+            <div class="eye-info-item">
+                <span class="info-label">Floor</span>
+                <span class="info-value">{{ listing.floor }}</span>
+            </div>
+            <div class="eye-info-item">
+                <span class="info-label">Parking</span>
+                <span class="info-value">{{ listing.parking }}</span>
+            </div>
+            <div class="eye-info-item">
+                <span class="info-label">{{ ui.icon('pin') }} City / Location</span>
+                <span class="info-value">{{ listing.location }}</span>
+            </div>
+
+            <div class="eye-info-item full-width">
+                <span class="info-label">{{ ui.icon('pin') }} Exact Address</span>
+                <span class="info-value">{{ listing.exact_address }}</span>
+            </div>
+        </div>
+
+        <div class="eye-detail-section">
+            <h4>Amenities</h4>
+            <div class="amenity-tags">
+                {% if selected_amenities is empty %}
+                    <span class="amenity-tag">None listed</span>
+                {% else %}
+                    {% for key in selected_amenities %}
+                        <span class="amenity-tag">{{ amenity_labels[key] ?? key|replace({'-': ' '})|title }}</span>
+                    {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="eye-detail-section">
+            <h4>Description</h4>
+            <p class="eye-detail-text">{{ listing.description }}</p>
+        </div>
+
+        <div class="eye-detail-section">
+            <h4>House Rules</h4>
+            <p class="eye-detail-text">{{ listing.house_rules is not empty ? listing.house_rules : 'No house rules added.' }}</p>
+        </div>
+
+        <div class="eye-submitted-row">
+            <span class="info-label">{{ ui.icon('calendar-small') }} Submitted on</span>
+            <span class="info-value">{{ listing.created_at|date('M j, Y g:i A') }}</span>
+        </div>
+
+        {% if listing.status == 'pending' %}
+            <div class="detail-actions">
+                <form method="post" action="{{ path('app_admin_listing_application_eye', {id: listing.id, filter: filter, page: page}) }}">
+                    <input type="hidden" name="csrf_token" value="{{ admin_csrf }}">
+                    <input type="hidden" name="id" value="{{ listing.id }}">
+                    <input type="hidden" name="action" value="reject">
+                    <button type="submit" class="btn-reject"
+                        onclick="return confirm('Reject the listing \'{{ listing.title|e('js') }}\'? The host will be notified.')">
+                        Reject Listing
+                    </button>
+                </form>
+                <form method="post" action="{{ path('app_admin_listing_application_eye', {id: listing.id, filter: filter, page: page}) }}">
+                    <input type="hidden" name="csrf_token" value="{{ admin_csrf }}">
+                    <input type="hidden" name="id" value="{{ listing.id }}">
+                    <input type="hidden" name="action" value="approve">
+                    <button type="submit" class="btn-approve"
+                        onclick="return confirm('Approve the listing \'{{ listing.title|e('js') }}\'? The host will be notified.')">
+                        Approve Listing
+                    </button>
+                </form>
+            </div>
+            <div class="detail-note">
+                {{ ui.icon('lock') }}
+                <span>Approving publishes this listing on RoomHive. The host will be notified of your decision.</span>
+            </div>
+        {% else %}
+            <div class="detail-note">
+                {{ ui.icon('lock') }}
+                <span>This listing has already been {{ status_label|lower }}.</span>
+            </div>
+        {% endif %}
+    </div>
+
+    {# ============ PHOTOS (Step 3) ============ #}
+    <div class="eye-panel">
+        <h3>{{ ui.icon('image') }} Uploaded Photos</h3>
+
+        {% if cover_photo %}
+            <div class="eye-cover-wrap">
+                <span class="eye-cover-label">Cover Photo</span>
+                <img class="eye-cover-photo" src="{{ cover_photo }}" alt="Cover photo for {{ listing.title }}"
+                     onerror="this.style.display='none'; this.parentElement.querySelector('.eye-photo-missing').style.display='flex';">
+                <a class="eye-cover-expand" href="{{ cover_photo }}" target="_blank" rel="noopener">
+                    {{ ui.icon('expand') }} Full Size
+                </a>
+            </div>
+            <div class="eye-photo-missing" style="display:none;">
+                {{ ui.icon('file') }}
+                <span>Cover photo file unavailable</span>
+            </div>
+        {% else %}
+            <div class="eye-cover-wrap">
+                <div class="eye-photo-missing">
+                    {{ ui.icon('file') }}
+                    <span>No cover photo on record</span>
+                </div>
+            </div>
+        {% endif %}
+
+        <p class="eye-photo-count">{{ additional_photos|length }} additional photo{{ additional_photos|length == 1 ? '' : 's' }}</p>
+
+        {% if additional_photos is not empty %}
+            <div class="eye-photo-grid">
+                {% for photo_path in additional_photos %}
+                    <a class="eye-photo-thumb" href="{{ photo_path }}" target="_blank" rel="noopener">
+                        <img src="{{ photo_path }}" alt="Photo {{ loop.index }} for {{ listing.title }}"
+                             onerror="this.style.display='none';">
+                    </a>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="eye-photo-missing">
+                {{ ui.icon('image') }}
+                <span>No additional photos uploaded</span>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

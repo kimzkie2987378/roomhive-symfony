@@ -1,0 +1,1151 @@
+{# roomhive/admin/users.html.twig
+   Admin › Users — extends admin/base.html.twig.
+
+   Inherits: sidebar (with Users highlighted via active_nav),
+   topbar (search + bell + admin chip + mobile sidebar toggle),
+   nav-alignment JS.
+
+   Provides: page-specific CSS (users table, filters, detail modal,
+   delete confirm modal), the content (toolbar + table OR empty
+   state + detail modal if ?user=ID), and the page-specific JS
+   (delete confirmation modal + detail modal close handlers).
+#}
+{% extends 'admin/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'Users' %}
+{% set page_heading = 'Users' %}
+{% set page_subheading = 'Every registered account on the platform. Click a user to see their full details; deleting is permanent and cascades.' %}
+
+{% block styles %}
+    <style>
+        /* ---------- Users page specifics ---------- */
+        .users-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+        .users-filters {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .users-search-box {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #f6f7fb;
+            border: 1px solid #eef1f6;
+            border-radius: 10px;
+            padding: 8px 12px;
+            min-width: 240px;
+        }
+        .users-search-box .icon {
+            width: 16px;
+            height: 16px;
+            color: #8b93a6;
+            flex-shrink: 0;
+        }
+        .users-search-box input {
+            border: none;
+            background: transparent;
+            outline: none;
+            font-size: 13px;
+            width: 100%;
+            font-family: inherit;
+        }
+        .role-tabs {
+            display: flex;
+            gap: 6px;
+            background: #f6f7fb;
+            border-radius: 10px;
+            padding: 4px;
+        }
+        .role-tab {
+            border: none;
+            background: transparent;
+            padding: 7px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #8b93a6;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .role-tab.active {
+            background: #fff;
+            color: #14142b;
+            box-shadow: 0 1px 4px rgba(20, 20, 43, 0.1);
+        }
+
+        .users-count-pill {
+            font-size: 12px;
+            font-weight: 600;
+            color: #8b93a6;
+            background: #f6f7fb;
+            border-radius: 999px;
+            padding: 6px 12px;
+        }
+
+        .users-table-wrap {
+            overflow-x: auto;
+        }
+        table.users-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        table.users-table th {
+            text-align: left;
+            color: #8b93a6;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            padding: 10px 12px;
+            border-bottom: 1px solid #eef1f6;
+            white-space: nowrap;
+        }
+        table.users-table td {
+            padding: 12px;
+            border-bottom: 1px solid #f6f7fb;
+            vertical-align: middle;
+        }
+        table.users-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        a.user-cell-link {
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+        a.user-cell-link:hover .user-name {
+            color: #2f7de1;
+        }
+        .user-cell {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 200px;
+        }
+        .user-cell img,
+        .user-cell .avatar-fallback {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+        .avatar-fallback {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #eda423;
+            color: #fff;
+            font-weight: 700;
+            font-size: 14px;
+        }
+        .user-name {
+            font-weight: 600;
+            color: #14142b;
+            display: block;
+            transition: color 0.15s ease;
+        }
+        .user-loc {
+            font-size: 12px;
+            color: #8b93a6;
+        }
+        .view-details-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid #eef1f6;
+            background: #f6f7fb;
+            color: #14142b;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 7px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .view-details-btn:hover {
+            border-color: #2f7de1;
+            color: #2f7de1;
+            background: #eaf2fe;
+        }
+        .view-details-btn .icon {
+            width: 14px;
+            height: 14px;
+        }
+
+        .role-pill {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 9px;
+            border-radius: 999px;
+            display: inline-block;
+        }
+        .role-pill.host {
+            background: #eaf2fe;
+            color: #2f7de1;
+        }
+        .role-pill.guest {
+            background: #f6f7fb;
+            color: #8b93a6;
+        }
+
+        .stat-inline {
+            color: #14142b;
+            font-weight: 600;
+        }
+        .stat-inline-sub {
+            color: #8b93a6;
+            font-size: 12px;
+        }
+
+        .btn-delete-user {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: none;
+            background: #fceaea;
+            color: #e14b4b;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 7px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .btn-delete-user:hover {
+            background: #e14b4b;
+            color: #fff;
+        }
+        .btn-delete-user .icon {
+            width: 14px;
+            height: 14px;
+        }
+
+        .flash-banner {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 16px;
+        }
+        .flash-banner.success {
+            background: #e7f7ec;
+            color: #2fa84f;
+        }
+        .flash-banner.error {
+            background: #fceaea;
+            color: #e14b4b;
+        }
+        .flash-banner .icon {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(20, 20, 43, 0.45);
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            padding: 16px;
+        }
+        .modal-overlay.open {
+            display: flex;
+        }
+        .modal-card {
+            background: #fff;
+            border-radius: 14px;
+            max-width: 380px;
+            width: 100%;
+            padding: 22px;
+            box-shadow: 0 20px 50px rgba(20, 20, 43, 0.25);
+        }
+        .modal-icon-wrap {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: #fceaea;
+            color: #e14b4b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 14px;
+        }
+        .modal-icon-wrap .icon {
+            width: 22px;
+            height: 22px;
+        }
+        .modal-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #14142b;
+            margin: 0 0 8px;
+        }
+        .modal-text {
+            font-size: 13px;
+            color: #5b6172;
+            line-height: 1.5;
+            margin: 0 0 20px;
+        }
+        .modal-text strong {
+            color: #14142b;
+        }
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        .modal-btn {
+            border: none;
+            border-radius: 9px;
+            padding: 9px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .modal-btn-cancel {
+            background: #f6f7fb;
+            color: #14142b;
+            display: inline-flex;
+            align-items: center;
+        }
+        .modal-btn-cancel:hover {
+            background: #eef1f6;
+        }
+        .modal-btn-confirm {
+            background: #e14b4b;
+            color: #fff;
+        }
+        .modal-btn-confirm:hover {
+            background: #c93f3f;
+        }
+
+        /* =====================================================
+                                                               USER DETAIL MODAL
+                                                            ====================================================== */
+        .detail-modal-card {
+            background: #fff;
+            border-radius: 16px;
+            max-width: 640px;
+            width: 100%;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            box-shadow: 0 20px 50px rgba(20, 20, 43, 0.25);
+        }
+        .dm-close {
+            position: sticky;
+            top: 0;
+            float: right;
+            margin: 14px 14px 0 0;
+            width: 34px;
+            height: 34px;
+            border: none;
+            border-radius: 50%;
+            background: #f6f7fb;
+            color: #5b6172;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2;
+        }
+        .dm-close:hover {
+            background: #fceaea;
+            color: #e14b4b;
+        }
+        .dm-close .icon {
+            width: 16px;
+            height: 16px;
+        }
+
+        .dm-head {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 20px 22px 16px;
+            border-bottom: 1px solid #f6f7fb;
+        }
+        .dm-head img,
+        .dm-head .avatar-fallback {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+        .dm-head-info h2 {
+            margin: 0;
+            font-size: 17px;
+            color: #14142b;
+        }
+        .dm-head-info p {
+            margin: 3px 0 0;
+            font-size: 12.5px;
+            color: #8b93a6;
+        }
+
+        .dm-section {
+            padding: 16px 22px;
+            border-bottom: 1px solid #f6f7fb;
+        }
+        .dm-section:last-child {
+            border-bottom: none;
+        }
+        .dm-section h4 {
+            margin: 0 0 10px;
+            font-size: 11.5px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #8b93a6;
+        }
+        .dm-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 16px;
+        }
+        .dm-field span {
+            display: block;
+            font-size: 11px;
+            color: #8b93a6;
+        }
+        .dm-field strong {
+            display: block;
+            font-size: 13px;
+            color: #14142b;
+            font-weight: 600;
+        }
+        .dm-field a {
+            color: #2f7de1;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .dm-field a:hover {
+            text-decoration: underline;
+        }
+
+        /* Verification breakdown */
+        .dm-verbreak {
+            display: grid;
+            gap: 6px;
+            margin-top: 10px;
+        }
+        .dm-verbreak-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12.5px;
+            color: #14142b;
+            font-weight: 600;
+        }
+        .dm-vercheck {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            flex-shrink: 0;
+            font-weight: 800;
+        }
+        .dm-vercheck.yes {
+            background: #e7f7ec;
+            color: #2fa84f;
+        }
+        .dm-vercheck.no {
+            background: #fff4e0;
+            color: #c77a00;
+        }
+
+        .dm-verify {
+            padding: 12px 14px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .dm-verify.ok {
+            background: #e7f7ec;
+            color: #2fa84f;
+        }
+        .dm-verify.no {
+            background: #fff4e0;
+            color: #c77a00;
+        }
+
+        /* Personal photo display in the modal */
+        .pp-photo-link {
+            display: block;
+        }
+        .pp-photo-img {
+            width: 100%;
+            max-width: 420px;
+            height: 200px;
+            object-fit: cover;
+            object-position: center;
+            border-radius: 10px;
+            border: 1px solid #eef1f6;
+            display: block;
+            transition:
+                transform 0.25s ease,
+                box-shadow 0.25s ease;
+        }
+        .pp-photo-link:hover .pp-photo-img {
+            transform: scale(1.02);
+            box-shadow: 0 10px 24px rgba(20, 20, 43, 0.15);
+        }
+        .pp-photo-unavailable {
+            display: none;
+        }
+
+        .dm-counts {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        .dm-count-box {
+            background: #f6f7fb;
+            border-radius: 10px;
+            padding: 10px;
+            text-align: center;
+        }
+        .dm-count-box strong {
+            display: block;
+            font-size: 17px;
+            color: #14142b;
+        }
+        .dm-count-box span {
+            display: block;
+            font-size: 10.5px;
+            color: #8b93a6;
+            margin-top: 2px;
+        }
+
+        .dm-doc {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border: 1px solid #eef1f6;
+            border-radius: 10px;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+        }
+        .dm-doc img,
+        .dm-doc .doc-fallback {
+            width: 42px;
+            height: 42px;
+            border-radius: 8px;
+            object-fit: cover;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            background: #f0eee6;
+        }
+        .dm-doc-body {
+            flex: 1;
+            min-width: 0;
+        }
+        .dm-doc-body strong {
+            display: block;
+            font-size: 12.5px;
+            color: #14142b;
+        }
+        .dm-doc-body span {
+            display: block;
+            font-size: 11px;
+            color: #8b93a6;
+        }
+
+        .dm-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid #f6f7fb;
+            font-size: 12.5px;
+        }
+        .dm-item:last-child {
+            border-bottom: none;
+        }
+        .dm-item img {
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            object-fit: cover;
+            flex-shrink: 0;
+            background: #f0eee6;
+        }
+        .dm-item-body {
+            flex: 1;
+            min-width: 0;
+        }
+        .dm-item-body strong {
+            display: block;
+            color: #14142b;
+            font-weight: 600;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .dm-item-body span {
+            display: block;
+            font-size: 11px;
+            color: #8b93a6;
+        }
+        .dm-item-side {
+            text-align: right;
+            flex-shrink: 0;
+        }
+        .dm-item-side strong {
+            display: block;
+            color: #14142b;
+        }
+        .dm-mini-pill {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 999px;
+            display: inline-block;
+        }
+        .dm-mini-pill.approved,
+        .dm-mini-pill.verified,
+        .dm-mini-pill.completed {
+            background: #e7f7ec;
+            color: #2fa84f;
+        }
+        .dm-mini-pill.pending {
+            background: #fff4e0;
+            color: #c77a00;
+        }
+        .dm-mini-pill.rejected,
+        .dm-mini-pill.cancelled,
+        .dm-mini-pill.failed {
+            background: #fceaea;
+            color: #e14b4b;
+        }
+        .dm-mini-pill.draft,
+        .dm-mini-pill.unlisted {
+            background: #f6f7fb;
+            color: #8b93a6;
+        }
+        .dm-mini-pill.confirmed,
+        .dm-mini-pill.processing {
+            background: #eaf2fe;
+            color: #2f7de1;
+        }
+        .dm-star {
+            color: #eda423;
+            font-weight: 700;
+        }
+        .dm-empty {
+            font-size: 12.5px;
+            color: #8b93a6;
+            font-style: italic;
+        }
+
+        .dm-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 22px 18px;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    {% if flash %}
+        <div class="flash-banner {{ flash.type }}">
+            {{ ui.icon(flash.type == 'success' ? 'check-circle' : 'alert-triangle') }}
+            <span>{{ flash.text }}</span>
+        </div>
+    {% endif %}
+
+    <div class="panel">
+        <div class="users-toolbar">
+            <form class="users-filters" method="get" action="{{ path('app_admin_users') }}">
+                <div class="users-search-box">
+                    {{ ui.icon('search') }}
+                    <input type="text" name="q" value="{{ search }}" placeholder="Search name, email, phone...">
+                </div>
+                {% if role != 'all' %}
+                    <input type="hidden" name="role" value="{{ role }}">
+                {% endif %}
+            </form>
+
+            <div class="role-tabs">
+                <a
+                    class="role-tab {{ role == 'all' ? 'active' : '' }}"
+                    href="{{ path('app_admin_users') }}?role=all{{ search != '' ? '&q=' ~ search|url_encode : '' }}"
+                >
+                    All ({{ total_users_count }})
+                </a>
+                <a
+                    class="role-tab {{ role == 'host' ? 'active' : '' }}"
+                    href="{{ path('app_admin_users') }}?role=host{{ search != '' ? '&q=' ~ search|url_encode : '' }}"
+                >
+                    Hosts ({{ total_hosts_count }})
+                </a>
+                <a
+                    class="role-tab {{ role == 'guest' ? 'active' : '' }}"
+                    href="{{ path('app_admin_users') }}?role=guest{{ search != '' ? '&q=' ~ search|url_encode : '' }}"
+                >
+                    Guests ({{ total_users_count - total_hosts_count }})
+                </a>
+            </div>
+
+            <span class="users-count-pill">{{ users|length }} shown</span>
+        </div>
+
+        {% if users is empty %}
+            {{ ui.empty_state(search != '' ? 'No users match your search.' : 'No registered users yet.') }}
+        {% else %}
+            <div class="users-table-wrap">
+                <table class="users-table">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Contact</th>
+                            <th>Role</th>
+                            <th>Bookings</th>
+                            <th>Listings</th>
+                            <th>Joined</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for u in users %}
+                            {% set detail_href = path('app_admin_users') ~ '?user=' ~ u.id
+                            ~ (search != '' ? '&q=' ~ search|url_encode : '')
+                            ~ (role != 'all' ? '&role=' ~ role : '') %}
+                            <tr>
+                                <td>
+                                    <a class="user-cell-link" href="{{ detail_href }}" title="View user details">
+                                        <div class="user-cell">
+                                            {% if u.avatar_path %}
+                                                <img src="{{ u.avatar_path }}" alt="{{ u.name }}">
+                                            {% else %}
+                                                <div class="avatar-fallback">{{ u.name|slice(0, 1)|upper }}</div>
+                                            {% endif %}
+                                            <div>
+                                                <span class="user-name">{{ u.name }}</span>
+                                                <span class="user-loc">{{ u.location ?: '—' }}</span>
+                                            </div>
+                                        </div>
+                                    </a>
+                                </td>
+                                <td>
+                                    <span class="user-name" style="font-weight:500;">{{ u.email }}</span><br>
+                                    <span class="user-loc">{{ u.phone ?: '—' }}</span>
+                                </td>
+                                <td>
+                                    <span class="role-pill {{ u.is_host ? 'host' : 'guest' }}">
+                                        {{ u.is_host ? 'Host' : 'Guest' }}
+                                    </span>
+                                </td>
+                                <td><span class="stat-inline">{{ u.booking_count }}</span></td>
+                                <td>
+                                    <span class="stat-inline">{{ u.listing_count }}</span>
+                                    {% if u.review_count > 0 %}
+                                        <div class="stat-inline-sub">{{ u.review_count }} reviews</div>
+                                    {% endif %}
+                                </td>
+                                <td>{{ u.created_at|date('M j, Y') }}</td>
+                                <td style="white-space:nowrap;">
+                                    <a class="view-details-btn" href="{{ detail_href }}" title="View details">
+                                        {{ ui.icon('eye') }} View
+                                    </a>
+                                    <button
+                                        type="button"
+                                        class="btn-delete-user js-delete-user"
+                                        data-user-id="{{ u.id }}"
+                                        data-user-name="{{ u.name|e('html_attr') }}"
+                                        data-listing-count="{{ u.listing_count }}"
+                                        data-booking-count="{{ u.booking_count }}"
+                                    >
+                                        {{ ui.icon('trash') }} Delete
+                                    </button>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+    </div>
+
+    {# ============ USER DETAIL MODAL (when ?user=ID) ============ #}
+    {% if detail_user %}
+        <div class="modal-overlay open" id="userDetailModal">
+            <div class="detail-modal-card">
+
+                <button type="button" class="dm-close js-close-detail" aria-label="Close">{{ ui.icon('x') }}</button>
+
+                {# ---- Header ---- #}
+                <div class="dm-head">
+                    {% if detail_user.avatar_path %}
+                        <img src="{{ detail_user.avatar_path }}" alt="">
+                    {% else %}
+                        <div class="avatar-fallback">{{ detail_user.name|slice(0, 1)|upper }}</div>
+                    {% endif %}
+                    <div class="dm-head-info">
+                        <h2>
+                            {{ detail_user.name }}
+                            <span class="role-pill {{ detail_user.is_host ? 'host' : 'guest' }}">
+                                {{ detail_user.is_host ? 'Host' : 'Guest' }}
+                            </span>
+                        </h2>
+                        <p>
+                            User #{{ detail_user.id }}
+                            &middot; joined {{ detail_user.created_at|date('M j, Y') }}
+                        </p>
+                    </div>
+                </div>
+
+                {# ---- Verification — ACCURATE BREAKDOWN ---- #}
+                <div class="dm-section">
+                    <h4>Verification</h4>
+
+                    <div class="dm-verify {{ detail_verified ? 'ok' : 'no' }}">
+                        <span>
+                            {{ detail_verified
+                        ? 'Verified — all requirements met.'
+                        : 'Not verified yet — see what\u2019s missing below.' }}
+                        </span>
+                    </div>
+
+                    <div class="dm-verbreak">
+                        <div class="dm-verbreak-row">
+                            <span class="dm-vercheck {{ ver_has_id ? 'yes' : 'no' }}">{{ ver_has_id ? '✓' : '!' }}</span>
+                            <span>
+                                Government ID:
+                                {% if ver_has_id %}
+                                    uploaded
+                                    {% if ver_id_status == 'verified' %}
+                                        <strong style="color:#2FA84F;">(verified)</strong>
+                                    {% elseif ver_id_status == 'pending' %}
+                                        <strong style="color:#C77A00;">(pending review)</strong>
+                                    {% else %}
+                                        ({{ ver_id_status|capitalize }})
+                                    {% endif %}
+                                {% else %}
+                                    <strong style="color:#C77A00;">not uploaded</strong>
+                                {% endif %}
+                            </span>
+                        </div>
+
+                        <div class="dm-verbreak-row">
+                            <span class="dm-vercheck {{ ver_missing is empty ? 'yes' : 'no' }}">{{ ver_missing is empty ? '✓' : '!' }}</span>
+                            <span>
+                                Profile complete:
+                                {% if ver_missing is empty %}
+                                    <strong style="color:#2FA84F;">yes</strong>
+                                {% else %}
+                                    <strong style="color:#C77A00;">missing {{ ver_missing|join(', ') }}</strong>
+                                {% endif %}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {# ---- Profile details ---- #}
+                <div class="dm-section">
+                    <h4>Profile Details</h4>
+                    <div class="dm-grid">
+                        <div class="dm-field">
+                            <span>Email</span>
+                            <strong><a href="mailto:{{ detail_user.email }}">{{ detail_user.email }}</a></strong>
+                        </div>
+                        <div class="dm-field">
+                            <span>Phone</span>
+                            <strong>{{ detail_user.phone ? detail_user.phone : '—' }}</strong>
+                        </div>
+                        <div class="dm-field">
+                            <span>Age</span>
+                            <strong>{{ detail_user.age is not empty ? detail_user.age : '—' }}</strong>
+                        </div>
+                        <div class="dm-field">
+                            <span>Location</span>
+                            <strong>{{ detail_user.location ? detail_user.location : '—' }}</strong>
+                        </div>
+                    </div>
+                </div>
+
+                {# ---- Personal Photo (separate from profile picture) ---- #}
+                <div class="dm-section">
+                    <h4>Personal Photo (in-person recognition)</h4>
+                    {% set pp = detail_user.personal_photo|default('')|trim %}
+                    {% if pp != '' %}
+                        <a class="pp-photo-link" href="{{ pp }}" target="_blank" rel="noopener" title="Open full size">
+                            <img
+                                class="pp-photo-img"
+                                src="{{ pp }}"
+                                alt="Personal photo"
+                                onerror="this.style.display='none'; this.parentElement.nextElementSibling.style.display='block';"
+                            >
+                        </a>
+                        <p class="dm-empty pp-photo-unavailable">Photo file unavailable.</p>
+                    {% else %}
+                        <p class="dm-empty">No personal photo uploaded yet.</p>
+                    {% endif %}
+                </div>
+
+                {# ---- ID documents ---- #}
+                <div class="dm-section">
+                    <h4>ID Documents ({{ detail.docs|length }})</h4>
+                    {% if detail.docs is empty %}
+                        <p class="dm-empty">No IDs uploaded yet.</p>
+                    {% else %}
+                        {% for doc in detail.docs %}
+                            <div class="dm-doc">
+                                {% set d_ext = doc.file_path|split('.')|last|lower %}
+                                {% set d_is_pdf = d_ext == 'pdf' %}
+                                {% if d_is_pdf %}
+                                    <a class="doc-fallback" href="{{ doc.file_path }}" target="_blank" rel="noopener" title="Open PDF">📄</a>
+                                {% else %}
+                                    <a href="{{ doc.file_path }}" target="_blank" rel="noopener" title="Open full image">
+                                        <img src="{{ doc.file_path }}" alt="ID">
+                                    </a>
+                                {% endif %}
+                                <div class="dm-doc-body">
+                                    <strong>{{ doc.id_type|replace({'-': ' '})|title }}</strong>
+                                    <span>••••{{ doc.id_number|slice(-4) }}
+                                        &middot; {{ doc.uploaded_at|date('M j, Y') }}
+                                        {% if doc.admin_note %} &middot; {{ doc.admin_note }}{% endif %}
+                                    </span>
+                                </div>
+                                <span class="dm-mini-pill {{ doc.status }}">
+                                    {{ doc.status|capitalize }}
+                                </span>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+
+                {# ---- Activity counts — accurate; "—" when a table is unavailable ---- #}
+                <div class="dm-section">
+                    <h4>Activity</h4>
+                    <div class="dm-counts">
+                        <div class="dm-count-box"><strong>{{ detail.counts.wishlist is null ? '—' : detail.counts.wishlist }}</strong><span>Wishlist</span></div>
+                        <div class="dm-count-box"><strong>{{ detail.counts.saved is null ? '—' : detail.counts.saved }}</strong><span>Saved searches</span></div>
+                        <div class="dm-count-box"><strong>{{ detail.counts.convos is null ? '—' : detail.counts.convos }}</strong><span>Conversations</span></div>
+                        <div class="dm-count-box"><strong>{{ detail.counts.msgs is null ? '—' : detail.counts.msgs }}</strong><span>Messages sent</span></div>
+                        <div class="dm-count-box"><strong>{{ detail.counts.notifs is null ? '—' : detail.counts.notifs }}</strong><span>Notifications</span></div>
+                        <div class="dm-count-box">
+                            <strong>{{ detail.counts.hive ? detail.counts.hive_tier : '—' }}</strong>
+                            <span>Hive Club</span>
+                        </div>
+                    </div>
+                </div>
+
+                {# ---- Recent bookings — real totals ---- #}
+                <div class="dm-section">
+                    <h4>Recent Bookings ({{ min(5, detail.totals.bookings) }} of {{ detail.totals.bookings }})</h4>
+                    {% if detail.bookings is empty %}
+                        <p class="dm-empty">No bookings yet.</p>
+                    {% else %}
+                        {% for b in detail.bookings %}
+                            <div class="dm-item">
+                                <div class="dm-item-body">
+                                    <strong>{{ b.title }}</strong>
+                                    <span>{{ b.booked_at|date('M j, Y') }}</span>
+                                </div>
+                                <div class="dm-item-side">
+                                    <strong>₱ {{ b.total|number_format(2) }}</strong>
+                                    <span class="dm-mini-pill {{ b.status }}">{{ b.status|capitalize }}</span>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+
+                {# ---- Listings — real totals ---- #}
+                <div class="dm-section">
+                    <h4>Listings ({{ min(5, detail.totals.listings) }} of {{ detail.totals.listings }})</h4>
+                    {% if detail.listings is empty %}
+                        <p class="dm-empty">No listings yet.</p>
+                    {% else %}
+                        {% for l in detail.listings %}
+                            <div class="dm-item">
+                                <img src="{{ l.cover_photo ?: '/images/ListingPlaceholder.png' }}" alt="">
+                                <div class="dm-item-body">
+                                    <strong>{{ l.title }}</strong>
+                                    <span>Added {{ l.created_at|date('M j, Y') }}</span>
+                                </div>
+                                <div class="dm-item-side">
+                                    <strong>₱ {{ l.price|number_format }}</strong>
+                                    <span class="dm-mini-pill {{ l.status }}">{{ l.status|capitalize }}</span>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+
+                {# ---- Reviews — real totals ---- #}
+                <div class="dm-section">
+                    <h4>Reviews Written ({{ min(5, detail.totals.reviews) }} of {{ detail.totals.reviews }})</h4>
+                    {% if detail.reviews is empty %}
+                        <p class="dm-empty">No reviews written yet.</p>
+                    {% else %}
+                        {% for r in detail.reviews %}
+                            <div class="dm-item">
+                                <div class="dm-item-body">
+                                    <strong>{{ r.title }}</strong>
+                                    <span>{{ r.created_at|date('M j, Y') }}</span>
+                                </div>
+                                <div class="dm-item-side">
+                                    <span class="dm-star">★ {{ r.rating|number_format(1) }}</span>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+
+                {# ---- Footer ---- #}
+                <div class="dm-footer">
+                    <a
+                        href="{{ path('app_admin_users') }}{{ (search != '' or role != 'all') ? '?' ~ {'q' : search, 'role' : role}|filter(v => v)|url_encode : '' }}"
+                        class="modal-btn modal-btn-cancel js-close-detail-link"
+                    >Back to list</a>
+                    <button
+                        type="button"
+                        class="btn-delete-user js-delete-user"
+                        data-user-id="{{ detail_user.id }}"
+                        data-user-name="{{ detail_user.name|e('html_attr') }}"
+                        data-listing-count="{{ detail.totals.listings }}"
+                        data-booking-count="{{ detail.totals.bookings }}"
+                    >
+                        {{ ui.icon('trash') }} Delete User
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    {% endif %}
+
+    {# ============ DELETE CONFIRMATION MODAL ============ #}
+    <div class="modal-overlay" id="deleteModal">
+        <div class="modal-card">
+            <div class="modal-icon-wrap">{{ ui.icon('alert-triangle') }}</div>
+            <h3 class="modal-title">Delete this user?</h3>
+            <p class="modal-text" id="deleteModalText"></p>
+            <form method="post" action="{{ path('app_admin_users') }}" id="deleteForm">
+                <input type="hidden" name="csrf_token" value="{{ admin_csrf }}">
+                <input type="hidden" name="delete_user_id" id="deleteUserId" value="">
+                <div class="modal-actions">
+                    <button type="button" class="modal-btn modal-btn-cancel" id="cancelDelete">Cancel</button>
+                    <button type="submit" class="modal-btn modal-btn-confirm">Yes, delete user</button>
+                </div>
+            </form>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        (function () {
+            "use strict";
+
+            /* ---- Delete confirmation modal ---- */
+            var modal = document.getElementById("deleteModal");
+            var modalText = document.getElementById("deleteModalText");
+            var idField = document.getElementById("deleteUserId");
+            var cancelBtn = document.getElementById("cancelDelete");
+
+            document.querySelectorAll(".js-delete-user").forEach(function (btn) {
+                btn.addEventListener("click", function () {
+                    var name = btn.dataset.userName;
+                    var listings = parseInt(btn.dataset.listingCount || "0", 10);
+                    var bookings = parseInt(btn.dataset.bookingCount || "0", 10);
+
+                    var extra = "";
+                    if (listings > 0 || bookings > 0) {
+                        var parts = [];
+                        if (listings > 0)
+                            parts.push(
+                                listings + " listing" + (listings === 1 ? "" : "s"),
+                            );
+                        if (bookings > 0)
+                            parts.push(
+                                bookings + " booking" + (bookings === 1 ? "" : "s"),
+                            );
+                        extra =
+                            " This account also has " +
+                            parts.join(" and ") +
+                            ", which will be removed too.";
+                    }
+
+                    modalText.innerHTML =
+                        "This will permanently delete <strong>" +
+                        name +
+                        "</strong> and all of their data — bookings, reviews, wishlist items, listings and photos, messages and conversations, notifications, saved searches, support tickets, payout records, Hive Club membership, ID documents and host application history." +
+                        extra +
+                        " This action cannot be undone.";
+                    idField.value = btn.dataset.userId;
+                    modal.classList.add("open");
+                });
+            });
+
+            function closeModal() {
+                modal.classList.remove("open");
+            }
+            cancelBtn.addEventListener("click", closeModal);
+            modal.addEventListener("click", function (e) {
+                if (e.target === modal) closeModal();
+            });
+            document.addEventListener("keydown", function (e) {
+                if (e.key === "Escape") closeModal();
+            });
+
+            /* ---- User detail modal close handlers ---- */
+            var detailModal = document.getElementById("userDetailModal");
+
+            if (detailModal) {
+                function closeDetail() {
+                    var url = new URL(window.location.href);
+                    url.searchParams.delete("user");
+                    window.location.href = url.toString();
+                }
+
+                detailModal.querySelectorAll(".js-close-detail").forEach(function (el) {
+                    el.addEventListener("click", closeDetail);
+                });
+
+                var closeLink = detailModal.querySelector(".js-close-detail-link");
+                if (closeLink) {
+                    /* The link's href already strips ?user — let the browser navigate */
+                }
+
+                detailModal.addEventListener("click", function (e) {
+                    if (e.target === detailModal) {
+                        closeDetail();
+                    }
+                });
+
+                document.addEventListener("keydown", function (e) {
+                    if (e.key === "Escape") {
+                        closeDetail();
+                    }
+                });
+            }
+        })();
+    </script>
+{% endblock %}

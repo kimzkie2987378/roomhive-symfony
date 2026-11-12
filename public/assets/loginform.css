@@ -929,11 +929,40 @@
 }
 
 /* =========================================================
-   SMALL SCREENS
+   MOBILE RESPONSIVENESS
 ========================================================= */
 
-@media (max-width: 380px) {
+@media (max-width: 480px) {
+  .login-page,
+  .create-account-page,
+  .forgot-password-page {
+    padding: 16px 12px;
+    align-items: center;
+  }
+
+  .login-card,
   .create-account-card {
-    width: 100%;
+    width: 100% !important;
+    max-width: 380px !important;
+    min-height: auto;
+    padding: 22px 18px 24px !important;
+    box-sizing: border-box;
+  }
+
+  .login-title,
+  .create-account-title {
+    font-size: 19px;
+  }
+
+  .login-form-group input,
+  .create-account-form-group input {
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+
+  .login-btn,
+  .create-account-btn {
+    padding: 11px;
+    font-size: 13px;
   }
 }

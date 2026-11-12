@@ -1,0 +1,598 @@
+{# =========================================================
+   RoomHive — My Account › Reviews
+   templates/user/reviews.html.twig
+
+   REBUILT onto the shared account shell — same recipe as
+   help / notifications / bookings / payments / messages:
+
+     - Sidebar: shared partial templates/partials/sidebar.html.twig,
+       highlight key 'reviews'. The inline <aside> + its ~110-line
+       CSS block are gone (the partial owns them) — and with them
+       the Saved Searches entry (removed from the sidebar
+       everywhere; help is now the last entry).
+     - Footer: shared partials/footer.html.twig added after </main>
+       (= legacy user_footer.php).
+     - Lucide: guarded loader (window.__rhNavbarLucide — never
+       double-loads with the navbar's) replaces the plain CDN tag
+       + upRefreshIcons().
+     - Reveal: the kill-switch CSS is dropped -> the REAL legacy
+       mechanism (.up-reveal waits for .in-view) + the 1.5s
+       failsafe so the page can never render blank. The count-up
+       animation is untouched (1300ms / threshold 0.6).
+     - Collapse: same localStorage key (roomhive_sidebar_collapsed)
+       + the updateTitles version (collapsed links get title
+       tooltips instead of hidden labels).
+
+   NAVBAR CLEARANCE + LAYOUT — page-local, bulletproof (same fix as
+   the help page — this page has the same ub-page-head):
+     - The PAGE HEAD above the shell carries the fixed-navbar
+       clearance (myaccount.css owns .ub-page-head — same as the
+       security page).
+     - The shell overrides live on main.up-dashboard (higher
+       specificity, always wins vs myaccount.css) with
+       max-width: 1560px — occupies the available area instead of
+       the legacy ~1240px cap.
+     - .up-dashboard .up-sidebar { top: 110px; } — the sticky
+       offset matches the other account pages, so the sidebar
+       stays clear of the navbar while scrolling (the partial's
+       default is 86px).
+
+   Content (1:1 with legacy userreviews.php — nothing content-side
+   changed):
+   - stat cards with count-up: Reviews Written / Average Rating Given
+   - review rows: thumb, title, location, comment, 5 lucide stars
+     (filled vs 30%-opacity outline), rating/5, date, chevron.
+     Each row opens the listing's detail page (/listings/{id}).
+   - empty state → VIEW MY BOOKINGS (/bookings)
+
+   REVIEW REMOVE (this rebuild — user-requested extension):
+   - Every row now ends with a red REMOVE pill (trash icon, after
+     the chevron). The row is a <div> again; the listing link is an
+     inner <a class="upr-row-link"> with display:contents — its
+     children stay direct flex items of the row, so the layout is
+     pixel-identical while the button lives OUTSIDE the anchor
+     (valid HTML — never a button inside a link).
+   - POST /reviews/remove (app_reviews_remove): session gate + host
+     bounce + CSRF (reviews_csrf, hash_equals — the AdminReviews
+     Controller delete pattern) + ownership-checked
+     DELETE ... WHERE id AND user_id — a guest can only ever
+     remove their OWN row, nobody else's.
+   - ONE reviews table feeds everything (this list, the listing
+     card stars, the detail chip, /host/reviews, the admin panel
+     and the RATE YOUR STAY box) — deleting here is deleted
+     EVERYWHERE on the next page load, and every average
+     recalculates live (AVG on read — nothing cached). Bonus: the
+     review box becomes available again for that stay.
+   - PRG: redirect back with a green/red flash pill above the
+     stats (app.flashes('reviews_flash')). confirm() guards the
+     submit — and the form still works without JS.
+
+   Data from ReviewsController::index (user, reviews, review_count,
+   average_rating, notif_count, reviews_csrf).
+   Twig-only template -> Ctrl+F5.
+========================================================= #}
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Reviews · RoomHive</title>
+
+        <script>
+            /* theme boot — before paint (same key as profile/payments) */
+            (function () {
+                try {
+                    if (localStorage.getItem("roomhive_theme") === "dark") {
+                        document.documentElement.classList.add("dark");
+                        document.documentElement.setAttribute("data-theme", "dark");
+                    }
+                } catch (e) {}
+            })();
+            document.documentElement.classList.add("js");
+        </script>
+
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/myaccount.css') }}">
+
+        <style>
+            :root {
+                --rh-ink: #1c2a38;
+                --rh-muted: #66788a;
+                --rh-line: #e6ebf1;
+                --rh-card: #ffffff;
+                --rh-accent: #eda423;
+                --rh-accent-deep: #d98c12;
+                --rh-radius: 16px;
+            }
+
+            body { background: #f3f5f9; }
+
+            svg.lucide {
+                display: inline-block;
+                vertical-align: -0.18em;
+                flex-shrink: 0;
+            }
+
+            /* =========================================================
+               NAVBAR CLEARANCE + LAYOUT — page-local, bulletproof
+               The PAGE HEAD above the shell carries the fixed-navbar
+               clearance (myaccount.css owns .ub-page-head — same as
+               the security page). The shell overrides live on
+               main.up-dashboard (higher specificity, always wins vs
+               myaccount.css) with max-width: 1560px — occupies the
+               available area instead of the legacy ~1240px cap.
+            ========================================================== */
+            main.up-dashboard {
+                margin-top: 0;
+                padding: 22px 20px 70px;
+                max-width: 1560px;
+            }
+
+            /* sticky offset matches the other account pages — when you
+               scroll, the sidebar sticks at the 110px line instead of
+               tucking under the navbar (the partial's default is 86px) */
+            .up-dashboard .up-sidebar {
+                top: 110px;
+            }
+
+            /* sidebar markup + styles live in templates/partials/sidebar.html.twig */
+
+            .up-card-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                margin-bottom: 14px;
+            }
+            .up-card-head h3 {
+                margin: 0;
+                font-size: 16px;
+                color: var(--rh-ink);
+            }
+
+            /* =====================================================
+               REVIEWS — page styles (carried over 1:1 from legacy
+               userreviews.php's own <style> block)
+            ====================================================== */
+            .up-stat-card .up-stat-icon {
+                width: 34px;
+                height: 34px;
+                stroke-width: 1.8;
+                flex-shrink: 0;
+            }
+            .up-stat-icon-count { color: #b07708; }
+            /* Reviews Written / Average Rating */
+            .up-stat-icon-star {
+                color: #eda423;
+                fill: #eda423;
+            }
+            /* Gold star beside the animated average value */
+            .up-stat-star {
+                width: 14px;
+                height: 14px;
+                color: #eda423;
+                fill: #eda423;
+                vertical-align: -0.1em;
+            }
+
+            /* Review row stars (replaces &#9733; / &#9734; text) */
+            .upr-stars {
+                display: inline-flex;
+                align-items: center;
+                gap: 1px;
+            }
+            .upr-star { width: 13px; height: 13px; }
+            .upr-star-full { fill: currentColor; }
+            .upr-star-empty { opacity: .3; }
+
+            /* Row chevron (was the › text glyph) */
+            .up-booking-chevron {
+                display: inline-flex;
+                align-items: center;
+            }
+            .up-booking-chevron svg { width: 16px; height: 16px; }
+
+            /* Buttons */
+            .up-btn-outline svg {
+                width: 14px;
+                height: 14px;
+                vertical-align: -0.15em;
+            }
+
+            /* Empty state */
+            .up-empty-icon {
+                display: block;
+                width: 34px;
+                height: 34px;
+                margin: 0 auto 8px;
+                color: #c3c9d2;
+            }
+
+            /* ================================================
+               REVIEW REMOVE — row link + red pill + flash
+            ================================================== */
+            /* The row is a <div>; the listing link is an inner
+               anchor with display:contents — its children stay
+               direct flex items of the row, so the layout is
+               pixel-identical to the old all-<a> row. */
+            .upr-row-link {
+                display: contents;
+                color: inherit;
+                text-decoration: none;
+            }
+            .up-review-row { cursor: pointer; }
+            .upr-remove-form {
+                display: inline-flex;
+                align-items: center;
+                flex-shrink: 0;
+            }
+            .upr-remove-btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                padding: 6px 11px;
+                border-radius: 8px;
+                border: 1px solid rgba(220, 53, 69, 0.35);
+                background: rgba(220, 53, 69, 0.07);
+                color: #b23b3b;
+                font: inherit;
+                font-size: 11.5px;
+                font-weight: 600;
+                letter-spacing: 0.04em;
+                cursor: pointer;
+                transition: background 0.15s ease,
+                            border-color 0.15s ease,
+                            color 0.15s ease;
+            }
+            .upr-remove-btn svg { width: 12px; height: 12px; }
+            .upr-remove-btn:hover {
+                background: rgba(220, 53, 69, 0.14);
+                border-color: rgba(220, 53, 69, 0.55);
+                color: #922f2f;
+            }
+            .upr-remove-btn:focus-visible {
+                outline: 2px solid rgba(220, 53, 69, 0.45);
+                outline-offset: 1px;
+            }
+            .dark .upr-remove-btn {
+                background: rgba(220, 53, 69, 0.14);
+                border-color: rgba(220, 53, 69, 0.4);
+                color: #ff9d97;
+            }
+            .dark .upr-remove-btn:hover {
+                background: rgba(220, 53, 69, 0.24);
+                color: #ffc2ba;
+            }
+
+            /* PRG flash pill (success / error) above the stats */
+            .upr-flash {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 10px 14px;
+                border-radius: 10px;
+                font-size: 13px;
+                margin-bottom: 14px;
+            }
+            .upr-flash svg { width: 15px; height: 15px; flex-shrink: 0; }
+            .upr-flash-success {
+                background: #e7f6ec;
+                border: 1px solid #bfe8cd;
+                color: #1e7e46;
+            }
+            .upr-flash-error {
+                background: #fdeaea;
+                border: 1px solid #f3c6c6;
+                color: #b23b3b;
+            }
+            .dark .upr-flash-success {
+                background: rgba(46, 160, 90, 0.14);
+                border-color: rgba(46, 160, 90, 0.35);
+                color: #7fd6a4;
+            }
+            .dark .upr-flash-error {
+                background: rgba(220, 53, 69, 0.14);
+                border-color: rgba(220, 53, 69, 0.35);
+                color: #ff9d97;
+            }
+        </style>
+    </head>
+    <body>
+
+        {{ include('partials/navbar.html.twig', {
+            is_logged_in: true,
+            is_host: is_host ?? false,
+            nav_avatar: user.avatar_path ?? null,
+            notification_count: notif_count ?? 0,
+            current_page: 'reviews'
+        }) }}
+
+        <!-- PAGE HEADER — PLAIN -->
+        <header class="ub-page-head">
+            <span class="ub-eyebrow">Your Voice</span>
+            <h1>Reviews you've left</h1>
+            <p class="ub-lead">Everything you've shared about the places you've stayed.</p>
+        </header>
+
+        <main class="up-dashboard">
+
+            <!-- ==================================================
+                 SIDEBAR — shared partial (templates/partials/sidebar.html.twig)
+                 highlight = active_sidebar key · collapse JS stays on this page
+            =================================================== -->
+            {% include 'partials/sidebar.html.twig' with { active_sidebar: 'reviews' } %}
+
+            <div class="up-content">
+
+                <!-- FLASH (PRG result of a REMOVE) -->
+                {% set rhFlash = app.flashes('reviews_flash') %}
+                {% if rhFlash|length > 0 %}
+                    <div class="upr-flash upr-flash-{{ rhFlash[0].type }}" role="status">
+                        <i data-lucide="{{ rhFlash[0].type == 'success' ? 'check-circle-2' : 'alert-triangle' }}" aria-hidden="true"></i>
+                        <span>{{ rhFlash[0].text }}</span>
+                    </div>
+                {% endif %}
+
+                <!-- STATS (with count-ups) -->
+                <section class="up-stats">
+                    <div class="up-stat-card up-reveal" style="--i: 0;">
+                        <i data-lucide="pen-line" class="up-stat-icon up-stat-icon-count" aria-hidden="true"></i>
+                        <div>
+                            <strong data-count="{{ review_count }}" data-decimals="0">{{ review_count }}</strong>
+                            <span>Reviews Written</span>
+                        </div>
+                    </div>
+                    <div class="up-stat-card up-reveal" style="--i: 1;">
+                        <i data-lucide="star" class="up-stat-icon up-stat-icon-star" aria-hidden="true"></i>
+                        <div>
+                            <strong><span data-count="{{ average_rating }}" data-decimals="1">{{ average_rating }}</span> <i data-lucide="star" class="up-stat-star" aria-hidden="true"></i></strong>
+                            <span>Average Rating Given</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- REVIEW LIST -->
+                <section class="up-card up-bookings-card up-reveal" style="--i: 1;">
+                    <div class="up-card-header">
+                        <h3>Your Reviews</h3>
+                    </div>
+
+                    {% if reviews is empty %}
+
+                        <div class="up-bookings-empty">
+                            <i data-lucide="message-square-plus" class="up-empty-icon" aria-hidden="true"></i>
+                            <p class="up-bookings-empty-title">No reviews yet</p>
+                            <p class="up-bookings-empty-text">After a completed stay, you can leave a review from My Bookings.</p>
+                            <a href="/bookings" class="up-btn-outline">
+                                <i data-lucide="calendar-days" aria-hidden="true"></i> VIEW MY BOOKINGS
+                            </a>
+                        </div>
+
+                    {% else %}
+
+                        {% for review in reviews %}
+                            <div class="up-booking-row up-review-row up-reveal" style="--i: {{ min(loop.index0, 6) }}; border-radius:12px;">
+                                <a href="/listings/{{ review.listing_id }}" class="upr-row-link">
+                                    <img src="{{ review.thumb }}" alt="{{ review.title }}" class="up-booking-thumb">
+                                    <div class="up-booking-info">
+                                        <h4>{{ review.title }}</h4>
+                                        <p class="up-booking-location">{{ review.location }}</p>
+                                        {% if review.comment != '' %}
+                                            <p class="upr-comment">{{ review.comment }}</p>
+                                        {% endif %}
+                                    </div>
+                                    <div class="up-booking-side">
+                                        <span class="upr-stars" aria-hidden="true">
+                                            {% set full = review.rating|round(0, 'floor') %}
+                                            {% for s in 1..5 %}
+                                                {% if s <= full %}
+                                                    <i data-lucide="star" class="upr-star upr-star-full"></i>
+                                                {% else %}
+                                                    <i data-lucide="star" class="upr-star upr-star-empty"></i>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </span>
+                                        <strong>{{ review.rating }} / 5</strong>
+                                        <span>{{ review.date }}</span>
+                                    </div>
+                                </a>
+                                <span class="up-booking-chevron"><i data-lucide="chevron-right" aria-hidden="true"></i></span>
+                                <form method="post" action="/reviews/remove" class="upr-remove-form">
+                                    <input type="hidden" name="csrf_token" value="{{ reviews_csrf }}">
+                                    <input type="hidden" name="review_id" value="{{ review.id }}">
+                                    <button type="submit" class="upr-remove-btn" title="Remove this review">
+                                        <i data-lucide="trash-2" aria-hidden="true"></i> REMOVE
+                                    </button>
+                                </form>
+                            </div>
+                        {% endfor %}
+
+                    {% endif %}
+                </section>
+
+            </div>
+        </main>
+
+        {{ include('partials/footer.html.twig') }}
+
+        <!-- Lucide — guarded loader, same key as navbar (never double-runs).
+             Renders every <i data-lucide="..."> as inline SVG. -->
+        <script>
+            (function () {
+                "use strict";
+                function renderRhIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
+                }
+                if (!window.__rhNavbarLucide) {
+                    window.__rhNavbarLucide = true;
+                    var s = document.createElement("script");
+                    s.src = "https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js";
+                    s.addEventListener("load", renderRhIcons);
+                    document.head.appendChild(s);
+                }
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", renderRhIcons);
+                } else {
+                    renderRhIcons();
+                }
+                window.addEventListener("load", renderRhIcons);
+            })();
+        </script>
+
+        <!-- Sidebar collapse — same behavior + localStorage key as legacy -->
+        <script>
+            (function () {
+                var sidebar = document.getElementById("upSidebar");
+                var toggle = document.getElementById("upSidebarToggle");
+                if (!sidebar || !toggle) {
+                    return;
+                }
+
+                var STORAGE_KEY = "roomhive_sidebar_collapsed";
+                var links = sidebar.querySelectorAll(".up-side-link");
+
+                function updateTitles(collapsed) {
+                    links.forEach(function (link) {
+                        var label = link.querySelector(".up-side-label");
+                        if (collapsed) {
+                            link.setAttribute("title", label ? label.textContent : "");
+                        } else {
+                            link.removeAttribute("title");
+                        }
+                    });
+                }
+
+                function applyState(collapsed) {
+                    sidebar.classList.toggle("collapsed", collapsed);
+                    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                    toggle.setAttribute(
+                        "aria-label",
+                        collapsed ? "Expand sidebar" : "Collapse sidebar",
+                    );
+                    updateTitles(collapsed);
+                }
+
+                var savedCollapsed = false;
+                try {
+                    savedCollapsed = localStorage.getItem(STORAGE_KEY) === "1";
+                } catch (e) {}
+                applyState(savedCollapsed);
+
+                toggle.addEventListener("click", function () {
+                    var nowCollapsed = !sidebar.classList.contains("collapsed");
+                    applyState(nowCollapsed);
+                    try {
+                        localStorage.setItem(STORAGE_KEY, nowCollapsed ? "1" : "0");
+                    } catch (e) {}
+                });
+            })();
+        </script>
+
+        <!-- Reveal + count-up (self-contained) -->
+        <script>
+            (function () {
+                "use strict";
+
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+                /* reveal — the REAL legacy mechanism: myaccount.css waits
+                   for .in-view. Plus a 1.5s failsafe so the page can
+                   never render blank. */
+                var revealEls = Array.prototype.slice.call(document.querySelectorAll(".up-reveal"));
+
+                function showAll() {
+                    revealEls.forEach(function (el) {
+                        el.classList.add("in-view");
+                    });
+                }
+
+                if (reduced || !("IntersectionObserver" in window)) {
+                    showAll();
+                } else {
+                    var io = new IntersectionObserver(function (entries) {
+                        entries.forEach(function (entry) {
+                            if (!entry.isIntersecting) return;
+                            var el = entry.target;
+                            io.unobserve(el);
+                            el.classList.add("in-view");
+                            window.setTimeout(function () {
+                                el.style.setProperty("--i", "0");
+                            }, 1200);
+                        });
+                    }, {
+                        threshold: 0.12,
+                        rootMargin: "0px 0px -40px 0px"
+                    });
+                    revealEls.forEach(function (el) {
+                        io.observe(el);
+                    });
+
+                    /* failsafe — force-reveal anything still hidden after 1.5s */
+                    setTimeout(showAll, 1500);
+                }
+
+                /* count-up (unchanged) */
+                var counters = document.querySelectorAll("[data-count]");
+                if (counters.length && !reduced && "IntersectionObserver" in window) {
+                    var countIo = new IntersectionObserver(function (entries) {
+                        entries.forEach(function (entry) {
+                            if (!entry.isIntersecting) return;
+                            var el = entry.target;
+                            countIo.unobserve(el);
+
+                            var target = parseFloat(el.getAttribute("data-count")) || 0;
+                            var decimals = parseInt(el.getAttribute("data-decimals"), 10) || 0;
+                            var t0 = null;
+                            var DURATION = 1300;
+
+                            var stepFn = function (ts) {
+                                if (!t0) t0 = ts;
+                                var k = Math.min((ts - t0) / DURATION, 1);
+                                var eased = 1 - Math.pow(1 - k, 3);
+                                el.textContent = (target * eased).toLocaleString(
+                                    undefined, {
+                                        minimumFractionDigits: decimals,
+                                        maximumFractionDigits: decimals
+                                    }
+                                );
+                                if (k < 1) window.requestAnimationFrame(stepFn);
+                            };
+
+                            window.requestAnimationFrame(stepFn);
+                        });
+                    }, {
+                        threshold: 0.6
+                    });
+                    Array.prototype.forEach.call(counters, function (el) {
+                        countIo.observe(el);
+                    });
+                }
+            })();
+        </script>
+
+        <!-- REMOVE guard — confirm before the form POSTs /reviews/remove.
+             Progressive enhancement only: without JS the form still
+             works (the controller re-checks everything server-side). -->
+        <script>
+            (function () {
+                var forms = document.querySelectorAll(".upr-remove-form");
+                for (var i = 0; i < forms.length; i++) {
+                    forms[i].addEventListener("submit", function (e) {
+                        if (!window.confirm(
+                            "Remove this review?\n\n" +
+                            "It disappears everywhere — your list, the " +
+                            "listing's stars and the host's copy — and " +
+                            "every average it fed is recalculated."
+                        )) {
+                            e.preventDefault();
+                        }
+                    });
+                }
+            })();
+        </script>
+
+    </body>
+
+</html>

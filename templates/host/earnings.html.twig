@@ -1,0 +1,663 @@
+{# roomhive/host/earnings.html.twig
+   Host › Earnings + Full Transaction Ledger — 1:1 port of
+   legacy host/hostearnings.php.
+
+   Stat pills (Total Earnings / This Month / Transactions) use
+   the pure-CSS text badges (₱ / M / #) the legacy page already
+   standardized on — no icon macros needed on this page.
+
+   Charts (native, no libraries):
+     • SVG area/line trend of the last 6 months — the polyline
+       points + area path are pre-built in the controller
+       (same 600×160 geometry), draw-in animation via the
+       IntersectionObserver script at the bottom.
+     • Monthly comparison bars (hp-bars — same CSS values as
+       host/profile.html.twig, rebuilt here page-locally).
+
+   Ledger table: Booking (#ref + Booked date), Check-in (+
+   → checkout cell-sub), Listing, Guest, Payment pill (+ ₱left /
+   ₱due / refunded date), Booking Status (+ Paid out date /
+   "counts when confirmed"), Your Payout (refunded rows show
+   the 2% fee + "% fee of ₱base" note; others show "of ₱total").
+
+   Toolbar: whitelisted filter tabs (All / Fully Paid / Partial /
+   Unpaid / Refunded) with live counts, search form (listing,
+   guest, #ref), Export CSV (all matching records — served by
+   the controller as a StreamedResponse with the same headers/
+   rows as legacy), pagination with a 5-page window.
+
+   Extras kept from legacy: ?debug=1 detection panel, visible
+   DB-error card when both queries fail, "Clear filters & search"
+   reset, dark-mode variants for every chart element.
+
+   Pairs with: HostEarningsController (route /host/earnings,
+   name app_host_earnings, GET only).
+#}
+{% extends 'host/base.html.twig' %}
+
+{% set active_nav = 'earnings' %}
+
+{% block page_title %}Earnings — RoomHive{% endblock %}
+
+{% block styles %}
+<style>
+    /* ---- Page header (same values as the other host pages) ---- */
+    .hp-page-header {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 16px; flex-wrap: wrap;
+    }
+    .hp-page-title { margin: 0; font-size: 24px; font-weight: 800; color: var(--rh-ink); }
+    .hp-page-subtitle { margin: 4px 0 0; font-size: 13px; color: var(--rh-muted); max-width: 680px; }
+
+    /* ---- Stat pillbox + pure-CSS text badges (exact legacy values) ---- */
+    .hp-stat-pillbox {
+        display: flex; align-items: stretch; gap: 10px; flex-wrap: wrap;
+    }
+    .hp-stat-pill-item {
+        display: flex; align-items: center; gap: 10px;
+        background: #fff; border: 1px solid var(--rh-line);
+        border-radius: 12px; padding: 10px 14px;
+        min-width: 130px;
+    }
+    .hp-stat-pill-icon {
+        width: 34px; height: 34px; border-radius: 8px; flex-shrink: 0; overflow: hidden;
+    }
+    .hp-stat-pill-icon span {
+        display: flex; align-items: center; justify-content: center;
+        width: 100%; height: 100%;
+        border-radius: inherit;
+        font-family: "Poppins", sans-serif;
+        font-size: 15px; font-weight: 800; line-height: 1;
+    }
+    .hp-pill-gold {
+        background: linear-gradient(135deg, #f6b93b, #eda423);
+        color: #1c2a38;
+    }
+    .hp-pill-green {
+        background: linear-gradient(135deg, #2fbe7d, #1fa971);
+        color: #ffffff;
+    }
+    .hp-pill-blue {
+        background: linear-gradient(135deg, #4a6fa5, #33517E);
+        color: #ffffff;
+    }
+    .hp-stat-pill-label {
+        margin: 0; font-size: 10.5px; font-weight: 700;
+        color: var(--rh-muted); text-transform: uppercase; letter-spacing: .04em;
+    }
+    .hp-stat-pill-value {
+        margin: 0; font-size: 18px; font-weight: 800; color: var(--rh-ink); line-height: 1.2;
+    }
+
+    /* ---- DB error / debug panels (exact legacy values) ---- */
+    .hp-db-error {
+        background: #FDECEC; border: 1px solid #F5B5B5; color: #A3282E;
+        border-radius: 12px; padding: 14px 16px; margin-bottom: 18px;
+        font-size: 13px;
+    }
+    .hp-db-error code {
+        background: #fff; padding: 2px 6px; border-radius: 6px; font-size: 12px;
+    }
+
+    /* ---- Monthly comparison bars (same values as host/profile.html.twig) ---- */
+    .hp-bars { display: flex; gap: 10px; align-items: flex-end; height: 180px; }
+    .hp-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; }
+    .hp-bar-value { font-size: 10.5px; font-weight: 700; color: var(--rh-ink); white-space: nowrap; }
+    .hp-bar-track { flex: 1; width: 100%; max-width: 46px; display: flex; align-items: flex-end; background: #F6F7FB; border-radius: 8px; overflow: hidden; }
+    .hp-bar { width: 100%; height: 0%; background: linear-gradient(180deg, #f6c04e, #eda423); border-radius: 8px 8px 0 0; transition: height .7s cubic-bezier(.22,1,.36,1); }
+    .hp-bar-label { font-size: 11px; color: var(--rh-muted); }
+
+    /* =====================================================
+       SVG AREA/LINE TREND CHART (native, exact legacy values)
+    ====================================================== */
+    .tr-chart { margin-top: 4px; }
+    .tr-chart svg { width: 100%; height: auto; display: block; }
+    .tr-line {
+        fill: none; stroke: #eda423; stroke-width: 2.5;
+        stroke-linecap: round; stroke-linejoin: round;
+    }
+    .js .tr-anim-line {
+        stroke-dasharray: 1; stroke-dashoffset: 1;
+        transition: stroke-dashoffset 1.6s ease 0.15s;
+    }
+    .tr-chart.on .tr-anim-line { stroke-dashoffset: 0; }
+    .tr-area {
+        fill: rgba(237, 164, 35, 0.16); opacity: 1;
+        transition: opacity 0.9s ease 0.8s;
+    }
+    .js .tr-chart:not(.on) .tr-area { opacity: 0; }
+    .tr-chart.on .tr-area { opacity: 1; }
+    .tr-dot {
+        fill: #ffffff; stroke: #eda423; stroke-width: 2;
+        cursor: pointer; transition: r 0.12s ease;
+    }
+    .tr-dot:hover { r: 4.5; }
+    .tr-grid { stroke: rgba(28, 42, 56, 0.08); stroke-width: 1; }
+    .tr-txt { font-size: 10px; fill: #8B93A6; font-family: "Poppins", sans-serif; }
+    .tr-xlabels {
+        display: flex; justify-content: space-between;
+        margin-top: 6px;
+        font-size: 10.5px; font-weight: 600; color: #8B93A6;
+    }
+    .tr-empty-note {
+        margin: 8px 0 0;
+        font-size: 11.5px; font-style: italic; color: #8B93A6;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .js .tr-anim-line { transition: none; stroke-dashoffset: 0 !important; }
+        .js .tr-chart:not(.on) .tr-area { opacity: 1; }
+    }
+
+    /* ---- Empty state ---- */
+    .hp-empty-state {
+        text-align: center; padding: 56px 20px;
+        background: #fff; border: 1px dashed var(--rh-line);
+        border-radius: var(--rh-radius);
+        font-size: 13.5px; color: var(--rh-muted);
+    }
+    .hp-empty-state p { margin: 0; }
+    .hp-empty-state-title { font-size: 15px; font-weight: 700; color: var(--rh-ink); margin-bottom: 6px; }
+
+    /* ---- Toolbar: tabs + search + export (exact legacy values) ---- */
+    .hp-toolbar {
+        display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+        justify-content: space-between; margin-bottom: 16px;
+    }
+    .hp-filter-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .hp-filter-tab {
+        padding: 7px 13px; border-radius: 999px;
+        border: 1px solid #E3E7EF; background: #fff;
+        font-size: 12.5px; font-weight: 700; color: #5B6172;
+        text-decoration: none; transition: all .15s ease;
+    }
+    .hp-filter-tab:hover { border-color: #F5A623; color: #B07708; }
+    .hp-filter-tab.active {
+        background: #14142B; border-color: #14142B; color: #fff;
+    }
+    .hp-filter-tab .cnt { opacity: .65; font-weight: 600; margin-left: 4px; }
+
+    .hp-toolbar-right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .hp-search { display: flex; gap: 8px; align-items: center; }
+    .hp-search input {
+        padding: 9px 12px; border: 1px solid #DADEE6; border-radius: 10px;
+        font-size: 13px; font-family: inherit; min-width: 190px;
+        background: #fff; color: var(--rh-ink);
+    }
+    .hp-search input:focus {
+        outline: none; border-color: #F5A623;
+        box-shadow: 0 0 0 3px rgba(245, 166, 35, .15);
+    }
+
+    .hp-btn-mini {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 9px 14px; border-radius: 10px;
+        font-size: 12.5px; font-weight: 700; text-decoration: none;
+        border: 1.5px solid #EEF1F6; background: #fff; color: #14142B;
+        cursor: pointer; font-family: inherit; transition: all .15s ease;
+    }
+    .hp-btn-mini:hover { background: #F6F7FB; border-color: #E3E7EF; }
+    .hp-btn-mini.hp-btn-export { border-color: #F5C77E; color: #B07708; background: #FFF9F0; }
+    .hp-btn-mini.hp-btn-export:hover { background: #FFF3E0; }
+
+    /* ---- Status pills (legacy paymentMeta values) ---- */
+    .hp-status {
+        display: inline-block; padding: 4px 10px; border-radius: 999px;
+        font-size: 11px; font-weight: 700; white-space: nowrap;
+    }
+    .hp-status-active   { background: #E7F7EC; color: #1fa971; }
+    .hp-status-partial  { background: #FDF1DC; color: #B07708; border: 1px solid rgba(237, 164, 35, .5); }
+    .hp-status-pending  { background: #F0F1F6; color: #5B6172; border: 1px solid #E3E7EF; }
+    .hp-status-refunded { background: #FCEAEA; color: #B3261E; border: 1px solid #F5B5B5; }
+
+    /* ---- Table (legacy hp-table values) ---- */
+    .hp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .hp-table th {
+        text-align: left; padding: 10px 12px;
+        font-size: 11px; font-weight: 700; color: var(--rh-muted);
+        text-transform: uppercase; letter-spacing: .03em;
+        border-bottom: 2px solid #EEF1F6; white-space: nowrap;
+    }
+    .hp-table td {
+        padding: 12px; border-bottom: 1px solid #F6F7FB;
+        color: var(--rh-ink); vertical-align: top;
+    }
+    .hp-amount { font-weight: 800; white-space: nowrap; }
+
+    .hp-cell-sub {
+        display: block; font-size: 11px; color: #8B93A6; margin-top: 2px;
+    }
+    .hp-balance-note {
+        display: block; font-size: 11px; color: #C77800; margin-top: 2px;
+    }
+    .hp-notcounted {
+        display: block; font-size: 11px; color: #8B93A6; margin-top: 2px;
+        font-style: italic;
+    }
+    .hp-fee-note {
+        display: block; font-size: 11px; color: #1e7a3d; margin-top: 2px;
+    }
+
+    /* ---- Table footer (exact legacy values) ---- */
+    .hp-tfoot td {
+        padding: 12px; border-top: 2px solid #EEF1F6;
+        font-weight: 800; color: #14142B; font-size: 13px;
+        background: #FAFAFD;
+    }
+
+    /* ---- Pagination (exact legacy values) ---- */
+    .hp-pagination {
+        display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+        justify-content: center; margin-top: 18px;
+    }
+    .hp-page-btn {
+        min-width: 34px; padding: 7px 10px;
+        border: 1px solid #E3E7EF; border-radius: 9px;
+        text-align: center; font-size: 12.5px; font-weight: 700;
+        color: #5B6172; text-decoration: none; background: #fff;
+        transition: all .15s ease;
+    }
+    .hp-page-btn:hover { border-color: #F5A623; color: #B07708; }
+    .hp-page-btn.active { background: #F5A623; border-color: #F5A623; color: #fff; }
+    .hp-page-btn.disabled { opacity: .45; pointer-events: none; }
+    .hp-page-info { font-size: 12px; color: #8B93A6; margin: 0 8px; }
+
+    /* ---- Dark mode (same variants as legacy + shell conventions) ---- */
+    body[data-theme="dark"] .hp-page-title { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-stat-pill-item { background: #141b24; border-color: #1a222b; }
+    body[data-theme="dark"] .hp-stat-pill-label { color: #8d99a5; }
+    body[data-theme="dark"] .hp-stat-pill-value { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-bar-value { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-bar-track { background: #1a222b; }
+
+    body[data-theme="dark"] .tr-grid { stroke: rgba(232, 236, 241, 0.10); }
+    body[data-theme="dark"] .tr-txt { fill: #8d99a5; }
+    body[data-theme="dark"] .tr-dot { fill: #1a222b; }
+    body[data-theme="dark"] .tr-area { fill: rgba(237, 164, 35, 0.22); }
+    body[data-theme="dark"] .tr-xlabels { color: #8d99a5; }
+    body[data-theme="dark"] .tr-empty-note { color: #8d99a5; }
+
+    body[data-theme="dark"] .hp-empty-state { background: #141b24; border-color: #1a222b; color: #8d99a5; }
+    body[data-theme="dark"] .hp-empty-state-title { color: #e8ecf1; }
+
+    body[data-theme="dark"] .hp-filter-tab { background: #141b24; border-color: #1a222b; color: #8d99a5; }
+    body[data-theme="dark"] .hp-filter-tab:hover { border-color: #F5A623; color: #f6c04e; }
+    body[data-theme="dark"] .hp-filter-tab.active { background: #f6c04e; border-color: #f6c04e; color: #1c2a38; }
+    body[data-theme="dark"] .hp-search input { background: #141b24; border-color: #1a222b; color: #e8ecf1; }
+    body[data-theme="dark"] .hp-btn-mini { background: #141b24; border-color: #1a222b; color: #e8ecf1; }
+    body[data-theme="dark"] .hp-btn-mini:hover { background: #1a222b; border-color: #2a3540; }
+    body[data-theme="dark"] .hp-btn-mini.hp-btn-export { background: rgba(237, 164, 35, .08); border-color: rgba(237, 164, 35, .4); color: #f6c04e; }
+    body[data-theme="dark"] .hp-btn-mini.hp-btn-export:hover { background: rgba(237, 164, 35, .15); }
+
+    body[data-theme="dark"] .hp-table th { color: #8d99a5; }
+    body[data-theme="dark"] .hp-table td { color: #e8ecf1; border-bottom-color: #1a222b; }
+    body[data-theme="dark"] .hp-tfoot td { background: #141b24; border-top-color: #1a222b; color: #e8ecf1; }
+
+    body[data-theme="dark"] .hp-page-btn { background: #141b24; border-color: #1a222b; color: #8d99a5; }
+    body[data-theme="dark"] .hp-page-btn:hover { border-color: #F5A623; color: #f6c04e; }
+    body[data-theme="dark"] .hp-page-btn.active { background: #F5A623; border-color: #F5A623; color: #fff; }
+    body[data-theme="dark"] .hp-page-info { color: #8d99a5; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="hp-page-header">
+    <div>
+        <h1 class="hp-page-title">Earnings</h1>
+        <p class="hp-page-subtitle">
+            Full transaction ledger — every booking on your listings.
+            Earnings count confirmed/completed bookings, plus the
+            {{ refund_fee_pct }}% cancellation fee kept from refunded ones.
+        </p>
+    </div>
+    <div class="hp-stat-pillbox">
+        <div class="hp-stat-pill-item">
+            <div class="hp-stat-pill-icon hp-pill-gold"><span>&#8369;</span></div>
+            <div>
+                <p class="hp-stat-pill-label">Total Earnings</p>
+                <p class="hp-stat-pill-value">&#8369; {{ total_earnings|number_format(2, '.', ',') }}</p>
+            </div>
+        </div>
+        <div class="hp-stat-pill-item">
+            <div class="hp-stat-pill-icon hp-pill-green"><span>M</span></div>
+            <div>
+                <p class="hp-stat-pill-label">This Month</p>
+                <p class="hp-stat-pill-value">&#8369; {{ this_month|number_format(2, '.', ',') }}</p>
+            </div>
+        </div>
+        <div class="hp-stat-pill-item">
+            <div class="hp-stat-pill-icon hp-pill-blue"><span>#</span></div>
+            <div>
+                <p class="hp-stat-pill-label">Transactions</p>
+                <p class="hp-stat-pill-value">{{ all_count }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if db_error is not null %}
+    <section class="hp-db-error">
+        <strong>Database error — records could not be loaded.</strong><br>
+        {{ db_error }}<br><br>
+        Check that the <code>bookings</code> table exists and contains the expected columns
+        (<code>total</code>, <code>amount_paid</code>, <code>host_payout_amount</code>, <code>status</code>).
+        The full error was also written to the PHP error log.
+    </section>
+{% elseif debug %}
+    <section class="hp-db-error" style="background:#EAF2FE;border-color:#B9D2F5;color:#1A56DB;">
+        <strong>Debug (remove <code>&amp;debug=1</code> when done):</strong><br>
+        Records loaded: {{ all_count }} &middot;
+        Earning rows: {{ earning_count }} (incl. refunded fee rows) &middot;
+        Refunded: {{ refunded_count }} &middot;
+        Refund fees earned: &#8369;{{ refund_fees_earned|number_format(2, '.', ',') }}
+        (rate {{ refund_fee_pct }}%) &middot;
+        bookings columns detected: total={{ detected.total ? 'yes' : 'NO' }},
+        amount_paid={{ detected.amount_paid ? 'yes' : 'NO' }},
+        host_payout_amount={{ detected.host_payout_amount ? 'yes' : 'NO' }},
+        platform_fee_amount={{ detected.platform_fee_amount ? 'yes' : 'NO' }},
+        refunded_amount={{ detected.refunded_amount ? 'yes' : 'NO' }}
+        <br>
+        Active filter: <strong>{{ filter }}</strong> &middot;
+        Search: &ldquo;{{ search }}&rdquo; &middot;
+        After filter/search: <strong>{{ total_records }}</strong> &middot;
+        On this page: {{ page_records_count }} &middot;
+        Page {{ page }} of {{ total_pages }}
+    </section>
+{% endif %}
+
+<!-- ===============================================
+     Last 6 Months — TWO chart types:
+     1) SVG area/line trend (this card, top)
+     2) Monthly comparison bars (below)
+     Both native — no libraries.
+================================================ -->
+<section class="hp-card">
+    <div class="hp-card-header">
+        <h3>Last 6 Months</h3>
+        <span class="hp-muted">Grouped by check-in date &middot; confirmed/completed + {{ refund_fee_pct }}% refund fees</span>
+    </div>
+
+    {# 1) SVG area/line trend #}
+    <div class="tr-chart" id="trTrendChart">
+        <svg viewBox="0 0 600 160" role="img" aria-label="Monthly earnings trend for the last 6 months">
+            {# Gridlines: max / mid / zero #}
+            <line class="tr-grid" x1="8" y1="18" x2="592" y2="18"></line>
+            <line class="tr-grid" x1="8" y1="84" x2="592" y2="84"></line>
+            <line class="tr-grid" x1="8" y1="150" x2="592" y2="150"></line>
+
+            <text class="tr-txt" x="2" y="13">&#8369;{{ chart_max|number_format(0, '.', ',') }}</text>
+            <text class="tr-txt" x="2" y="147">0</text>
+
+            {# Area fill under the line #}
+            <path class="tr-area" d="{{ tr_area_path }}"></path>
+
+            {# The line (animates via pathLength trick) #}
+            <polyline class="tr-line tr-anim-line" pathLength="1" points="{{ tr_points_str }}"></polyline>
+
+            {# Hover points (native tooltips) #}
+            {% for c in chart %}
+                <circle class="tr-dot" cx="{{ c.x }}" cy="{{ c.y }}" r="3">
+                    <title>&#8369; {{ c.value|number_format(2, '.', ',') }} &mdash; {{ c.label }}</title>
+                </circle>
+            {% endfor %}
+        </svg>
+
+        {# X-axis month labels #}
+        <div class="tr-xlabels">
+            {% for c in chart %}
+                <span>{{ c.label }}</span>
+            {% endfor %}
+        </div>
+
+        {% if chart_sum <= 0 %}
+            <p class="tr-empty-note">
+                No confirmed earnings in the last 6 months yet —
+                newly confirmed bookings will plot here automatically.
+            </p>
+        {% endif %}
+    </div>
+
+    {# 2) Monthly comparison bars (existing) #}
+    <div class="hp-bars" style="margin-top: 18px;">
+        {% for m in chart %}
+            <div class="hp-bar-col">
+                <span class="hp-bar-value">&#8369;{{ m.value|number_format(0, '.', ',') }}</span>
+                <div class="hp-bar-track">
+                    <div class="hp-bar" style="height: {{ (m.value / max_month * 100)|round }}%;"></div>
+                </div>
+                <span class="hp-bar-label">{{ m.label }}</span>
+            </div>
+        {% endfor %}
+    </div>
+</section>
+
+<!-- ALL transactions -->
+<section class="hp-card">
+    <div class="hp-card-header">
+        <h3>All Transactions</h3>
+        <span class="hp-muted">
+            Avg &#8369;{{ avg_booking|number_format(2, '.', ',') }} per earning booking
+            {% if refunded_count > 0 %}
+                &middot; &#8369;{{ refunded_total|number_format(2, '.', ',') }} refunded ({{ refunded_count }})
+                &middot; &#8369;{{ refund_fees_earned|number_format(2, '.', ',') }} fee kept
+            {% endif %}
+        </span>
+    </div>
+
+    {% if all_count == 0 %}
+
+        <div class="hp-empty-state">
+            <p class="hp-empty-state-title">No transactions yet</p>
+            <p>
+                Records appear here as soon as any booking exists on one of your listings —
+                including pending applications. If you expect records, confirm the bookings
+                belong to listings where <code>listings.user_id</code> = your account.
+            </p>
+        </div>
+
+    {% else %}
+
+        <div class="hp-toolbar">
+            <div class="hp-filter-tabs">
+                <a class="hp-filter-tab{{ filter == 'all' ? ' active' : '' }}" href="{{ urls.tabs.all }}">
+                    All<span class="cnt">({{ tab_counts.all }})</span>
+                </a>
+                <a class="hp-filter-tab{{ filter == 'paid' ? ' active' : '' }}" href="{{ urls.tabs.paid }}">
+                    Fully Paid<span class="cnt">({{ tab_counts.paid }})</span>
+                </a>
+                <a class="hp-filter-tab{{ filter == 'partial' ? ' active' : '' }}" href="{{ urls.tabs.partial }}">
+                    Partial<span class="cnt">({{ tab_counts.partial }})</span>
+                </a>
+                <a class="hp-filter-tab{{ filter == 'pending' ? ' active' : '' }}" href="{{ urls.tabs.pending }}">
+                    Unpaid<span class="cnt">({{ tab_counts.pending }})</span>
+                </a>
+                <a class="hp-filter-tab{{ filter == 'refunded' ? ' active' : '' }}" href="{{ urls.tabs.refunded }}">
+                    Refunded<span class="cnt">({{ tab_counts.refunded }})</span>
+                </a>
+            </div>
+
+            <div class="hp-toolbar-right">
+                <form class="hp-search" method="GET">
+                    {% if filter != 'all' %}
+                        <input type="hidden" name="filter" value="{{ filter }}">
+                    {% endif %}
+                    <input type="text" name="q" value="{{ search }}" placeholder="Search listing, guest, #ref&hellip;">
+                    <button type="submit" class="hp-btn-mini">Search</button>
+                    {% if search != '' %}
+                        <a class="hp-btn-mini" href="{{ urls.search_clear }}">&times;</a>
+                    {% endif %}
+                </form>
+                <a class="hp-btn-mini hp-btn-export" href="{{ urls.export_csv }}">
+                    &#11015; Export CSV
+                </a>
+            </div>
+        </div>
+
+        {% if rows is empty %}
+
+            <div class="hp-empty-state">
+                <p class="hp-empty-state-title">No matching records</p>
+
+                {% if filter != 'all' and search != '' %}
+                    <p>
+                        Nothing matches <strong>&ldquo;{{ search }}&rdquo;</strong>
+                        in the <strong>{{ filter|capitalize }}</strong> view.
+                        You have {{ tab_counts.all }} transaction{{ tab_counts.all == 1 ? '' : 's' }} in total.
+                    </p>
+                {% elseif filter != 'all' %}
+                    <p>
+                        You have <strong>0</strong> {{ filter|capitalize }}
+                        transaction{{ tab_counts[filter] is defined and tab_counts[filter] == 1 ? '' : 's' }} &mdash; but
+                        <strong>{{ tab_counts.all }}</strong> in total across all statuses.
+                    </p>
+                {% elseif search != '' %}
+                    <p>
+                        Nothing matches <strong>&ldquo;{{ search }}&rdquo;</strong>.
+                        You have {{ tab_counts.all }} transaction{{ tab_counts.all == 1 ? '' : 's' }} in total.
+                    </p>
+                {% endif %}
+
+                <a class="hp-btn-mini" href="?">Clear filters &amp; search</a>
+            </div>
+
+        {% else %}
+
+            <table class="hp-table">
+                <thead>
+                    <tr>
+                        <th>Booking</th>
+                        <th>Check-in</th>
+                        <th>Listing</th>
+                        <th>Guest</th>
+                        <th>Payment</th>
+                        <th>Booking Status</th>
+                        <th style="text-align:right;">Your Payout</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for t in rows %}
+                        <tr>
+                            <td>
+                                {{ t.ref }}
+                                <span class="hp-cell-sub">Booked {{ t.booked_display }}</span>
+                            </td>
+                            <td>
+                                {{ t.checkin_display }}
+                                {% if t.checkout_display %}
+                                    <span class="hp-cell-sub">&rarr; {{ t.checkout_display }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ t.listing_title }}</td>
+                            <td>{{ t.guest_name }}</td>
+                            <td>
+                                <span class="hp-status {{ t.pay_class }}">{{ t.pay_label }}</span>
+                                {% if t.payment_status == 'partial' %}
+                                    <span class="hp-balance-note">&#8369;{{ t.balance|number_format(2, '.', ',') }} left</span>
+                                {% elseif t.payment_status == 'pending' %}
+                                    <span class="hp-balance-note">&#8369;{{ t.balance|number_format(2, '.', ',') }} due</span>
+                                {% elseif t.payment_status == 'refunded' and t.refunded_at_display %}
+                                    <span class="hp-cell-sub">{{ t.refunded_at_display }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="hp-status {{ t.book_class }}">{{ t.status_label }}</span>
+                                {% if t.payout_at_display %}
+                                    <span class="hp-cell-sub">Paid out {{ t.payout_at_display }}</span>
+                                {% endif %}
+                                {% if t.counts_when_confirmed %}
+                                    <span class="hp-notcounted">counts when confirmed</span>
+                                {% endif %}
+                            </td>
+                            <td class="hp-amount" style="text-align:right;">
+                                {% if t.is_refunded %}
+                                    {# refunded: host keeps the 2% fee #}
+                                    &#8369; {{ t.refund_fee_display }}
+                                    <span class="hp-fee-note">{{ t.refund_fee_pct }}% fee of &#8369;{{ t.refund_base_display }}</span>
+                                {% else %}
+                                    &#8369; {{ t.payout_display }}
+                                    {% if t.has_total %}
+                                        <span class="hp-cell-sub">of &#8369;{{ t.total_display }}</span>
+                                    {% endif %}
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr class="hp-tfoot">
+                        <td colspan="6">
+                            {{ offset + 1 }}&ndash;{{ min(offset + per_page, total_records) }}
+                            of {{ total_records }} record{{ total_records == 1 ? '' : 's' }}
+                            (full value + {{ refund_fee_pct }}% refund fees, this view)
+                        </td>
+                        <td style="text-align:right;">&#8369; {{ view_earnings_sum|number_format(2, '.', ',') }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            {% if total_pages > 1 %}
+                <div class="hp-pagination">
+                    <a class="hp-page-btn{{ pagination.prev_disabled ? ' disabled' : '' }}" href="{{ pagination.prev_url }}">&larr; Prev</a>
+
+                    {% if pagination.show_first %}
+                        <a class="hp-page-btn" href="{{ pagination.first_url }}">1</a>
+                        {% if pagination.show_first_dots %}<span class="hp-page-info">&hellip;</span>{% endif %}
+                    {% endif %}
+
+                    {% for pg in pagination.pages %}
+                        <a class="hp-page-btn{{ pg.active ? ' active' : '' }}" href="{{ pg.url }}">{{ pg.p }}</a>
+                    {% endfor %}
+
+                    {% if pagination.show_last %}
+                        {% if pagination.show_last_dots %}<span class="hp-page-info">&hellip;</span>{% endif %}
+                        <a class="hp-page-btn" href="{{ pagination.last_url }}">{{ pagination.last_page }}</a>
+                    {% endif %}
+
+                    <a class="hp-page-btn{{ pagination.next_disabled ? ' disabled' : '' }}" href="{{ pagination.next_url }}">Next &rarr;</a>
+                </div>
+            {% endif %}
+
+        {% endif %}
+
+    {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    /* =========================================================
+       TREND CHART ANIMATION (self-contained, native JS)
+       Line draw-in + area fade when the chart scrolls into
+       view. Reduced-motion / no-JS render it fully immediately.
+    ========================================================= */
+    (function() {
+        "use strict";
+
+        var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        var trChart = document.getElementById("trTrendChart");
+
+        if (!trChart) {
+            return;
+        }
+
+        if (reduced || !("IntersectionObserver" in window)) {
+            trChart.classList.add("on");
+            return;
+        }
+
+        var tIO = new IntersectionObserver(function(entries) {
+            entries.forEach(function(entry) {
+                if (!entry.isIntersecting) {
+                    return;
+                }
+                tIO.unobserve(entry.target);
+                entry.target.classList.add("on");
+            });
+        }, {
+            threshold: 0.35
+        });
+
+        tIO.observe(trChart);
+    })();
+</script>
+{% endblock %}

@@ -1,0 +1,591 @@
+{# =========================================================
+   RoomHive — My Account › Settings (Security & preferences)
+   templates/user/security.html.twig
+
+   REBUILT 1:1 from the newest legacy user/security.php
+   (real bell count · Lucide icons · shared footer) on the
+   shared account shell — same recipe as bookings.html.twig:
+
+     - Sidebar: shared partial templates/partials/sidebar.html.twig
+       (highlight key 'security' → /settings). This page keeps only
+       the collapse script (localStorage roomhive_sidebar_collapsed).
+     - Theme: app-wide convention — localStorage roomhive_theme
+       drives html.dark + html[data-theme] (legacy keyed rhTheme /
+       body[data-theme] — same migration as bookings).
+     - Reveal: the REAL legacy mechanism (.up-reveal waits for
+       .in-view, threshold 0.12 / rootMargin -40px / --i reset at
+       1200ms) + the 1.5s failsafe so the page can never render blank.
+     - Lucide: guarded loader (window.__rhNavbarLucide — never
+       double-loads; replaces the legacy per-page loader block).
+     - Footer: shared partials/footer.html.twig (= user_footer.php).
+     - Dropped: /webprogg/assets/javaScript.js and
+       body[data-theme-base="light"] — legacy-only hooks, nothing on
+       this page uses them, and no other ported account page carries
+       them (profile/bookings included).
+
+   Three independent POST forms → POST /settings (all carry
+   csrf_token + a hidden form= marker):
+     form=password     change password (+ strength meter)
+     form=preferences  2FA toggle, language, currency
+     form=deactivate   type DEACTIVATE + password (danger card)
+
+   Data from SecurityController::index (user, two_factor_enabled,
+   language, currency, password_errors, password_saved,
+   prefs_saved, deactivate_errors, notif_count, csrf_settings).
+========================================================= #}
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Settings — RoomHive</title>
+
+        <script>
+            /* theme boot — before paint (app key: roomhive_theme) */
+            (function () {
+                try {
+                    if (localStorage.getItem("roomhive_theme") === "dark") {
+                        document.documentElement.classList.add("dark");
+                        document.documentElement.setAttribute("data-theme", "dark");
+                    }
+                } catch (e) {}
+            })();
+            document.documentElement.classList.add("js");
+        </script>
+
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/myaccount.css') }}">
+
+        <style>
+            :root {
+                --rh-ink: #1c2a38;
+                --rh-muted: #66788a;
+                --rh-line: #e6ebf1;
+                --rh-card: #ffffff;
+                --rh-accent: #eda423;
+                --rh-radius: 16px;
+            }
+
+            /* sidebar markup + styles live in templates/partials/sidebar.html.twig */
+
+            /* Lucide icon inside the success/error alerts */
+            .up-alert svg {
+                width: 16px;
+                height: 16px;
+                flex-shrink: 0;
+                vertical-align: -3px;
+                margin-right: 6px;
+            }
+
+            /* =========================================================
+                                   LUCIDE ICONS (lucide.dev)
+                                   Lucide copies the placeholder's classes onto the
+                                   generated <svg>, so the rule above keeps working.
+                                ========================================================== */
+            svg.lucide {
+                display: inline-block;
+                vertical-align: -0.18em;
+                flex-shrink: 0;
+            }
+
+            /* Field labels */
+            .up-field > label {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+
+            .up-field > label svg {
+                width: 14px;
+                height: 14px;
+                color: #b07708;
+            }
+
+            /* Row titles (2FA + Dark Mode) */
+            .up-security-row strong,
+            .up-darkmode-copy strong {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+
+            .up-security-row strong svg,
+            .up-darkmode-copy strong svg {
+                width: 15px;
+                height: 15px;
+                color: #b07708;
+            }
+
+            /* Buttons */
+            .up-btn-solid,
+            .up-btn-outline,
+            .up-btn-danger {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+            }
+
+            .up-btn-solid svg,
+            .up-btn-outline svg,
+            .up-btn-danger svg {
+                width: 15px;
+                height: 15px;
+            }
+
+            /* Need-help icon (was needhelpicon-userprofile.png) */
+            svg.up-need-help-image {
+                width: 64px;
+                height: 64px;
+                color: #f6c04e;
+                flex-shrink: 0;
+            }
+        </style>
+    </head>
+
+    <body>
+
+        {{ include('partials/navbar.html.twig', {
+        is_logged_in: true,
+        is_host: is_host ?? false,
+        nav_avatar: user.avatar_path ?? null,
+        notification_count: notif_count ?? 0,
+        current_page: 'settings'
+    }) }}
+
+        <!-- PAGE HEADER — PLAIN -->
+        <header class="ub-page-head">
+            <span class="ub-eyebrow">Settings</span>
+            <h1>Security &amp; account preferences</h1>
+            <p class="ub-lead">Manage your password, appearance, two-factor login, and account defaults.</p>
+        </header>
+
+        <main class="up-dashboard">
+
+            <!-- ==================================================
+             SIDEBAR — shared partial (templates/partials/sidebar.html.twig)
+             highlight = active_sidebar key · collapse JS stays on this page
+        =================================================== -->
+            {% include 'partials/sidebar.html.twig' with { active_sidebar: 'security' } %}
+
+            <div class="up-content">
+
+                <div class="up-two-col">
+
+                    <div style="display:flex; flex-direction:column; gap:20px;">
+
+                        <!-- CHANGE PASSWORD -->
+                        <section class="up-card up-reveal">
+                            <div class="up-card-header">
+                                <h3>Change Password</h3>
+                            </div>
+
+                            {% if password_saved %}
+                                <div class="up-alert up-alert-success" style="margin-bottom:16px;">
+                                    <p><i data-lucide="circle-check"></i>Your password has been updated.</p>
+                                </div>
+                            {% endif %}
+
+                            {% if password_errors %}
+                                <div class="up-alert up-alert-error" style="margin-bottom:16px;">
+                                    {% for error in password_errors %}
+                                        <p><i data-lucide="circle-x"></i>{{ error }}</p>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+
+                            <form method="POST" action="{{ path('app_settings') }}" style="display:flex; flex-direction:column; gap:16px;" id="pwForm">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_settings }}">
+                                <input type="hidden" name="form" value="password">
+
+                                <div class="up-field">
+                                    <label for="curPw"><i data-lucide="lock" aria-hidden="true"></i> Current Password</label>
+                                    <input type="password" id="curPw" name="current_password" required>
+                                </div>
+
+                                <div class="up-field">
+                                    <label for="newPw"><i data-lucide="key-round" aria-hidden="true"></i> New Password</label>
+                                    <input type="password" id="newPw" name="new_password" required minlength="8">
+                                    <div class="up-strength">
+                                        <div class="up-strength-fill" id="pwStrengthFill"></div>
+                                    </div>
+                                    <span class="up-strength-label" id="pwStrengthLabel">Enter at least 8 characters</span>
+                                </div>
+
+                                <div class="up-field">
+                                    <label for="confPw"><i data-lucide="lock-keyhole" aria-hidden="true"></i> Confirm New Password</label>
+                                    <input type="password" id="confPw" name="confirm_password" required minlength="8">
+                                </div>
+
+                                <button type="submit" class="up-btn-solid" style="align-self:flex-start;">
+                                    <i data-lucide="shield-check" aria-hidden="true"></i> UPDATE PASSWORD
+                                </button>
+                            </form>
+                        </section>
+
+                        <!-- PREFERENCES -->
+                        <section class="up-card up-reveal" style="--i: 1;">
+                            <div class="up-card-header">
+                                <h3>Account Preferences</h3>
+                            </div>
+
+                            {% if prefs_saved %}
+                                <div class="up-alert up-alert-success" style="margin-bottom:16px;">
+                                    <p><i data-lucide="circle-check"></i>Your preferences have been saved.</p>
+                                </div>
+                            {% endif %}
+
+                            <form method="POST" action="{{ path('app_settings') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_settings }}">
+                                <input type="hidden" name="form" value="preferences">
+
+                                <div class="up-security-row" style="align-items:flex-start; padding-top:0;">
+                                    <div>
+                                        <strong style="font-size:14px; color:var(--up-navy);"><i data-lucide="smartphone" aria-hidden="true"></i> Two-Factor Authentication</strong>
+                                        <span style="font-size:12.5px; color:var(--up-text-muted);">Require a one-time code in addition to your password when signing in.</span>
+                                    </div>
+
+                                    <label class="up-switch">
+                                        <input type="checkbox" name="two_factor_enabled" {{ two_factor_enabled ? 'checked' : '' }}>
+                                        <span class="up-switch-track"></span>
+                                    </label>
+                                </div>
+
+                                <div style="display:flex; gap:14px; margin-top:18px; flex-wrap:wrap;">
+                                    <div class="up-field" style="flex:1; min-width:160px;">
+                                        <label for="lang"><i data-lucide="languages" aria-hidden="true"></i> Language</label>
+                                        <select id="lang" name="language">
+                                            <option value="en" {{ language == 'en' ? 'selected' : '' }}>English</option>
+                                            <option value="fil" {{ language == 'fil' ? 'selected' : '' }}>Filipino</option>
+                                            <option value="ceb" {{ language == 'ceb' ? 'selected' : '' }}>Bisaya / Cebuano</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="up-field" style="flex:1; min-width:160px;">
+                                        <label for="curr"><i data-lucide="banknote" aria-hidden="true"></i> Currency</label>
+                                        <select id="curr" name="currency">
+                                            <option value="PHP" {{ currency == 'PHP' ? 'selected' : '' }}>&#8369; PHP &mdash; Philippine Peso</option>
+                                            <option value="USD" {{ currency == 'USD' ? 'selected' : '' }}>$ USD &mdash; US Dollar</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <button type="submit" class="up-btn-solid" style="margin-top:18px;">
+                                    <i data-lucide="save" aria-hidden="true"></i> SAVE PREFERENCES
+                                </button>
+                            </form>
+                        </section>
+
+                    </div>
+
+                    <div class="up-right-col">
+
+                        <!-- APPEARANCE / DARK MODE (client-side, localStorage) -->
+                        <div class="up-card up-reveal" style="--i: 0;">
+                            <div class="up-card-header">
+                                <h3>Appearance</h3>
+                            </div>
+
+                            <div class="up-darkmode-row">
+                                <div class="up-darkmode-copy">
+                                    <strong><i data-lucide="moon" aria-hidden="true"></i> Dark Mode</strong>
+                                    <span>Apply a dark theme across your entire account.</span>
+                                </div>
+
+                                <label class="up-switch">
+                                    <input type="checkbox" id="darkModeToggle" aria-label="Toggle dark mode">
+                                    <span class="up-switch-track"></span>
+                                </label>
+                            </div>
+
+                            <p class="up-field-hint" style="margin-top:0;">
+                                Your choice is remembered on this device.
+                            </p>
+                        </div>
+
+                        <div class="up-need-help up-reveal" style="--i: 1;">
+                            <div class="up-need-help-text">
+                                <h3>Need Help?</h3>
+                                <p>Questions about your account or security? We're here 24/7.</p>
+                                <a href="/help" class="up-btn-solid">
+                                    <i data-lucide="headset" aria-hidden="true"></i> CONTACT SUPPORT
+                                </a>
+                            </div>
+                            <i data-lucide="life-buoy" class="up-need-help-image" aria-hidden="true"></i>
+                        </div>
+
+                        <!-- DEACTIVATE -->
+                        <section class="up-card upr-danger-card up-reveal" style="--i: 2;">
+                            <div class="up-card-header">
+                                <h3 style="color:#a1332e;">Deactivate Account</h3>
+                            </div>
+                            <p style="font-size:13px; color:var(--up-text-muted); margin:0 0 14px;">
+                                This signs you out and hides your account from RoomHive. It doesn't
+                                cancel any active bookings — cancel those first from My Bookings.
+                            </p>
+
+                            {% if deactivate_errors %}
+                                <div class="up-alert up-alert-error" style="margin-bottom:14px;">
+                                    {% for error in deactivate_errors %}
+                                        <p><i data-lucide="circle-x"></i>{{ error }}</p>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+
+                            <form
+                                method="POST"
+                                action="{{ path('app_settings') }}"
+                                style="display:flex; flex-direction:column; gap:12px;"
+                                onsubmit="return confirm('This will deactivate your RoomHive account. Continue?');"
+                            >
+                                <input type="hidden" name="csrf_token" value="{{ csrf_settings }}">
+                                <input type="hidden" name="form" value="deactivate">
+
+                                <div class="up-field">
+                                    <label for="deaPw"><i data-lucide="lock" aria-hidden="true"></i> Password</label>
+                                    <input type="password" id="deaPw" name="deactivate_password" required>
+                                </div>
+
+                                <div class="up-field">
+                                    <label for="deaWord"><i data-lucide="type" aria-hidden="true"></i> Type DEACTIVATE to confirm</label>
+                                    <input type="text" id="deaWord" name="confirm_word" required>
+                                </div>
+
+                                <button
+                                    type="submit"
+                                    class="up-btn-danger"
+                                    style="background:#e0524d; color:#ffffff; border:none; border-radius:10px; padding:11px; font-family:'Poppins',sans-serif; font-weight:700; font-size:13px; cursor:pointer; transition:background .2s ease;"
+                                    onmouseover="this.style.background='#c84642'"
+                                    onmouseout="this.style.background='#e0524d'"
+                                >
+                                    <i data-lucide="user-x" aria-hidden="true"></i> DEACTIVATE MY ACCOUNT
+                                </button>
+                            </form>
+                        </section>
+
+                    </div>
+
+                </div>
+            </div>
+        </main>
+
+        {{ include('partials/footer.html.twig') }}
+
+        <!-- Lucide — guarded loader, same key as navbar (never double-runs) -->
+        <script>
+            (function () {
+                "use strict";
+                function renderRhIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
+                }
+                if (!window.__rhNavbarLucide) {
+                    window.__rhNavbarLucide = true;
+                    var s = document.createElement("script");
+                    s.src = "https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js";
+                    s.addEventListener("load", renderRhIcons);
+                    document.head.appendChild(s);
+                }
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", renderRhIcons);
+                } else {
+                    renderRhIcons();
+                }
+                window.addEventListener("load", renderRhIcons);
+            })();
+        </script>
+
+        <!-- Sidebar collapse — same behavior + localStorage key as legacy -->
+        <script>
+            (function () {
+                var sidebar = document.getElementById("upSidebar");
+                var toggle = document.getElementById("upSidebarToggle");
+                if (!sidebar || !toggle) {
+                    return;
+                }
+
+                var STORAGE_KEY = "roomhive_sidebar_collapsed";
+                var links = sidebar.querySelectorAll(".up-side-link");
+
+                function updateTitles(collapsed) {
+                    links.forEach(function (link) {
+                        var label = link.querySelector(".up-side-label");
+                        if (collapsed) {
+                            link.setAttribute("title", label ? label.textContent : "");
+                        } else {
+                            link.removeAttribute("title");
+                        }
+                    });
+                }
+
+                function applyState(collapsed) {
+                    sidebar.classList.toggle("collapsed", collapsed);
+                    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                    toggle.setAttribute(
+                        "aria-label",
+                        collapsed ? "Expand sidebar" : "Collapse sidebar",
+                    );
+                    updateTitles(collapsed);
+                }
+
+                var savedCollapsed = false;
+                try {
+                    savedCollapsed = localStorage.getItem(STORAGE_KEY) === "1";
+                } catch (e) {}
+                applyState(savedCollapsed);
+
+                toggle.addEventListener("click", function () {
+                    var nowCollapsed = !sidebar.classList.contains("collapsed");
+                    applyState(nowCollapsed);
+                    try {
+                        localStorage.setItem(STORAGE_KEY, nowCollapsed ? "1" : "0");
+                    } catch (e) {}
+                });
+            })();
+        </script>
+
+        <!-- Theme + reveal + password strength meter -->
+        <script>
+            (function () {
+                "use strict";
+
+                /* app-wide convention: html.dark + html[data-theme] (same as boot).
+                                       Legacy keyed rhTheme / body[data-theme] — migrated. */
+                var KEY = "roomhive_theme";
+                var darkToggle = document.getElementById("darkModeToggle");
+
+                function applyTheme(dark) {
+                    document.documentElement.classList.toggle("dark", dark);
+                    if (dark) {
+                        document.documentElement.setAttribute("data-theme", "dark");
+                    } else {
+                        document.documentElement.removeAttribute("data-theme");
+                    }
+                }
+
+                var stored = null;
+                try {
+                    stored = localStorage.getItem(KEY);
+                } catch (e) {}
+                applyTheme(stored === "dark");
+
+                if (darkToggle) {
+                    darkToggle.checked = stored === "dark";
+
+                    darkToggle.addEventListener("change", function () {
+                        var dark = darkToggle.checked;
+                        applyTheme(dark);
+                        try {
+                            localStorage.setItem(KEY, dark ? "dark" : "light");
+                        } catch (e) {}
+                    });
+                }
+
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+                var revealEls = Array.prototype.slice.call(
+                    document.querySelectorAll(".up-reveal"),
+                );
+
+                function showAllReveals() {
+                    revealEls.forEach(function (el) {
+                        el.classList.add("in-view");
+                    });
+                }
+
+                if (reduced || !("IntersectionObserver" in window)) {
+                    showAllReveals();
+                } else {
+                    var io = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) return;
+                                var el = entry.target;
+                                io.unobserve(el);
+                                el.classList.add("in-view");
+                                window.setTimeout(function () {
+                                    el.style.setProperty("--i", "0");
+                                }, 1200);
+                            });
+                        },
+                        {
+                            threshold: 0.12,
+                            rootMargin: "0px 0px -40px 0px",
+                        },
+                    );
+                    revealEls.forEach(function (el) {
+                        io.observe(el);
+                    });
+
+                    /* failsafe — force-reveal anything still hidden after 1.5s */
+                    setTimeout(showAllReveals, 1500);
+                }
+
+                var pw = document.getElementById("newPw");
+                var fill = document.getElementById("pwStrengthFill");
+                var label = document.getElementById("pwStrengthLabel");
+
+                if (pw && fill && label) {
+                    pw.addEventListener("input", function () {
+                        var v = pw.value;
+                        var score = 0;
+
+                        if (v.length >= 8) score++;
+                        if (v.length >= 12) score++;
+                        if (/[A-Z]/.test(v) && /[a-z]/.test(v)) score++;
+                        if (/\d/.test(v)) score++;
+                        if (/[^A-Za-z0-9]/.test(v)) score++;
+
+                        var levels = [
+                            {
+                                w: "10%",
+                                c: "#e0524d",
+                                t: "Too weak",
+                            },
+                            {
+                                w: "30%",
+                                c: "#e0524d",
+                                t: "Weak",
+                            },
+                            {
+                                w: "55%",
+                                c: "#e0a02a",
+                                t: "Fair",
+                            },
+                            {
+                                w: "75%",
+                                c: "#eda423",
+                                t: "Good",
+                            },
+                            {
+                                w: "100%",
+                                c: "#1fa971",
+                                t: "Strong",
+                            },
+                            {
+                                w: "100%",
+                                c: "#1fa971",
+                                t: "Excellent",
+                            },
+                        ];
+
+                        var lvl = v === "" ? null : levels[score];
+
+                        if (!lvl) {
+                            fill.style.width = "0%";
+                            label.textContent = "Enter at least 8 characters";
+                        } else {
+                            fill.style.width = lvl.w;
+                            fill.style.background = lvl.c;
+                            label.textContent = "Strength: " + lvl.t;
+                        }
+                    });
+                }
+            })();
+        </script>
+
+    </body>
+
+</html>

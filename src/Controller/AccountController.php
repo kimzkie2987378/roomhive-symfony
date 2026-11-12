@@ -318,14 +318,39 @@ final class AccountController extends AbstractController
     }
 
     /* ---- helpers ---- */
+
+    /**
+     * Column-existence check via a direct information_schema.COLUMNS
+     * query — bypasses DBAL's createSchemaManager()->listTableColumns()
+     * which (under the wrong platform auto-detect) sends the MariaDB-only
+     * CHECK_CONSTRAINTS i_c.TABLE_NAME query that 500s on MySQL.
+     */
     private function hasColumn(string $table, string $column): bool
     {
-        return isset($this->db->createSchemaManager()->listTableColumns($table)[$column]);
+        return (bool) $this->db->fetchOne(
+            "SELECT 1 FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = :table
+               AND COLUMN_NAME = :column
+             LIMIT 1",
+            ['table' => $table, 'column' => $column]
+        );
     }
 
+    /**
+     * Table-existence check via a direct information_schema.TABLES
+     * query — same reason as hasColumn(): avoid the platform-triggered
+     * introspection that fails on year-versioned MySQL (26.x).
+     */
     private function tableExists(string $table): bool
     {
-        return $this->db->createSchemaManager()->tablesExist([$table]);
+        return (bool) $this->db->fetchOne(
+            "SELECT 1 FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = :table
+             LIMIT 1",
+            ['table' => $table]
+        );
     }
 
     private function resolvePhoto(string $path): string

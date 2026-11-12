@@ -1,0 +1,313 @@
+{# roomhive/host/security.html.twig
+   Host › Security — 1:1 port of legacy host/hostsecurity.php.
+
+   Host dashboard shell (extends host/base.html.twig; sidebar
+   Settings › "Security" highlights via active_nav = 'security' —
+   the sidebar link to /host/security was pre-reserved by the
+   shell; legacy note: $activePage = 'security' matches
+   host_sidebar.php's settings-group key).
+
+   SHELL NOTE (legacy included notification_dropdown.php manually
+   because the shared navbar did not auto-include it): the ported
+   navbar already ships the bell + dropdown, so no extra include.
+
+   Content (1:1 with legacy):
+   - "Security" header + "Protect your host account." subtitle
+   - Flash banner (PRG via rh_flash) — TEXT-ONLY, no icon
+     (legacy hostsecurity.php has no PNG/emoji icon slots; same
+     flash markup the other host pages use, minus the icon)
+   - Change Password card: 3 password fields in a 2-col grid
+     (current spans full width via an empty filler div, matching
+     legacy's exact <div></div> filler placement), UPDATE PASSWORD
+   - Two-Factor Authentication card: hp-soon-badge (ENABLED /
+     DISABLED from two_factor_enabled) + a setting row whose
+     right side is its OWN form with the TURN ON / TURN OFF
+     button (legacy used a separate <form> per row)
+   - Active Sessions card: static "This device — current session"
+     row + LOG OUT button → /logout (same URL the host sidebar's
+     Log Out uses; legacy pointed at /webprogg/auth/logout.php)
+
+   TWO POST FORMS, both CSRF-guarded (hs_csrf — legacy note: BOTH
+   handlers were untokenized in legacy; a forged cross-site
+   request could change the host's PASSWORD). Each form carries
+   its own hidden hs_csrf field; the controller verifies with
+   hash_equals.
+
+   ICONS: legacy hostsecurity.php has NO icon slots. The port
+   carries no icons either. No page-level lucide loader — the
+   shared navbar ships the guarded loader.
+
+   CSS NOTE: hp-page-header / hp-flash / hp-card / hp-card-header
+   / hp-soon-badge / hp-form-grid / hp-field / hp-input /
+   hp-form-actions / hp-btn-primary / hp-btn-outline /
+   hp-setting-row / hp-session-row / hp-session-dot /
+   hp-btn-danger-outline came from legacy hostprofile.css, which
+   the Symfony shell does not ship — redeclared page-locally
+   with the same values the other ported host pages standardized
+   on (same approach as host/payouts.html.twig +
+   host/notification_settings.html.twig).
+
+   Pairs with: HostSecurityController
+     GET|POST /host/security   name app_host_security
+#}
+{% extends 'host/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'security' %}
+
+{% block page_title %}Security — RoomHive{% endblock %}
+
+{% block styles %}
+<style>
+    /* ---- Page header (same values as the other host pages) ---- */
+    .hp-page-header {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 16px; flex-wrap: wrap;
+    }
+    .hp-page-title { margin: 0; font-size: 24px; font-weight: 800; color: var(--rh-ink); }
+    .hp-page-subtitle { margin: 4px 0 0; font-size: 13px; color: var(--rh-muted); max-width: 680px; }
+
+    /* ---- Flash messages (legacy hp-flash-*) ----
+       The legacy hostsecurity.php flash is text-only (no icon). */
+    .hp-flash {
+        margin: 0 0 14px; padding: 12px 14px; border-radius: 10px;
+        font-size: 13px; font-weight: 600;
+    }
+    .hp-flash-success { background: #E7F7EC; color: #1E7A3D; border: 1px solid #BFE8CF; }
+    .hp-flash-error   { background: #FCEAEA; color: #C4302F; border: 1px solid #F3B9B9; }
+
+    /* ---- Card header (legacy hp-card-header) + ENABLED/DISABLED badge ---- */
+    .hp-card {
+        background: #fff; border: 1px solid var(--rh-line);
+        border-radius: var(--rh-radius); padding: 22px;
+    }
+    .hp-card-header {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px; margin-bottom: 16px;
+    }
+    .hp-card-header h3 {
+        margin: 0; font-size: 16px; font-weight: 700; color: var(--rh-ink);
+    }
+    .hp-soon-badge {
+        font-size: 11px; font-weight: 800; letter-spacing: .04em;
+        padding: 4px 10px; border-radius: 999px; white-space: nowrap;
+        background: #F0F1F6; color: var(--rh-muted);
+    }
+    .hp-soon-badge.is-on {
+        background: #E7F7EC; color: #1E7A3D;
+    }
+
+    /* ---- Form grid (2 columns, legacy hp-form-grid) ---- */
+    .hp-form-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+    }
+    .hp-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .hp-field label {
+        font-size: 11px; font-weight: 700; color: var(--rh-muted);
+        text-transform: uppercase; letter-spacing: .04em;
+    }
+    .hp-input {
+        width: 100%; box-sizing: border-box;
+        padding: 10px 12px; border-radius: 9px;
+        border: 1px solid #dfe4ea; background: #fff;
+        font-family: inherit; font-size: 13px; font-weight: 500;
+        color: var(--rh-ink); outline: none;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .hp-input:focus {
+        border-color: var(--rh-accent);
+        box-shadow: 0 0 0 3px rgba(237, 164, 35, 0.18);
+    }
+
+    /* ---- Preference row (same as notification_settings) ---- */
+    .hp-setting-row {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 16px; padding: 13px 0;
+    }
+    .hp-setting-row strong {
+        display: block;
+        font-size: 13.5px; font-weight: 700; color: var(--rh-ink);
+    }
+    .hp-setting-row p { margin: 3px 0 0; font-size: 12px; color: var(--rh-muted); }
+
+    /* ---- Buttons ---- */
+    .hp-form-actions {
+        display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+        margin-top: 16px;
+    }
+    .hp-btn-primary {
+        display: inline-block; padding: 8px 16px; border-radius: 9px;
+        border: 1px solid var(--rh-accent);
+        background: linear-gradient(135deg, #f6b93b, #eda423);
+        color: #1c2a38; font-size: 12px; font-weight: 700;
+        font-family: inherit; text-decoration: none; cursor: pointer;
+        box-shadow: 0 8px 18px rgba(237, 164, 35, 0.35);
+        transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .hp-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 24px rgba(237, 164, 35, 0.45);
+    }
+    .hp-btn-outline {
+        display: inline-block; padding: 8px 16px; border-radius: 9px;
+        border: 1px solid var(--rh-accent); color: var(--rh-accent);
+        background: #fff; font-size: 12px; font-weight: 700;
+        font-family: inherit; text-decoration: none; cursor: pointer;
+        transition: background 0.15s ease;
+    }
+    .hp-btn-outline:hover { background: var(--rh-accent-light); }
+    .hp-btn-danger-outline {
+        display: inline-block; padding: 8px 16px; border-radius: 9px;
+        border: 1px solid #e14b4b; color: #e14b4b;
+        background: #fff; font-size: 12px; font-weight: 700;
+        font-family: inherit; text-decoration: none; cursor: pointer;
+        transition: background 0.15s ease;
+    }
+    .hp-btn-danger-outline:hover { background: #fdecea; }
+
+    /* ---- Active sessions (legacy hp-session-row + dot) ---- */
+    .hp-session-row {
+        display: flex; align-items: flex-start; gap: 12px;
+        padding: 12px 0;
+    }
+    .hp-session-dot {
+        width: 10px; height: 10px; border-radius: 50%;
+        background: #1fa971; flex-shrink: 0;
+        margin-top: 6px;
+        box-shadow: 0 0 0 4px rgba(31, 169, 113, 0.15);
+    }
+    .hp-session-row strong {
+        display: block;
+        font-size: 13.5px; font-weight: 700; color: var(--rh-ink);
+    }
+    .hp-session-row p { margin: 3px 0 0; font-size: 12px; color: var(--rh-muted); }
+
+    /* ---- Icon baseline (kept for parity; no icons on this page) ---- */
+    svg.icon { display: inline-block; vertical-align: -0.18em; flex-shrink: 0; }
+
+    /* ---- Dark mode ---- */
+    body[data-theme="dark"] .hp-page-title { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-card { background: #141b24; border-color: #1a222b; }
+    body[data-theme="dark"] .hp-card-header h3 { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-soon-badge { background: #1a222b; color: #8d99a5; }
+    body[data-theme="dark"] .hp-soon-badge.is-on { background: rgba(31, 169, 113, 0.18); color: #4fd29a; }
+    body[data-theme="dark"] .hp-input { background: #141b24; border-color: #2a3540; color: #e8ecf1; }
+    body[data-theme="dark"] .hp-field label { color: #8d99a5; }
+    body[data-theme="dark"] .hp-setting-row strong { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-setting-row p { color: #8d99a5; }
+    body[data-theme="dark"] .hp-btn-outline { background: #141b24; }
+    body[data-theme="dark"] .hp-btn-danger-outline { background: #141b24; }
+    body[data-theme="dark"] .hp-btn-primary { background: linear-gradient(135deg, #f6b93b, #eda423); border-color: #eda423; }
+    body[data-theme="dark"] .hp-session-row strong { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-session-row p { color: #8d99a5; }
+
+    @media (prefers-reduced-motion: reduce) {
+        .hp-input,
+        .hp-btn-primary,
+        .hp-btn-outline,
+        .hp-btn-danger-outline {
+            transition: none;
+        }
+    }
+
+    /* ---- Mobile (single-column form grid) ---- */
+    @media (max-width: 600px) {
+        .hp-form-grid { grid-template-columns: 1fr; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="hp-page-header">
+    <div>
+        <h1 class="hp-page-title">Security</h1>
+        <p class="hp-page-subtitle">Protect your host account.</p>
+    </div>
+</div>
+
+{% if session_flash %}
+    <div class="hp-flash {{ session_flash.type == 'success' ? 'hp-flash-success' : 'hp-flash-error' }}">
+        {# Legacy hostsecurity.php flash is text-only — no icon
+           (the page has no PNG/emoji icon slots). #}
+        {{ session_flash.message }}
+    </div>
+{% endif %}
+
+<!-- =========================================================
+     CHANGE PASSWORD (POST change_password — CSRF-guarded)
+========================================================= -->
+<section class="hp-card">
+    <div class="hp-card-header">
+        <h3>Change Password</h3>
+    </div>
+    <form method="POST" action="{{ path('app_host_security') }}">
+        <input type="hidden" name="hs_csrf" value="{{ hs_csrf }}">
+        <div class="hp-form-grid">
+            <div class="hp-field">
+                <label for="current_password">Current Password</label>
+                <input class="hp-input" type="password" name="current_password" id="current_password" required>
+            </div>
+            <div></div>
+            <div class="hp-field">
+                <label for="new_password">New Password</label>
+                <input class="hp-input" type="password" name="new_password" id="new_password" minlength="8" required>
+            </div>
+            <div class="hp-field">
+                <label for="confirm_password">Confirm New Password</label>
+                <input class="hp-input" type="password" name="confirm_password" id="confirm_password" minlength="8" required>
+            </div>
+        </div>
+        <div class="hp-form-actions">
+            <button type="submit" name="change_password" value="1" class="hp-btn-primary">UPDATE PASSWORD</button>
+        </div>
+    </form>
+</section>
+
+<!-- =========================================================
+     TWO-FACTOR AUTHENTICATION (POST toggle_2fa — CSRF-guarded)
+     Persists to users.two_factor_enabled; login enforcement is
+     a separate task (legacy comment kept).
+========================================================= -->
+<section class="hp-card">
+    <div class="hp-card-header">
+        <h3>Two-Factor Authentication</h3>
+        <span class="hp-soon-badge {{ two_factor_enabled ? 'is-on' : '' }}">{{ two_factor_enabled ? 'ENABLED' : 'DISABLED' }}</span>
+    </div>
+    <div class="hp-setting-row">
+        <div>
+            <strong>Two-factor authentication</strong>
+            <p>Requires a verification code at login. Preference is saved to your account — code delivery at login is coming soon.</p>
+        </div>
+        <form method="POST" action="{{ path('app_host_security') }}">
+            <input type="hidden" name="hs_csrf" value="{{ hs_csrf }}">
+            <button type="submit" name="toggle_2fa" value="1" class="hp-btn-outline">
+                {{ two_factor_enabled ? 'TURN OFF' : 'TURN ON' }}
+            </button>
+        </form>
+    </div>
+</section>
+
+<!-- =========================================================
+     ACTIVE SESSIONS (static — current device + LOG OUT)
+     Legacy pointed the link at /webprogg/auth/logout.php; the
+     port points at /logout, the same URL the host sidebar's Log
+     Out uses.
+========================================================= -->
+<section class="hp-card">
+    <div class="hp-card-header">
+        <h3>Active Sessions</h3>
+    </div>
+    <div class="hp-session-row">
+        <span class="hp-session-dot"></span>
+        <div style="flex:1;">
+            <strong>This device — current session</strong>
+            <p>You are logged in here right now.</p>
+        </div>
+    </div>
+    <div class="hp-form-actions">
+        <a href="/logout" class="hp-btn-danger-outline">LOG OUT</a>
+    </div>
+</section>
+
+{% endblock %}

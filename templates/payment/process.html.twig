@@ -1,0 +1,437 @@
+{# =========================================================
+   ROOMHIVE — PROCESS PAYMENT · MOCK PAYMENT SCREENS
+   payment/process.html.twig
+
+   Rendered by ProcessPaymentController (POST /booking/process-payment,
+   route app_payment_process) — 1:1 port of the HTML half of legacy
+   booking/process-payment.php.
+
+   Two render paths, exactly like the legacy file:
+   * stage=review  — the listings/payment.html.twig form POSTs here with
+     payment_method + no stage; this template shows the mock screen for
+     that method (wallet / gcash / maya / card) with the amount recomputed
+     server-side.
+   * stage=confirm — validation failed server-side → the controller
+     re-renders THIS template with $errors and sticky inputs (legacy:
+     $stage='review' fall-through).
+
+   The hidden fields below carry the FULL legacy field set
+   (listing_id, checkin_date, checkout_date, guests, long_term, months,
+   payment_method, payment_purpose, booking_id in balance mode,
+   stage=confirm) back to the same route — the confirm stage
+   re-validates everything server-side, so the mock screens can be
+   trusted as display-only. 50% RESERVE REMOVED: the legacy
+   payment_purpose_full flag is gone — every reservation pays in full.
+
+   CSS: the legacy inline <style> block (pp-*) was extracted 1:1 into
+   public/assets/process-payment.css (same extraction payment.css got
+   for listingpayment.php). Loaded AFTER style.css + myaccount.css so
+   the cascade order matches the legacy page exactly.
+   Link: {{ asset('assets/process-payment.css') }}?v=1
+   (bump ?v= on future edits to bust browser caches)
+
+   Icon mapping (legacy /webprogg/images/* → public/images/*, same
+   table PaymentController's $paymentMethods uses):
+     RoomHiveLogos.png      → asset('images/RoomHiveLogos.png')
+     GCashIcon.png          → /images/GCashIcon.png
+     MayaIcon.png           → /images/paymayaicon.png
+     CardIcon.png           → /images/paymentsicon-userprofile.png
+     ListingPlaceholder.png → /images/ListingPlaceholder.png
+
+   legacy loaded /webprogg/assets/javaScript.js here — dropped like on
+   every ported page (documented in listings/payment.html.twig); only
+   the page's own inline script is kept, 1:1 at the bottom.
+
+   summary_meta_html is |raw ON PURPOSE: the controller builds it with
+   legacy's mix of raw entities (&middot; &rarr;) and htmlspecialchars()
+   around user-supplied parts — same trust boundary as the legacy echo.
+   Everything else goes through Twig's default autoescape.
+   ========================================================= #}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Complete Payment — RoomHive</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+    <link rel="stylesheet" href="{{ asset('assets/myaccount.css') }}">
+    <link rel="stylesheet" href="{{ asset('assets/process-payment.css') }}?v=1">
+</head>
+
+<body>
+
+    <header class="pp-nav">
+        <div class="pp-nav-inner">
+            <a class="pp-brand" href="{{ path('app_listings') }}">
+                <img class="pp-brand-logo" src="{{ asset('images/RoomHiveLogos.png') }}" alt="RoomHive Checkout">
+            </a>
+            <span class="pp-secure-chip">
+                &#128274; Secured
+            </span>
+        </div>
+    </header>
+
+    <main class="pp-page">
+
+        <a href="{{ change_method_url }}" class="pp-back-link">
+            &#8592; Change payment method
+        </a>
+
+        {% if payment_purpose != 'balance' %}
+            <div class="pp-steps">
+                <div class="pp-step pp-step-done">
+                    <span class="pp-step-circle">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m5 12.5 4.5 4.5L19 7.5" />
+                        </svg>
+                    </span>
+                    <span class="pp-step-label">Details</span>
+                </div>
+                <div class="pp-step-line pp-step-line-done"></div>
+                <div class="pp-step pp-step-active"><span class="pp-step-circle">2</span><span class="pp-step-label">Payment</span></div>
+                <div class="pp-step-line"></div>
+                <div class="pp-step"><span class="pp-step-circle">3</span><span class="pp-step-label">Confirmation</span></div>
+            </div>
+        {% else %}
+            <p class="pp-balance-heading">Paying remaining balance on booking #{{ booking_id }}</p>
+        {% endif %}
+
+        <div class="pp-card">
+
+            <div class="pp-summary">
+                <img
+                    class="pp-summary-photo"
+                    src="{{ cover_photo }}"
+                    alt=""
+                    onerror="this.onerror=null;this.src='/images/ListingPlaceholder.png';">
+                <div>
+                    <p class="pp-summary-title">{{ listing.title }}</p>
+                    <p class="pp-summary-meta">{{ summary_meta_html|raw }}</p>
+                </div>
+            </div>
+
+            {% if errors|length > 0 %}
+                <div class="pp-errors">
+                    <ul>
+                        {% for error in errors %}
+                            <li>{{ error }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+
+            {% if payment_method == 'wallet' %}
+
+                <!-- ===================== WALLET MOCK SCREEN ===================== -->
+                <div class="pp-brand-row">
+                    <span class="pp-brand-icon-wallet" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" />
+                            <path d="M3 5v14a2 2 0 0 0 2 2h16v-5" />
+                            <path d="M18 12a2 2 0 0 0 0 4h4v-4Z" />
+                        </svg>
+                    </span>
+                    <div>
+                        <h1>Pay with RoomHive Wallet</h1>
+                        <p class="pp-subtext">Your stored balance is deducted instantly — no fees.</p>
+                    </div>
+                </div>
+
+                <div class="pp-amount-box {{ (is_listing_owner and payment_purpose == 'reservation') ? 'pp-amount-owner' : 'pp-amount-wallet' }}">
+                    <span>{{ charge_label }}</span>
+                    <strong>&#8369; {{ amount_due|number_format(2, '.', ',') }}</strong>
+                </div>
+
+                {% if wallet_short %}
+                    <div class="pp-errors">
+                        <ul>
+                            <li>
+                                Your wallet balance (&#8369;{{ wallet_balance|number_format(2, '.', ',') }}) is not enough
+                                for this payment (&#8369;{{ amount_due|number_format(2, '.', ',') }}).
+                                <a href="{{ path('app_wallet') }}">Top up your wallet</a> or
+                                <a href="{{ change_method_url }}">choose another payment method</a>.
+                            </li>
+                        </ul>
+                    </div>
+                {% endif %}
+
+                <form method="POST" action="{{ path('app_payment_process') }}" class="pp-form">
+                    <input type="hidden" name="listing_id" value="{{ listing.id }}">
+                    <input type="hidden" name="checkin_date" value="{{ checkin }}">
+                    <input type="hidden" name="checkout_date" value="{{ checkout }}">
+                    <input type="hidden" name="guests" value="{{ guests }}">
+                    <input type="hidden" name="long_term" value="{{ long_term ? '1' : '0' }}">
+                    <input type="hidden" name="months" value="{{ months }}">
+                    <input type="hidden" name="payment_method" value="{{ payment_method }}">
+                    <input type="hidden" name="payment_purpose" value="{{ payment_purpose }}">
+                    {% if payment_purpose == 'balance' %}
+                        <input type="hidden" name="booking_id" value="{{ booking_id }}">
+                    {% endif %}
+                    <input type="hidden" name="stage" value="confirm">
+
+                    <div class="pp-balance-box">
+                        <div class="pp-balance-row">
+                            <span>Current wallet balance</span>
+                            <strong>&#8369; {{ wallet_balance|number_format(2, '.', ',') }}</strong>
+                        </div>
+                        <div class="pp-balance-row pp-balance-after">
+                            <span>After this payment</span>
+                            <strong>&#8369; {{ wallet_after|number_format(2, '.', ',') }}</strong>
+                        </div>
+                    </div>
+
+                    <p class="pp-hint">
+                        This deducts the amount directly from your RoomHive wallet. If the host declines
+                        within 24 hours, the full amount is refunded straight back to your wallet.
+                    </p>
+
+                    <button type="submit" class="pp-btn-confirm pp-btn-wallet" {% if wallet_short %}disabled{% endif %}>
+                        Confirm Wallet Payment
+                    </button>
+                </form>
+
+            {% elseif payment_method == 'gcash' %}
+
+                <!-- ===================== GCASH MOCK SCREEN ===================== -->
+                <div class="pp-brand-row">
+                    <img src="{{ asset('images/GCashIcon.png') }}" alt="GCash" class="pp-brand-icon">
+                    <div>
+                        <h1>Pay with GCash</h1>
+                        <p class="pp-subtext">You'll get a payment prompt in the GCash app.</p>
+                    </div>
+                </div>
+
+                <div class="pp-amount-box {{ (is_listing_owner and payment_purpose == 'reservation') ? 'pp-amount-owner' : 'pp-amount-gcash' }}">
+                    <span>{{ charge_label }}</span>
+                    <strong>&#8369; {{ amount_due|number_format(2, '.', ',') }}</strong>
+                </div>
+
+                <form method="POST" action="{{ path('app_payment_process') }}" class="pp-form">
+                    <input type="hidden" name="listing_id" value="{{ listing.id }}">
+                    <input type="hidden" name="checkin_date" value="{{ checkin }}">
+                    <input type="hidden" name="checkout_date" value="{{ checkout }}">
+                    <input type="hidden" name="guests" value="{{ guests }}">
+                    <input type="hidden" name="long_term" value="{{ long_term ? '1' : '0' }}">
+                    <input type="hidden" name="months" value="{{ months }}">
+                    <input type="hidden" name="payment_method" value="{{ payment_method }}">
+                    <input type="hidden" name="payment_purpose" value="{{ payment_purpose }}">
+                    {% if payment_purpose == 'balance' %}
+                        <input type="hidden" name="booking_id" value="{{ booking_id }}">
+                    {% endif %}
+                    <input type="hidden" name="stage" value="confirm">
+
+                    <label class="pp-field">
+                        <span>GCash Mobile Number</span>
+                        <input
+                            type="tel"
+                            name="mobile_number"
+                            placeholder="09XX XXX XXXX"
+                            value="{{ sticky.mobile_number }}"
+                            maxlength="11"
+                            inputmode="numeric"
+                            required>
+                    </label>
+
+                    <p class="pp-hint">
+                        {{ mock_hint }}
+                    </p>
+
+                    <button type="submit" class="pp-btn-confirm pp-btn-gcash">
+                        Send Payment Request
+                    </button>
+                </form>
+
+            {% elseif payment_method == 'maya' %}
+
+                <!-- ===================== MAYA MOCK SCREEN ===================== -->
+                <div class="pp-brand-row">
+                    <img src="{{ asset('images/paymayaicon.png') }}" alt="Maya" class="pp-brand-icon">
+                    <div>
+                        <h1>Pay with Maya</h1>
+                        <p class="pp-subtext">You'll get a payment prompt in the Maya app.</p>
+                    </div>
+                </div>
+
+                <div class="pp-amount-box {{ (is_listing_owner and payment_purpose == 'reservation') ? 'pp-amount-owner' : 'pp-amount-maya' }}">
+                    <span>{{ charge_label }}</span>
+                    <strong>&#8369; {{ amount_due|number_format(2, '.', ',') }}</strong>
+                </div>
+
+                <form method="POST" action="{{ path('app_payment_process') }}" class="pp-form">
+                    <input type="hidden" name="listing_id" value="{{ listing.id }}">
+                    <input type="hidden" name="checkin_date" value="{{ checkin }}">
+                    <input type="hidden" name="checkout_date" value="{{ checkout }}">
+                    <input type="hidden" name="guests" value="{{ guests }}">
+                    <input type="hidden" name="long_term" value="{{ long_term ? '1' : '0' }}">
+                    <input type="hidden" name="months" value="{{ months }}">
+                    <input type="hidden" name="payment_method" value="{{ payment_method }}">
+                    <input type="hidden" name="payment_purpose" value="{{ payment_purpose }}">
+                    {% if payment_purpose == 'balance' %}
+                        <input type="hidden" name="booking_id" value="{{ booking_id }}">
+                    {% endif %}
+                    <input type="hidden" name="stage" value="confirm">
+
+                    <label class="pp-field">
+                        <span>Maya Mobile Number</span>
+                        <input
+                            type="tel"
+                            name="mobile_number"
+                            placeholder="09XX XXX XXXX"
+                            value="{{ sticky.mobile_number }}"
+                            maxlength="11"
+                            inputmode="numeric"
+                            required>
+                    </label>
+
+                    <p class="pp-hint">
+                        {{ mock_hint }}
+                    </p>
+
+                    <button type="submit" class="pp-btn-confirm pp-btn-maya">
+                        Send Payment Request
+                    </button>
+                </form>
+
+            {% else %}
+
+                <!-- ===================== CARD MOCK SCREEN ===================== -->
+                <div class="pp-brand-row">
+                    <img src="{{ asset('images/paymentsicon-userprofile.png') }}" alt="Card" class="pp-brand-icon">
+                    <div>
+                        <h1>Pay with Card</h1>
+                        <p class="pp-subtext">Visa, Mastercard, JCB and more.</p>
+                    </div>
+                </div>
+
+                <div class="pp-amount-box {{ (is_listing_owner and payment_purpose == 'reservation') ? 'pp-amount-owner' : 'pp-amount-card' }}">
+                    <span>{{ charge_label }}</span>
+                    <strong>&#8369; {{ amount_due|number_format(2, '.', ',') }}</strong>
+                </div>
+
+                <form method="POST" action="{{ path('app_payment_process') }}" class="pp-form">
+                    <input type="hidden" name="listing_id" value="{{ listing.id }}">
+                    <input type="hidden" name="checkin_date" value="{{ checkin }}">
+                    <input type="hidden" name="checkout_date" value="{{ checkout }}">
+                    <input type="hidden" name="guests" value="{{ guests }}">
+                    <input type="hidden" name="long_term" value="{{ long_term ? '1' : '0' }}">
+                    <input type="hidden" name="months" value="{{ months }}">
+                    <input type="hidden" name="payment_method" value="{{ payment_method }}">
+                    <input type="hidden" name="payment_purpose" value="{{ payment_purpose }}">
+                    {% if payment_purpose == 'balance' %}
+                        <input type="hidden" name="booking_id" value="{{ booking_id }}">
+                    {% endif %}
+                    <input type="hidden" name="stage" value="confirm">
+
+                    <label class="pp-field">
+                        <span>Card Number</span>
+                        <input
+                            type="text"
+                            name="card_number"
+                            placeholder="1234 5678 9012 3456"
+                            maxlength="19"
+                            inputmode="numeric"
+                            value="{{ sticky.card_number }}"
+                            required>
+                    </label>
+
+                    <label class="pp-field">
+                        <span>Name on Card</span>
+                        <input
+                            type="text"
+                            name="card_name"
+                            placeholder="Juan Dela Cruz"
+                            value="{{ sticky.card_name }}"
+                            required>
+                    </label>
+
+                    <div class="pp-field-row">
+                        <label class="pp-field">
+                            <span>Expiry (MM/YY)</span>
+                            <input
+                                type="text"
+                                name="card_expiry"
+                                placeholder="MM/YY"
+                                maxlength="5"
+                                inputmode="numeric"
+                                value="{{ sticky.card_expiry }}"
+                                required>
+                        </label>
+                        <label class="pp-field">
+                            <span>CVV</span>
+                            <input
+                                type="password"
+                                name="card_cvv"
+                                placeholder="123"
+                                maxlength="4"
+                                inputmode="numeric"
+                                value="{{ sticky.card_cvv }}"
+                                required>
+                        </label>
+                    </div>
+
+                    <button type="submit" class="pp-btn-confirm pp-btn-card">
+                        Pay &#8369; {{ amount_due|number_format(0, '.', ',') }}
+                    </button>
+                </form>
+
+            {% endif %}
+
+            <p class="pp-secure-note">&#128274; Payments are simulated for this demo — no real charge is made.</p>
+
+        </div>
+
+    </main>
+
+    {# legacy loaded /webprogg/assets/javaScript.js here — dropped like on
+       every ported page; only the page's own inline script is kept, 1:1 #}
+    <script>
+        (function() {
+            var form = document.querySelector('form.pp-form');
+            if (!form) return;
+
+            form.addEventListener('submit', function() {
+                var btn = form.querySelector('.pp-btn-confirm');
+                if (btn && !btn.disabled) {
+                    btn.disabled = true;
+                    btn.textContent = 'Processing\u2026';
+                }
+            });
+
+            var cardNum = form.querySelector('input[name="card_number"]');
+            if (cardNum) {
+                cardNum.addEventListener('input', function() {
+                    var d = this.value.replace(/\D/g, '').slice(0, 16);
+                    this.value = d.replace(/(\d{4})(?=\d)/g, '$1 ');
+                });
+            }
+
+            var cardExp = form.querySelector('input[name="card_expiry"]');
+            if (cardExp) {
+                cardExp.addEventListener('input', function() {
+                    var d = this.value.replace(/\D/g, '').slice(0, 4);
+                    this.value = d.length > 2 ? d.slice(0, 2) + '/' + d.slice(2) : d;
+                });
+            }
+
+            var cardCvv = form.querySelector('input[name="card_cvv"]');
+            if (cardCvv) {
+                cardCvv.addEventListener('input', function() {
+                    this.value = this.value.replace(/\D/g, '').slice(0, 4);
+                });
+            }
+
+            var mobile = form.querySelector('input[name="mobile_number"]');
+            if (mobile) {
+                mobile.addEventListener('input', function() {
+                    this.value = this.value.replace(/\D/g, '').slice(0, 11);
+                });
+            }
+        })();
+    </script>
+
+</body>
+
+</html>

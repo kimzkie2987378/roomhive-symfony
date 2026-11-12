@@ -1,0 +1,1363 @@
+{# =========================================================
+   RoomHive — Become a Host · Step 4 (Space Submitted / Awaiting Approval)
+   templates/host/host_step4.html.twig
+
+   Fourth and FINAL host-flow page (cont-54). Same family as
+   Steps 1-3 — NOT an account-area page:
+
+     - Shell: legacy rh-step4 page style — own --hs-* tokens
+       (white bg, honeycomb hero + blobs, 4-step bespoke
+       stepper with track + progress-fill, success card with
+       confetti). Everything is scoped under .rh-step4 /
+       .hs-*; the body carries the .rh-step4 class. CSS
+       carried over 1:1 from the pasted PHP (host-step4.php).
+     - Navbar: shared partials/navbar.html.twig with
+       current_page 'becomeahost' (legacy $currentPage pointed
+       at becomeahost.php when not yet approved, hostprofile.php
+       when approved — but the nav HIGHLIGHT for BECOME A HOST
+       stays on for the entire host wizard; the partial owns
+       the dropdown). Dual-contract ?? guards on is_host /
+       nav_avatar / notification_count (cont-29 wishlist
+       precedent, same as Step 2/3).
+     - Footer: shared partials/footer.html.twig after </main>
+       (legacy includes/footer.php). The legacy's
+       $listingCategories and $quickLinks were footer-only
+       and are deleted — the partial owns the footer now
+       (same call as Step 3).
+     - Lucide: the legacy page drew the stepper icons from
+       PNG files (CreateIcon-BecomeAHost.png etc.); the port
+       uses the SAME shared Lucide set as Steps 2 and 3
+       (host_steps set: user-plus / house / image-plus /
+       calendar-check). The .hs-step-circle <img> tag becomes
+       <i data-lucide="...">. Guarded loader
+       (window.__rhNavbarLucide — never double-runs with the
+       navbar's); window.hs4RefreshIcons is kept as a thin
+       alias in case any page code wants it.
+     - No form, no CSRF: this page is GET-only. The
+       controller's only "write" is the one-shot
+       UPDATE listings SET status='pending' on first visit
+       (guarded by session host_application.finalized) — see
+       the controller's "FINALIZE" block.
+     - TWO BRANCHES via is_host_approved (legacy $isHostApproved,
+       true when session is_host === true):
+         * approved   → title "Space Added Successfully!",
+                         hero "You're almost there!", copy
+                         "Your space has been added and is now
+                         awaiting approval...", buttons
+                         GO TO HOST PROFILE (→ /host/profile) +
+                         ADD ANOTHER SPACE (→ /host/become-a-host).
+         * not approved → title "Awaiting Approval",
+                           status badge "Awaiting Admin Approval",
+                           hero "You're almost there!",
+                           copy "Your space and host application
+                           have been submitted...", button
+                           GO TO MY PROFILE (→ /profile).
+       The hero/stepper/confetti are IDENTICAL on both branches.
+
+   Template-local static config:
+     host_steps              4 rows (Lucide names), current
+                             step = 4 ('calendar-check')
+     current_step            4 (template-local const)
+     step_progress_percent   render var (int 0..75) — feeds
+                             the stepper fill width via JS
+                             (the legacy clamps it to max 75
+                             because the .hs-stepper-track
+                             spans 12.5%..87.5% = 75% of
+                             the container; 3 of 4 steps done
+                             fills the whole track → 75%).
+
+   Controller contract (HostStep4Controller):
+     GET:  auth (login redirect), step 2+3 check (host_application
+           must carry BOTH 'listing_id' AND 'cover_photo', else
+           redirect /host/become-a-host). FINALIZE (runs once):
+           if !host_application['finalized'] →
+             UPDATE listings SET status='pending' WHERE id = listing_id
+             host_application['finalized'] = true; persist session.
+           Avatar fetch, render. NO POST.
+     Render vars:
+       user                    { id, name, email, avatar_path,
+                                 is_host }  (navbar contract)
+       is_host                bool — navbar dual-contract
+       nav_avatar             string — navbar dual-contract
+       notification_count     int — navbar badge
+       notif_count            int — page contract alias
+       is_host_approved       bool — picks the hero+actions branch
+       step_progress_percent  int (0..75) — stepper fill target
+       full_name              string — fallback display name
+                              (host_application.full_name ?? user.name)
+
+   Images: the success card renders
+   {{ asset('images/SpaceSuccessfullyAddIcon.png') }} — the file
+   must exist at public/images/SpaceSuccessfullyAddIcon.png (drop
+   the legacy /webprogg/images/SpaceSuccessfullyAddIcon.png there
+   unchanged).
+
+   URL conventions (cont-52 family, the user's live /host/step-N):
+     GO TO HOST PROFILE   → /host/profile     (cont-54 best guess;
+                                                 adjust if your host
+                                                 profile route differs)
+     ADD ANOTHER SPACE    → /host/become-a-host
+     GO TO MY PROFILE     → /profile
+========================================================= #}
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+
+        <meta charset="UTF-8">
+
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0"
+        >
+
+        <title>
+            RoomHive - {{ is_host_approved ? 'Space Added Successfully' : 'Awaiting Approval' }}
+        </title>
+
+        <!-- POPPINS FONT -->
+        <link
+            href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
+            rel="stylesheet"
+        >
+
+        <!-- MAIN CSS (site-wide style.css, same as Steps 2/3) -->
+        <link
+            rel="stylesheet"
+            href="{{ asset('assets/style.css') }}"
+        >
+
+        <!-- NEW: enables JS-gated entrance animations -->
+        <script>
+            document.documentElement.classList.add("js");
+        </script>
+
+        <style>
+            :root {
+                --hs-honey: #eda423;
+                --hs-honey-light: #f6c04e;
+                --hs-moss: #2f9e5b;
+                --hs-ink: #1c2a38;
+                --hs-muted: #5d6875;
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .hs-blob,
+                .hs-pulse-dot::after,
+                .hs-shimmer,
+                .hs-ring,
+                .hs-step.current .hs-step-circle,
+                .hs-icon-dots,
+                .hs-btn-primary::after {
+                    animation: none !important;
+                    opacity: 1 !important;
+                    transform: none !important;
+                }
+                .js .hs-anim {
+                    animation: none !important;
+                    opacity: 1 !important;
+                    transform: none !important;
+                }
+                .hs-success-icon {
+                    animation: none !important;
+                    opacity: 1 !important;
+                }
+            }
+
+            body.rh-step4 {
+                background: #ffffff;
+                font-family: "Poppins", sans-serif;
+                color: var(--hs-ink);
+            }
+
+            /* =========================================================
+                                                                                   HERO (compact) — honeycomb + blobs + stepper
+                                                                                ========================================================= */
+
+            .hs-hero {
+                position: relative;
+
+                overflow: hidden;
+
+                background:
+                    radial-gradient(
+                        900px 420px at 85% -10%,
+                        rgba(237, 164, 35, 0.16),
+                        transparent 60%
+                    ),
+                    radial-gradient(
+                        700px 380px at -10% 110%,
+                        rgba(237, 164, 35, 0.12),
+                        transparent 60%
+                    ),
+                    linear-gradient(180deg, #ffffff 0%, #fff8ec 100%);
+            }
+
+            .hs-hero::before {
+                content: "";
+
+                position: absolute;
+                inset: 0;
+
+                background-image: url("data:image/svg+xml,%3Csvg width='28' height='49' viewBox='0 0 28 49' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23eda423' fill-opacity='0.08' fill-rule='nonzero'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/svg%3E");
+                background-size: 28px 49px;
+
+                -webkit-mask-image: linear-gradient(
+                    180deg,
+                    rgba(0, 0, 0, 0.9),
+                    transparent 80%
+                );
+                mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), transparent 80%);
+
+                pointer-events: none;
+            }
+
+            .hs-blob {
+                position: absolute;
+
+                border-radius: 50%;
+                filter: blur(70px);
+
+                pointer-events: none;
+            }
+
+            .hs-blob-1 {
+                width: 380px;
+                height: 380px;
+
+                top: -140px;
+                right: -110px;
+
+                background: radial-gradient(
+                    circle at 30% 30%,
+                    rgba(246, 196, 78, 0.85),
+                    rgba(237, 164, 35, 0.25) 60%,
+                    transparent 75%
+                );
+
+                animation: hsDrift 14s ease-in-out infinite alternate;
+            }
+
+            .hs-blob-2 {
+                width: 280px;
+                height: 280px;
+
+                bottom: -130px;
+                left: -100px;
+
+                background: radial-gradient(
+                    circle at 60% 40%,
+                    rgba(246, 196, 78, 0.7),
+                    rgba(237, 164, 35, 0.2) 60%,
+                    transparent 75%
+                );
+
+                animation: hsDrift 18s ease-in-out infinite alternate-reverse;
+            }
+
+            @keyframes hsDrift {
+                from {
+                    transform: translate(0, 0) scale(1);
+                }
+                to {
+                    transform: translate(30px, -24px) scale(1.08);
+                }
+            }
+
+            .hs-hero-inner {
+                position: relative;
+                z-index: 1;
+
+                max-width: 900px;
+
+                margin: 0 auto;
+
+                padding: 56px 24px 130px;
+
+                text-align: center;
+            }
+
+            /* ---- Eyebrow badge ---- */
+
+            .hs-eyebrow {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+
+                padding: 8px 16px;
+
+                background: #ffffff;
+
+                border: 1px solid rgba(237, 164, 35, 0.35);
+                border-radius: 999px;
+
+                box-shadow: 0 4px 14px rgba(237, 164, 35, 0.12);
+
+                color: #b07708;
+
+                font-size: 11.5px;
+                font-weight: 700;
+                letter-spacing: 0.8px;
+                text-transform: uppercase;
+            }
+
+            .hs-pulse-dot {
+                position: relative;
+
+                width: 8px;
+                height: 8px;
+
+                background: var(--hs-honey);
+                border-radius: 50%;
+            }
+
+            .hs-pulse-dot::after {
+                content: "";
+
+                position: absolute;
+                inset: 0;
+
+                background: var(--hs-honey);
+                border-radius: 50%;
+
+                animation: hsPing 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+            }
+
+            @keyframes hsPing {
+                0% {
+                    transform: scale(1);
+                    opacity: 0.7;
+                }
+                80%,
+                100% {
+                    transform: scale(2.6);
+                    opacity: 0;
+                }
+            }
+
+            .hs-hero h1 {
+                margin: 20px 0 6px;
+
+                color: var(--hs-ink);
+
+                font-size: clamp(32px, 4.4vw, 48px);
+                font-weight: 800;
+                letter-spacing: -1px;
+                line-height: 1.1;
+            }
+
+            .hs-shimmer {
+                background: linear-gradient(92deg, #eda423 0%, #f6c04e 45%, #eda423 90%);
+                background-size: 200% auto;
+
+                -webkit-background-clip: text;
+                background-clip: text;
+                -webkit-text-fill-color: transparent;
+                color: transparent;
+
+                animation: hsShimmer 3.5s linear infinite;
+            }
+
+            @keyframes hsShimmer {
+                to {
+                    background-position: 200% center;
+                }
+            }
+
+            /* =========================================================
+                                                                                   STEPPER — bespoke .hs-* track + fill pattern
+                                                                                   (the legacy Step 4 deliberately re-skinned the
+                                                                                   stepper; preserved 1:1 here, NOT aligned to Step 2/3's
+                                                                                   .host-steps pattern)
+                                                                                ========================================================= */
+
+            .hs-stepper {
+                position: relative;
+
+                margin-top: 44px;
+            }
+
+            .hs-stepper-track {
+                position: absolute;
+
+                top: 26px;
+                left: 12.5%;
+                right: 12.5%;
+
+                height: 2px;
+
+                background: #e8e1cf;
+
+                z-index: 1;
+            }
+
+            .hs-stepper-fill {
+                position: absolute;
+
+                top: 26px;
+                left: 12.5%;
+
+                height: 2px;
+
+                background: linear-gradient(90deg, #f6b93b, var(--hs-honey));
+
+                transition: width 1s cubic-bezier(0.22, 1, 0.36, 1);
+
+                z-index: 1;
+            }
+
+            .hs-steps {
+                position: relative;
+                z-index: 2;
+
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+            }
+
+            .hs-step {
+                position: relative;
+
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+
+                padding: 0 10px;
+            }
+
+            .hs-step-circle {
+                position: relative;
+
+                width: 52px;
+                height: 52px;
+
+                display: flex;
+                align-items: center;
+                justify-content: center;
+
+                background: #ffffff;
+
+                border: 2px solid #e8e1cf;
+                border-radius: 50%;
+
+                flex-shrink: 0;
+
+                transition:
+                    border-color 0.3s ease,
+                    background 0.3s ease;
+            }
+
+            /* Lucide icon replaces the legacy PNG <img>.
+                                                                                   Same dimensions as the legacy img (22px). */
+            .hs-step-circle i[data-lucide],
+            .hs-step-circle svg.lucide {
+                width: 22px;
+                height: 22px;
+
+                stroke-width: 2;
+
+                opacity: 0.55;
+                filter: grayscale(1);
+
+                transition:
+                    opacity 0.3s ease,
+                    filter 0.3s ease;
+
+                display: block;
+            }
+
+            /* Completed steps: moss green, white icon + check tick */
+            .hs-step.completed .hs-step-circle {
+                background: var(--hs-moss);
+
+                border-color: var(--hs-moss);
+            }
+
+            .hs-step.completed .hs-step-circle i[data-lucide],
+            .hs-step.completed .hs-step-circle svg.lucide {
+                opacity: 1;
+                filter: brightness(0) invert(1);
+            }
+
+            .hs-step.completed .hs-step-circle::after {
+                content: "";
+
+                position: absolute;
+
+                width: 9px;
+                height: 5px;
+
+                right: 6px;
+                bottom: 6px;
+
+                border-left: 2.5px solid #ffffff;
+                border-bottom: 2.5px solid #ffffff;
+
+                transform: rotate(-45deg);
+            }
+
+            /* Current step: honey glow + breathing ring */
+            .hs-step.current .hs-step-circle {
+                background: #fdf4e3;
+
+                border-color: var(--hs-honey);
+
+                animation: hsStepPulse 2.4s ease-in-out infinite;
+            }
+
+            .hs-step.current .hs-step-circle i[data-lucide],
+            .hs-step.current .hs-step-circle svg.lucide {
+                opacity: 1;
+                filter: none;
+            }
+
+            @keyframes hsStepPulse {
+                0%,
+                100% {
+                    box-shadow: 0 0 0 4px rgba(237, 164, 35, 0.18);
+                }
+                50% {
+                    box-shadow: 0 0 0 9px rgba(237, 164, 35, 0.09);
+                }
+            }
+
+            /* Number badge nested inside the circle — same anchor
+                                                                                   pattern as steps 2 and 3. */
+            .hs-step-number {
+                position: absolute;
+
+                top: -4px;
+                right: -4px;
+
+                width: 20px;
+                height: 20px;
+
+                display: flex;
+                align-items: center;
+                justify-content: center;
+
+                background: var(--hs-ink);
+
+                border: 2px solid #fff8ec;
+                border-radius: 50%;
+                box-sizing: border-box;
+
+                color: #fff;
+
+                font-size: 11px;
+                font-weight: 600;
+
+                z-index: 3;
+            }
+
+            .hs-step.current .hs-step-number {
+                background: var(--hs-honey-dark, #d99218);
+            }
+
+            .hs-step.completed .hs-step-number {
+                background: var(--hs-moss);
+            }
+
+            .hs-step h3 {
+                margin: 14px 0 2px;
+
+                color: var(--hs-ink);
+
+                font-size: 14px;
+                font-weight: 600;
+            }
+
+            .hs-step p {
+                margin: 0 auto;
+
+                max-width: 150px;
+
+                color: var(--hs-muted);
+
+                font-size: 12.5px;
+                line-height: 1.4;
+            }
+
+            .hs-step:not(.current) h3 {
+                color: var(--hs-muted);
+            }
+
+            /* ---- Wave divider ---- */
+
+            .hs-wave {
+                position: absolute;
+                left: 0;
+                right: 0;
+                bottom: -1px;
+
+                width: 100%;
+                height: 60px;
+
+                display: block;
+            }
+
+            /* =========================================================
+                                                                                   SUCCESS CARD
+                                                                                ========================================================= */
+
+            .hs-card-wrap {
+                max-width: 640px;
+
+                margin: -70px auto 0;
+
+                padding: 0 24px 90px;
+
+                position: relative;
+                z-index: 2;
+            }
+
+            .hs-card {
+                position: relative;
+
+                padding: 46px 44px 40px;
+
+                background: #ffffff;
+
+                border: 1px solid #e8e1cf;
+                border-radius: 24px;
+
+                box-shadow: 0 30px 70px rgba(28, 42, 56, 0.16);
+
+                text-align: center;
+
+                overflow: hidden;
+            }
+
+            /* Honey accent bar across the top */
+            .hs-card::before {
+                content: "";
+
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+
+                height: 6px;
+
+                background: linear-gradient(90deg, #eda423, #f6c04e, #eda423);
+            }
+
+            /* ---- Status badge ---- */
+
+            .hs-status-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+
+                padding: 8px 18px;
+
+                margin-bottom: 22px;
+
+                background: #fff4e8;
+
+                border: 1px solid rgba(237, 164, 35, 0.5);
+                border-radius: 999px;
+
+                color: #8a5a10;
+
+                font-size: 12.5px;
+                font-weight: 700;
+            }
+
+            /* ---- Icon: confetti dots + pulsing rings + drop-in ---- */
+
+            .hs-icon-wrap {
+                position: relative;
+
+                width: 200px;
+                max-width: 100%;
+
+                margin: 0 auto 10px;
+            }
+
+            .hs-icon-dots {
+                position: absolute;
+                inset: -14%;
+
+                background:
+                    radial-gradient(circle at 8% 22%, #f3c467 0 4px, transparent 5px),
+                    radial-gradient(circle at 18% 68%, #e2544c 0 3px, transparent 4px),
+                    radial-gradient(circle at 90% 18%, #f3c467 0 4px, transparent 5px),
+                    radial-gradient(circle at 80% 72%, #eda423 0 3px, transparent 4px),
+                    radial-gradient(circle at 96% 52%, #f3c467 0 3px, transparent 4px),
+                    radial-gradient(circle at 4% 82%, #2f9e5b 0 3px, transparent 4px),
+                    radial-gradient(circle at 50% 4%, #eda423 0 3px, transparent 4px);
+                background-repeat: no-repeat;
+
+                animation: hsDotsFloat 4s ease-in-out infinite;
+            }
+
+            @keyframes hsDotsFloat {
+                0%,
+                100% {
+                    transform: translateY(0);
+                }
+                50% {
+                    transform: translateY(-8px);
+                }
+            }
+
+            .hs-ring {
+                position: absolute;
+
+                width: 72%;
+                height: 72%;
+
+                top: 14%;
+                left: 14%;
+
+                border: 3px solid rgba(237, 164, 35, 0.45);
+                border-radius: 50%;
+
+                opacity: 0;
+
+                animation: hsRing 2.6s ease-out infinite;
+            }
+
+            .hs-ring-2 {
+                animation-delay: 1.3s;
+            }
+
+            @keyframes hsRing {
+                0% {
+                    transform: scale(0.7);
+                    opacity: 0.8;
+                }
+                100% {
+                    transform: scale(1.5);
+                    opacity: 0;
+                }
+            }
+
+            .hs-success-icon {
+                position: relative;
+                z-index: 1;
+
+                width: 100%;
+
+                display: block;
+
+                object-fit: contain;
+
+                filter: drop-shadow(0 18px 28px rgba(237, 164, 35, 0.3));
+
+                animation: hsIconDrop 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s both;
+            }
+
+            @keyframes hsIconDrop {
+                0% {
+                    opacity: 0;
+                    transform: translateY(-30px) scale(0.7);
+                }
+                70% {
+                    transform: translateY(4px) scale(1.04);
+                }
+                100% {
+                    opacity: 1;
+                    transform: translateY(0) scale(1);
+                }
+            }
+
+            /* ---- Copy ---- */
+
+            .hs-card h2 {
+                margin: 0 0 14px;
+
+                color: var(--hs-ink);
+
+                font-size: clamp(24px, 3vw, 30px);
+                font-weight: 800;
+                letter-spacing: -0.5px;
+            }
+
+            .hs-message {
+                margin: 0 auto 30px;
+
+                max-width: 440px;
+
+                color: var(--hs-muted);
+
+                font-size: 14.5px;
+                line-height: 1.75;
+            }
+
+            /* ---- Action buttons ---- */
+
+            .hs-actions {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                justify-content: center;
+                gap: 12px;
+            }
+
+            .hs-btn {
+                position: relative;
+                overflow: hidden;
+
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 9px;
+
+                min-height: 50px;
+
+                padding: 0 28px;
+
+                border-radius: 12px;
+
+                font-family: "Poppins", sans-serif;
+                font-size: 12.5px;
+                font-weight: 700;
+                letter-spacing: 0.6px;
+
+                text-decoration: none;
+
+                transition:
+                    transform 0.22s ease,
+                    box-shadow 0.22s ease,
+                    background 0.22s ease,
+                    color 0.22s ease,
+                    border-color 0.22s ease;
+            }
+
+            .hs-btn:hover {
+                transform: translateY(-2px);
+            }
+
+            .hs-btn:active {
+                transform: translateY(0) scale(0.98);
+            }
+
+            .hs-btn-primary {
+                background: linear-gradient(135deg, #f6b93b, var(--hs-honey));
+
+                color: var(--hs-ink);
+
+                box-shadow: 0 10px 22px rgba(237, 164, 35, 0.4);
+            }
+
+            .hs-btn-primary:hover {
+                box-shadow: 0 14px 28px rgba(237, 164, 35, 0.5);
+            }
+
+            .hs-btn-secondary {
+                background: #ffffff;
+
+                color: var(--hs-ink);
+
+                border: 1.5px solid #dfe4ea;
+            }
+
+            .hs-btn-secondary:hover {
+                border-color: var(--hs-honey);
+
+                color: #b07708;
+
+                box-shadow: 0 8px 20px rgba(28, 42, 56, 0.08);
+            }
+
+            /* Lucide button-icon replaces the legacy PNG <img>.
+                                                                                   Same 18px size, same brightness(0) filter. */
+            .hs-btn i[data-lucide],
+            .hs-btn svg.lucide {
+                width: 18px;
+                height: 18px;
+
+                stroke-width: 2;
+
+                filter: brightness(0);
+
+                flex-shrink: 0;
+            }
+
+            /* Shine sweep on the primary button */
+            .hs-btn-primary::after {
+                content: "";
+
+                position: absolute;
+                top: 0;
+                left: -80%;
+
+                width: 50%;
+                height: 100%;
+
+                background: linear-gradient(
+                    100deg,
+                    transparent,
+                    rgba(255, 255, 255, 0.55),
+                    transparent
+                );
+
+                transform: skewX(-20deg);
+
+                animation: hsSweep 3.6s ease-in-out infinite;
+
+                pointer-events: none;
+            }
+
+            @keyframes hsSweep {
+                0% {
+                    left: -80%;
+                }
+                45%,
+                100% {
+                    left: 130%;
+                }
+            }
+
+            .hs-note {
+                margin: 26px 0 0;
+
+                color: #9aa3af;
+
+                font-size: 12.5px;
+            }
+
+            /* =========================================================
+                                                                                   CONFETTI (JS-spawned pieces)
+                                                                                ========================================================= */
+
+            .hs-confetti-layer {
+                position: fixed;
+                inset: 0;
+
+                pointer-events: none;
+
+                z-index: 500;
+
+                overflow: hidden;
+            }
+
+            .hs-confetti {
+                position: absolute;
+
+                top: -12px;
+
+                width: 9px;
+                height: 14px;
+
+                border-radius: 2px;
+
+                opacity: 0.95;
+
+                animation: hsFall linear forwards;
+            }
+
+            @keyframes hsFall {
+                0% {
+                    transform: translateY(0) rotate(0deg);
+                    opacity: 1;
+                }
+                100% {
+                    transform: translateY(105vh) rotate(540deg);
+                    opacity: 0;
+                }
+            }
+
+            /* =========================================================
+                                                                                   ENTRANCE (JS-gated)
+                                                                                ========================================================= */
+
+            @keyframes hsRise {
+                from {
+                    opacity: 0;
+                    transform: translateY(24px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+
+            .js .hs-anim {
+                opacity: 0;
+
+                animation: hsRise 0.7s cubic-bezier(0.22, 1, 0.36, 1) var(--d, 0s) forwards;
+            }
+
+            /* =========================================================
+                                                                                   RESPONSIVE
+                                                                                ========================================================= */
+
+            @media (max-width: 700px) {
+                .hs-hero-inner {
+                    padding: 44px 18px 120px;
+                }
+
+                .hs-step h3 {
+                    font-size: 11.5px;
+                }
+
+                .hs-step p {
+                    display: none;
+                }
+
+                .hs-card {
+                    padding: 36px 22px 32px;
+                }
+
+                .hs-actions {
+                    flex-direction: column;
+                    width: 100%;
+                }
+
+                .hs-actions .hs-btn {
+                    width: 100%;
+                }
+            }
+        </style>
+    </head>
+
+    <body class="rh-step4">
+
+        {# =========================================================
+   SHARED NAVBAR — partials/navbar.html.twig
+   (legacy includes/navbar.php + notification_dropdown.php).
+   current_page 'becomeahost' → BECOME A HOST highlights on
+   the host-flow pages (legacy $currentPage precedent).
+   Dual-contract ?? guards: is_host / nav_avatar /
+   notification_count (cont-29 wishlist, same call as Step 2/3).
+========================================================= #}
+        {{ include('partials/navbar.html.twig', {
+    is_logged_in: true,
+    is_host: is_host ?? false,
+    nav_avatar: nav_avatar ?? user.avatar_path ?? null,
+    notification_count: notification_count ?? notif_count ?? 0,
+    current_page: 'becomeahost'
+}) }}
+
+        <!-- =========================================================
+     HERO + STEPPER
+========================================================= -->
+
+        <section class="hs-hero">
+
+            <div aria-hidden="true">
+                <span class="hs-blob hs-blob-1"></span>
+                <span class="hs-blob hs-blob-2"></span>
+            </div>
+
+            <div class="hs-hero-inner">
+
+                <span class="hs-eyebrow hs-anim" style="--d: .05s;">
+
+                    <span class="hs-pulse-dot"></span>
+
+                    Add Your Space &middot; Step 4 of 4
+
+                </span>
+
+
+                <h1 class="hs-anim" style="--d: .15s;">
+
+                    You're almost
+
+                    <span class="hs-shimmer">there!</span>
+
+                </h1>
+
+
+                {# =================================================
+           STEPPER — bespoke .hs-* track + fill pattern.
+           Legacy PNG <img> inside .hs-step-circle replaced
+           by Lucide <i data-lucide="..."> (same name set
+           as Steps 2 and 3). The fill animates from 0% to
+           step_progress_percent via JS at the bottom.
+           Steps 1-3 completed (moss + check tick), step 4
+           current (honey glow).
+        ================================================== #}
+
+                {% set host_steps = [
+            { number: 1, icon: 'user-plus',       alt: 'Create Account',  title: 'Create Account',  description: 'Sign up as a host in minutes' },
+            { number: 2, icon: 'house',           alt: 'Add Your Space',  title: 'Add Your Space',  description: 'Tell us about your property' },
+            { number: 3, icon: 'image-plus',      alt: 'Upload Photos',   title: 'Upload Photos',   description: 'Show your space to attract renters' },
+            { number: 4, icon: 'calendar-check',  alt: 'Get Bookings',    title: 'Get Bookings',    description: 'Approve bookings and start earning' }
+        ] %}
+                {% set current_step = 4 %}
+
+                {# Legacy clamp: max 75 because .hs-stepper-track spans
+           12.5%..87.5% = 75% of the container; 3 of 4 steps done
+           fills the whole track → 75%. Controller computes the
+           same value and passes it as step_progress_percent. #}
+                {% set step_progress_percent = step_progress_percent|default(75) %}
+                {% set step_progress_percent = step_progress_percent < 0 ? 0 : (step_progress_percent > 75 ? 75 : step_progress_percent) %}
+
+                <div class="hs-stepper hs-anim" style="--d: .25s;">
+
+                    <div class="hs-stepper-track"></div>
+
+                    <div
+                        class="hs-stepper-fill"
+                        id="hsStepperFill"
+                        style="width: 0%;"
+                        data-progress="{{ step_progress_percent }}%"
+                    ></div>
+
+                    <div class="hs-steps">
+
+                        {% for step in host_steps %}
+
+                            {% set is_active = (step.number == current_step) %}
+                            {% set is_done = (step.number < current_step) %}
+
+                            <div class="hs-step{{ is_active ? ' current' : '' }}{{ is_done ? ' completed' : '' }}">
+
+                                <div class="hs-step-circle">
+
+                                    <i
+                                        data-lucide="{{ step.icon }}"
+                                        role="img"
+                                        aria-label="{{ step.alt }}"
+                                    ></i>
+
+                                    <span class="hs-step-number">
+
+                                        {{ step.number }}
+
+                                    </span>
+
+                                </div>
+
+
+                                <h3>{{ step.title }}</h3>
+
+                                <p>{{ step.description }}</p>
+
+                            </div>
+
+                        {% endfor %}
+
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <svg class="hs-wave" viewBox="0 0 1440 90" preserveAspectRatio="none" aria-hidden="true">
+                <path d="M0,48 C240,90 480,6 760,30 C1040,54 1240,90 1440,40 L1440,90 L0,90 Z" fill="#ffffff"></path>
+            </svg>
+
+        </section>
+
+
+        <!-- =========================================================
+     SUCCESS CARD
+========================================================= -->
+
+        <div class="hs-card-wrap">
+
+            <div class="hs-confetti-layer" id="hsConfettiLayer" aria-hidden="true"></div>
+
+            <section class="hs-card hs-anim" style="--d: .35s;">
+
+                {# Status badge: only on the not-yet-approved branch.
+           The legacy renders this only when !$isHostApproved. #}
+                {% if not is_host_approved %}
+
+                    <span class="hs-status-badge">
+
+                        <span class="hs-pulse-dot"></span>
+
+                        Awaiting Admin Approval
+
+                    </span>
+
+                {% endif %}
+
+
+                <div class="hs-icon-wrap">
+
+                    <span class="hs-icon-dots" aria-hidden="true"></span>
+
+                    <span class="hs-ring" aria-hidden="true"></span>
+
+                    <span class="hs-ring hs-ring-2" aria-hidden="true"></span>
+
+                    {# Legacy PNG success icon. Drop the file at
+               public/images/SpaceSuccessfullyAddIcon.png
+               unchanged (legacy /webprogg/images/...). #}
+                    <img
+                        src="{{ asset('images/SpaceSuccessfullyAddIcon.png') }}"
+                        alt="Space Submitted"
+                        class="hs-success-icon"
+                    >
+
+                </div>
+
+
+                {# =================================================
+           BRANCH 1 — HOST ALREADY APPROVED
+           (legacy $isHostApproved === true)
+        ================================================== #}
+                {% if is_host_approved %}
+
+                    <h2>Space Added Successfully!</h2>
+
+                    <p class="hs-message">
+                        Your space has been added and is now awaiting approval.<br>
+                        You can manage your listing, update details,<br>
+                        and start receiving bookings once it's live.
+                    </p>
+
+                    <div class="hs-actions">
+
+                        {# GO TO HOST PROFILE — best-guess URL
+                   /host/profile. Adjust if your host profile
+                   route differs (legacy hostprofile.php). #}
+                        <a href="/host/profile" class="hs-btn hs-btn-primary">
+                            <i data-lucide="building-2" role="img" aria-label="Host profile"></i>
+                            <span>GO TO HOST PROFILE</span>
+                        </a>
+
+                        {# ADD ANOTHER SPACE — the host-flow Step 1. #}
+                        <a href="/host/become-a-host" class="hs-btn hs-btn-secondary">
+                            <i data-lucide="plus-circle" role="img" aria-label="Add another space"></i>
+                            <span>ADD ANOTHER SPACE</span>
+                        </a>
+
+                    </div>
+
+                    <p class="hs-note">
+                        Continue to your host profile to manage your spaces.
+                    </p>
+
+
+                    {# =================================================
+           BRANCH 2 — NOT YET APPROVED (default Step 4 state)
+        ================================================== #}
+                {% else %}
+
+                    <h2>Submitted for Review!</h2>
+
+                    <p class="hs-message">
+                        Your space and host application have been submitted.<br>
+                        An admin needs to review and approve your application<br>
+                        before you can access your Host Profile and manage listings.
+                    </p>
+
+                    <div class="hs-actions">
+
+                        {# GO TO MY PROFILE — user profile (ProfileController). #}
+                        <a href="/profile" class="hs-btn hs-btn-primary">
+                            <i data-lucide="user" role="img" aria-label="My profile"></i>
+                            <span>GO TO MY PROFILE</span>
+                        </a>
+
+                    </div>
+
+                    <p class="hs-note">
+                        We'll let you know as soon as your host application is approved.
+                    </p>
+
+                {% endif %}
+
+            </section>
+
+        </div>
+
+
+        {# =========================================================
+   SHARED FOOTER (single source of truth — partials/footer.html.twig)
+========================================================= #}
+        {{ include('partials/footer.html.twig') }}
+
+
+        <!-- =========================================================
+     Lucide icons — guarded loader (same key as navbar: never
+     double-runs). hs4RefreshIcons is kept as a thin alias so
+     any page reference keeps working.
+========================================================= -->
+        <script>
+            (function () {
+                "use strict";
+
+                function renderRhIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
+                }
+
+                /* page alias — Step 2/3 keep the same hsNRefreshIcons
+                                                                                   contract; keep the naming consistent here */
+                window.hs4RefreshIcons = renderRhIcons;
+
+                if (!window.__rhNavbarLucide) {
+                    window.__rhNavbarLucide = true;
+                    var s = document.createElement("script");
+                    s.src = "https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js";
+                    s.addEventListener("load", renderRhIcons);
+                    document.head.appendChild(s);
+                }
+
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", renderRhIcons);
+                } else {
+                    renderRhIcons();
+                }
+                window.addEventListener("load", renderRhIcons);
+            })();
+        </script>
+
+        <!-- =========================================================
+     STEP 4 SCRIPT — stepper fill + confetti burst.
+     Hooks #hsStepperFill (data-progress) and #hsConfettiLayer.
+========================================================= -->
+        <script>
+            (function () {
+                "use strict";
+
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+                /* ---- Animate the stepper fill to its target width ---- */
+                var fill = document.getElementById("hsStepperFill");
+
+                if (fill) {
+                    var target = fill.getAttribute("data-progress") || "0%";
+
+                    if (reduced) {
+                        fill.style.width = target;
+                    } else {
+                        window.setTimeout(function () {
+                            fill.style.width = target;
+                        }, 500);
+                    }
+                }
+
+                /* ---- One-time confetti burst ---- */
+                var layer = document.getElementById("hsConfettiLayer");
+
+                if (layer && !reduced) {
+                    var colors = ["#eda423", "#f6c04e", "#2f9e5b", "#e2544c", "#1c2a38"];
+
+                    for (var i = 0; i < 18; i++) {
+                        (function (index) {
+                            var piece = document.createElement("span");
+
+                            piece.className = "hs-confetti";
+
+                            piece.style.left = 12 + Math.random() * 76 + "%";
+                            piece.style.background = colors[index % colors.length];
+
+                            piece.style.animationDuration = 1.9 + Math.random() * 1.1 + "s";
+                            piece.style.animationDelay = 0.5 + Math.random() * 0.7 + "s";
+
+                            piece.addEventListener("animationend", function () {
+                                piece.remove();
+                            });
+
+                            layer.appendChild(piece);
+                        })(i);
+                    }
+                }
+            })();
+        </script>
+
+    </body>
+</html>

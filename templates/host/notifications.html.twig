@@ -1,0 +1,556 @@
+{# roomhive/host/notifications.html.twig
+   Host › Notifications — 1:1 port of legacy host/hostnotifications.php.
+
+   Host dashboard shell (extends host/base.html.twig; sidebar
+   "Notifications" highlights via active_nav = 'notifications').
+   Legacy redirected non-hosts to the renter notifications page —
+   that page is already ported (app_notifications), so the
+   controller does the same redirect for real.
+
+   Content (1:1 with legacy):
+   - "Notifications" header + "n unread" pill + Mark all as read
+     (both only when there are unread rows)
+   - All / Unread tabs (Unread shows "(n)" when there are unread)
+   - np-item rows: photo chip (lucide fallback on img error) or
+     coloured lucide icon chip (blue/green/red/yellow/honey/gray),
+     label (emoji stripped), context line (listing title), relative
+     time, unread dot; click = mark read then navigate to the
+     stored link (legacy /webprogg/... links stay as stored — they
+     404 until those pages are ported, same policy as the renter
+     page port)
+   - pagination (← Newer / n / m / Older →) when > 1 page; the
+     current filter is preserved through page links
+   - empty states: unread filter → inbox icon + "You're all caught
+     up…"; all → bell icon + "No notifications yet…"
+
+   MARK-READ ENDPOINT: shared with the renter page —
+     POST /notifications/mark-read  {id: N} | {all: 1}
+     (route app_notifications_mark_read in NotificationsController;
+     legacy notifications/mark-notifications-read.php was one
+     endpoint for both shells — the port keeps it that way).
+
+   ICON SUBSTITUTIONS — the macros file uses the older lucide.dev
+   names the rest of the shell standardized on; the controller's
+   typeIcon() already returns macro keys:
+     legacy `circle-x`   → macro 'x-circle'  (same glyph, older name)
+     legacy `user-clock` → macro 'clock'     (same substitution
+                            host/bookings.html.twig uses for hourglass)
+   Empty states: legacy `inbox` → macro 'inbox' (exists),
+   legacy `bell` → macro 'bell' (exists).
+   No page-level lucide loader needed — the shared navbar ships
+   the guarded loader, and ui.icon() emits inline SVG anyway.
+
+   Pairs with: HostNotificationsController
+     GET /host/notifications   name app_host_notifications
+#}
+{% extends 'host/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'notifications' %}
+
+{% block page_title %}Notifications — RoomHive{% endblock %}
+
+{% block styles %}
+<style>
+    /* ---- Page header (same values as the other host pages) ---- */
+    .hp-page-header {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 16px; flex-wrap: wrap;
+    }
+    .hp-page-title { margin: 0; font-size: 24px; font-weight: 800; color: var(--rh-ink); }
+    .hp-page-subtitle { margin: 4px 0 0; font-size: 13px; color: var(--rh-muted); max-width: 680px; }
+
+    /* =========================================================
+       Notifications page (np-*, exact legacy values)
+    ========================================================= */
+    .np-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-bottom: 18px;
+    }
+
+    .np-head h2 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 800;
+        color: #1c2a38;
+    }
+
+    .np-unread-pill {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 999px;
+        background: #FDF1DC;
+        border: 1px solid rgba(237, 164, 35, 0.5);
+        color: #B07708;
+        font-size: 11.5px;
+        font-weight: 800;
+        margin-left: 8px;
+        vertical-align: middle;
+    }
+
+    .np-markall {
+        background: linear-gradient(135deg, #f6b93b, #eda423);
+        border: none;
+        color: #1c2a38;
+        font-family: inherit;
+        font-size: 12.5px;
+        font-weight: 800;
+        padding: 10px 18px;
+        border-radius: 999px;
+        cursor: pointer;
+        box-shadow: 0 8px 18px rgba(237, 164, 35, 0.35);
+        transition: transform .15s ease, box-shadow .15s ease;
+    }
+
+    .np-markall:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 24px rgba(237, 164, 35, 0.45);
+    }
+
+    .np-tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+    }
+
+    .np-tab {
+        padding: 8px 16px;
+        background: #ffffff;
+        color: #6b7684;
+        border: 1px solid rgba(28, 42, 56, 0.08);
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 700;
+        text-decoration: none;
+        transition: background .15s ease, color .15s ease, border-color .15s ease;
+    }
+
+    .np-tab:hover {
+        border-color: #eda423;
+        color: #b07708;
+    }
+
+    .np-tab.active {
+        background: #FDF1DC;
+        color: #b07708;
+        border-color: #eda423;
+    }
+
+    .np-list {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .np-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        width: 100%;
+        padding: 14px 12px;
+        background: none;
+        border: none;
+        border-bottom: 1px solid rgba(28, 42, 56, 0.06);
+        text-align: left;
+        font-family: inherit;
+        cursor: pointer;
+        transition: background 0.15s ease;
+        border-radius: 10px;
+    }
+
+    .np-item:hover {
+        background: #fff8ec;
+    }
+
+    .np-item.unread {
+        background: #fff8ec;
+    }
+
+    .np-item.unread:hover {
+        background: #fdf1dc;
+    }
+
+    .np-dot {
+        width: 9px;
+        height: 9px;
+        flex-shrink: 0;
+        align-self: center;
+        background: #eda423;
+        border-radius: 50%;
+    }
+
+    .np-item:not(.unread) .np-dot {
+        background: transparent;
+        border: 1px solid rgba(28, 42, 56, 0.12);
+    }
+
+    /* ---- Lucide icon chip ---- */
+    .np-ic {
+        width: 42px;
+        height: 42px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px;
+    }
+
+    .np-ic svg {
+        width: 19px;
+        height: 19px;
+        stroke-width: 2;
+    }
+
+    .np-ic-blue {
+        background: #E7F0FF;
+        color: #0B57D0;
+    }
+
+    .np-ic-green {
+        background: #E8F8F1;
+        color: #178A50;
+    }
+
+    .np-ic-red {
+        background: #FDECEC;
+        color: #B3261E;
+    }
+
+    .np-ic-yellow {
+        background: #FDF1DC;
+        color: #C77A00;
+    }
+
+    .np-ic-honey {
+        background: #FFF6E9;
+        color: #B07708;
+    }
+
+    .np-ic-gray {
+        background: #F0F1F6;
+        color: #5B6172;
+    }
+
+    .np-ic-photo {
+        padding: 0;
+        overflow: hidden;
+        background: #F0EEE6;
+    }
+
+    .np-ic-photo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .np-ic-fallback {
+        display: none;
+        width: 100%;
+        height: 100%;
+        align-items: center;
+        justify-content: center;
+        background: #FDF1DC;
+        color: #B07708;
+    }
+
+    .np-body {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .np-label {
+        display: block;
+        margin: 0;
+        color: #1c2a38;
+        font-size: 13.5px;
+        font-weight: 600;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+    }
+
+    .np-item.unread .np-label {
+        font-weight: 700;
+    }
+
+    .np-ctx {
+        display: block;
+        margin-top: 2px;
+        color: #8d99a5;
+        font-size: 11.5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .np-time {
+        display: block;
+        margin-top: 3px;
+        color: #8d99a5;
+        font-size: 11px;
+    }
+
+    .np-empty {
+        text-align: center;
+        padding: 60px 20px;
+        color: #8d99a5;
+        font-size: 14px;
+    }
+
+    .np-empty-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 12px;
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        background: #F0F1F6;
+        color: #8d99a5;
+    }
+
+    .np-empty-icon svg {
+        width: 28px;
+        height: 28px;
+    }
+
+    .np-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding-top: 18px;
+    }
+
+    .np-page-btn {
+        padding: 8px 16px;
+        border-radius: 999px;
+        border: 1px solid rgba(28, 42, 56, 0.08);
+        background: #fff;
+        color: #1c2a38;
+        font-family: inherit;
+        font-size: 12.5px;
+        font-weight: 700;
+        text-decoration: none;
+        transition: border-color .15s ease, color .15s ease;
+    }
+
+    .np-page-btn:hover {
+        border-color: #eda423;
+        color: #b07708;
+    }
+
+    .np-page-btn.active {
+        background: #FDF1DC;
+        border-color: #eda423;
+        color: #b07708;
+    }
+
+    .np-page-btn[disabled] {
+        opacity: 0.45;
+        cursor: default;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+
+        .np-item,
+        .np-markall {
+            transition: none !important;
+        }
+    }
+
+    /* ---- Dark mode (page-local np-* elements; hp-card comes
+            from the shell) ---- */
+    body[data-theme="dark"] .hp-page-title { color: #e8ecf1; }
+    body[data-theme="dark"] .np-head h2 { color: #e8ecf1; }
+    body[data-theme="dark"] .np-unread-pill { background: rgba(237, 164, 35, 0.15); }
+    body[data-theme="dark"] .np-tab { background: #141b24; color: #8d99a5; border-color: #1a222b; }
+    body[data-theme="dark"] .np-tab:hover { border-color: #eda423; color: #f6c04e; }
+    body[data-theme="dark"] .np-tab.active { background: rgba(237, 164, 35, 0.15); color: #f6c04e; border-color: #eda423; }
+    body[data-theme="dark"] .np-item { border-bottom-color: #1a222b; }
+    body[data-theme="dark"] .np-item:hover { background: rgba(237, 164, 35, 0.06); }
+    body[data-theme="dark"] .np-item.unread { background: rgba(237, 164, 35, 0.08); }
+    body[data-theme="dark"] .np-item.unread:hover { background: rgba(237, 164, 35, 0.12); }
+    body[data-theme="dark"] .np-item:not(.unread) .np-dot { border-color: #2a3540; }
+    body[data-theme="dark"] .np-label { color: #e8ecf1; }
+    body[data-theme="dark"] .np-ctx { color: #8d99a5; }
+    body[data-theme="dark"] .np-time { color: #8d99a5; }
+    body[data-theme="dark"] .np-ic-blue { background: rgba(11, 87, 208, 0.18); color: #8ab4f8; }
+    body[data-theme="dark"] .np-ic-green { background: rgba(23, 138, 80, 0.18); color: #5bd699; }
+    body[data-theme="dark"] .np-ic-red { background: rgba(179, 38, 30, 0.18); color: #f28b82; }
+    body[data-theme="dark"] .np-ic-yellow { background: rgba(199, 122, 0, 0.18); color: #f6c04e; }
+    body[data-theme="dark"] .np-ic-honey { background: rgba(176, 119, 8, 0.18); color: #f6c04e; }
+    body[data-theme="dark"] .np-ic-gray { background: #1a222b; color: #8d99a5; }
+    body[data-theme="dark"] .np-ic-photo { background: #1a222b; }
+    body[data-theme="dark"] .np-ic-fallback { background: rgba(237, 164, 35, 0.15); color: #f6c04e; }
+    body[data-theme="dark"] .np-empty { color: #8d99a5; }
+    body[data-theme="dark"] .np-empty-icon { background: #1a222b; color: #8d99a5; }
+    body[data-theme="dark"] .np-page-btn { background: #141b24; color: #e8ecf1; border-color: #1a222b; }
+    body[data-theme="dark"] .np-page-btn:hover { border-color: #eda423; color: #f6c04e; }
+    body[data-theme="dark"] .np-page-btn.active { background: rgba(237, 164, 35, 0.15); border-color: #eda423; color: #f6c04e; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="hp-page-header">
+    <div>
+        <h1 class="hp-page-title">Notifications</h1>
+        <p class="hp-page-subtitle">New reserves, payments, cancellations and everything else on your listings.</p>
+    </div>
+</div>
+
+<div class="hp-card">
+
+    <div class="np-head">
+        <h2>
+            Notifications
+            {% if unread_count > 0 %}
+                <span class="np-unread-pill">{{ unread_count }} unread</span>
+            {% endif %}
+        </h2>
+        {% if unread_count > 0 %}
+            <button type="button" class="np-markall" id="npMarkAll">Mark all as read</button>
+        {% endif %}
+    </div>
+
+    <!-- ALL / UNREAD tabs -->
+    <div class="np-tabs">
+        <a class="np-tab{{ filter == 'all' ? ' active' : '' }}" href="{{ path('app_host_notifications') }}">
+            All
+        </a>
+        <a class="np-tab{{ filter == 'unread' ? ' active' : '' }}" href="{{ path('app_host_notifications', {filter: 'unread'}) }}">
+            Unread{% if unread_count > 0 %} ({{ unread_count }}){% endif %}
+        </a>
+    </div>
+
+    <div class="np-list" id="npList">
+        {% if items is empty %}
+            {% if filter == 'unread' %}
+                <div class="np-empty"><span class="np-empty-icon">{{ ui.icon('inbox') }}</span>You're all caught up — no unread notifications.</div>
+            {% else %}
+                <div class="np-empty"><span class="np-empty-icon">{{ ui.icon('bell') }}</span>No notifications yet. Reserves, payments and cancellations on your listings will show up here.</div>
+            {% endif %}
+        {% else %}
+            {% for item in items %}
+                <button
+                    type="button"
+                    class="np-item{{ item.unread ? ' unread' : '' }}"
+                    data-id="{{ item.id }}"
+                    data-link="{{ item.link }}"
+                >
+                    {% if item.img %}
+                        <span class="np-ic np-ic-photo">
+                            <img
+                                src="{{ item.img }}"
+                                alt=""
+                                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
+                            >
+                            <span class="np-ic-fallback">
+                                {{ ui.icon(item.icon) }}
+                            </span>
+                        </span>
+                    {% else %}
+                        <span class="np-ic {{ item.icls }}">
+                            {{ ui.icon(item.icon) }}
+                        </span>
+                    {% endif %}
+
+                    <span class="np-body">
+                        <span class="np-label">{{ item.label }}</span>
+                        {% if item.ctx %}
+                            <span class="np-ctx">{{ item.ctx }}</span>
+                        {% endif %}
+                        <span class="np-time">{{ item.time }}</span>
+                    </span>
+
+                    <span class="np-dot"></span>
+                </button>
+            {% endfor %}
+        {% endif %}
+    </div>
+
+    {% if total_pages > 1 %}
+        <div class="np-pagination">
+            {% if page > 1 %}
+                <a class="np-page-btn" href="{{ path('app_host_notifications', {page: page - 1} + (filter == 'unread' ? {filter: 'unread'} : {})) }}">&larr; Newer</a>
+            {% else %}
+                <span class="np-page-btn" disabled>&larr; Newer</span>
+            {% endif %}
+
+            <span class="np-page-btn active">{{ page }} / {{ total_pages }}</span>
+
+            {% if page < total_pages %}
+                <a class="np-page-btn" href="{{ path('app_host_notifications', {page: page + 1} + (filter == 'unread' ? {filter: 'unread'} : {})) }}">Older &rarr;</a>
+            {% else %}
+                <span class="np-page-btn" disabled>Older &rarr;</span>
+            {% endif %}
+        </div>
+    {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    (function () {
+        "use strict";
+
+        /* ---- Click a notification: mark read, then navigate ----
+           Same flow as legacy; the fetch target is the shared
+           mark-read endpoint (route app_notifications_mark_read —
+           legacy notifications/mark-notifications-read.php). */
+        document.querySelectorAll('.np-item').forEach(function (item) {
+            item.addEventListener('click', function () {
+                var id = item.getAttribute('data-id');
+                var link = item.getAttribute('data-link') || '/host/notifications';
+
+                if (item.classList.contains('unread')) {
+                    item.classList.remove('unread');
+
+                    fetch('{{ path("app_notifications_mark_read") }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        },
+                        body: 'id=' + encodeURIComponent(id),
+                        credentials: 'same-origin'
+                    }).catch(function () {});
+                }
+
+                window.location.href = link;
+            });
+        });
+
+        /* ---- Mark all as read ---- */
+        var markAllBtn = document.getElementById('npMarkAll');
+
+        if (markAllBtn) {
+            markAllBtn.addEventListener('click', function () {
+                document.querySelectorAll('.np-item.unread').forEach(function (item) {
+                    item.classList.remove('unread');
+                });
+
+                var pill = document.querySelector('.np-unread-pill');
+                if (pill) {
+                    pill.remove();
+                }
+
+                markAllBtn.remove();
+
+                fetch('{{ path("app_notifications_mark_read") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: 'all=1',
+                    credentials: 'same-origin'
+                }).catch(function () {});
+            });
+        }
+    })();
+</script>
+{% endblock %}

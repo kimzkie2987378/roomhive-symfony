@@ -1,0 +1,317 @@
+{# roomhive/host/help_center.html.twig
+   Host › Help Center — 1:1 port of legacy host/helpcenter.php.
+
+   Host dashboard shell (extends host/base.html.twig; the sidebar
+   FOOTER link "Help Center" highlights via active_nav =
+   'helpcenter' — the /host/help link was pre-reserved by the
+   shell, like every other sidebar entry).
+
+   SHELL NOTE (legacy "SHELL FIX"): legacy used to include
+   host_navbar.php + host_footer.php — both retired with the shell
+   migration (FOURTEENTH page with the same bug). The ported shell
+   ships the shared navbar (with bell + dropdown), the collapsible
+   host sidebar and the footer for free — no manual includes left.
+
+   Content (1:1 with legacy):
+   - "Help Center" header + "Answers to the questions hosts ask
+     most." subtitle
+   - Search card: hp-search-wrap with the search icon + #faqSearch
+     input ("Search help articles...", autocomplete off) — the
+     page's ONLY icon (legacy <i data-lucide="search"> → macro
+     key 'search'; the legacy note dropped the onerror-style PNG
+     fallback — the SVG renders or nothing does)
+   - Popular Guides card: 3 hp-article-card links — Hosting 101
+     (/how-it-works, the shared navbar's HOW IT WORKS page — one
+     page serves hosts and users), Create a Listing
+     (/host/become-a-host, the standard becomeahost.php mapping)
+     and Getting Paid (/host/payouts, ported)
+   - FAQs card: the 8-entry $faqs list (the "What is Hive Club?"
+     entry was REPLACED in legacy — Hive Club was deleted
+     site-wide — with "How do I quit hosting?") looped into
+     <details class="hp-faq" data-faq> accordions; #faqNoResults
+     muted line toggled by the filter script
+   - Contact support banner: "Still need help?" / "Our support
+     team replies within 24 hours." + CONTACT SUPPORT button →
+     /contacts (navbar's CONTACTS mapping; 404s until
+     contacts.php is pasted and ported — TODO-link policy)
+
+   READ-ONLY page: no POST, no CSRF, no flash — pure GET, exactly
+   like legacy.
+
+   JS: the FAQ search filter (page-local IIFE) lives in
+   {% block scripts %} — verbatim behavior: match against the
+   rendered text of every details[data-faq], hide non-matches,
+   auto-open matches while searching, show #faqNoResults when
+   nothing matched.
+
+   CSS NOTE: hp-page-header / hp-article-* / hp-faq-* / hp-grow-* /
+   hp-btn-primary came from legacy hostprofile.css, which the
+   Symfony shell does not ship — redeclared page-locally (same
+   approach as every ported host page). The .hp-search-wrap block
+   is the page's OWN legacy <style> block verbatim (the input
+   rules reuse the values the bookings port standardized from the
+   same hostprofile.css); the classes whose legacy values did not
+   survive into the pasted page are approximated to the shell's
+   design tokens (--rh-line / --rh-radius / #8B93A6 ...) and keep
+   dark-mode overrides consistent with the shell.
+
+   Pairs with: HostHelpCenterController
+     GET /host/help   name app_host_help
+#}
+{% extends 'host/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'helpcenter' %}
+
+{% block page_title %}Help Center — RoomHive{% endblock %}
+
+{% block styles %}
+<style>
+    /* ---- Page header (same values as the other host pages) ---- */
+    .hp-page-header {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 16px; flex-wrap: wrap;
+    }
+    .hp-page-title { margin: 0; font-size: 24px; font-weight: 800; color: var(--rh-ink); }
+    .hp-page-subtitle { margin: 4px 0 0; font-size: 13px; color: var(--rh-muted); max-width: 680px; }
+
+    /* ---- Icon baseline (legacy svg.lucide rule — the macro stamps
+       class="icon"; same values, page-locally scoped) ---- */
+    svg.icon { display: inline-block; vertical-align: -0.18em; flex-shrink: 0; }
+
+    /* ---- FAQ search (page's OWN legacy <style> block, verbatim) ---- */
+    .hp-search-wrap {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .hp-search-wrap svg {
+        width: 15px;
+        height: 15px;
+        color: #8B93A6;
+        flex-shrink: 0;
+    }
+    /* input rules — hostprofile.css values via the bookings port */
+    .hp-search-wrap input {
+        border: none; outline: none; background: transparent;
+        font-family: inherit; font-size: 12.5px; color: var(--rh-ink);
+        width: 100%; padding: 2px 0;
+    }
+    .hp-search-wrap input::placeholder { color: #8B93A6; }
+
+    /* ---- Popular guides (hostprofile.css approximated to the
+       shell's design tokens — values did not survive) ---- */
+    .hp-article-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+    }
+    .hp-article-card {
+        display: flex; flex-direction: column; gap: 4px;
+        padding: 14px 16px;
+        border: 1px solid var(--rh-line);
+        border-radius: 12px;
+        text-decoration: none;
+        transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .hp-article-card:hover {
+        background: var(--rh-accent-light);
+        border-color: rgba(237, 164, 35, 0.35);
+    }
+    .hp-article-card strong {
+        font-size: 13px; font-weight: 700; color: var(--rh-ink);
+    }
+    .hp-article-card span {
+        font-size: 12px; color: var(--rh-muted);
+    }
+
+    /* ---- FAQ accordions (details/summary — minimal styling,
+       browser's own disclosure marker kept) ---- */
+    .hp-faq { border-bottom: 1px solid #F1F4F8; }
+    .hp-faq:last-of-type { border-bottom: 0; }
+    .hp-faq summary {
+        cursor: pointer;
+        padding: 12px 0;
+        font-size: 13.5px;
+        font-weight: 600;
+        color: var(--rh-ink);
+    }
+    .hp-faq-body {
+        margin: 0 0 12px;
+        font-size: 12.5px;
+        line-height: 1.6;
+        color: var(--rh-muted);
+    }
+
+    /* ---- Contact support banner (hp-grow-* — approximated to
+       the shell's design tokens; amber tint like every grow/CTA
+       banner on the host pages) ---- */
+    .hp-grow-banner {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 16px; flex-wrap: wrap;
+        background: var(--rh-accent-light);
+        border: 1px solid rgba(237, 164, 35, 0.35);
+        border-radius: var(--rh-radius);
+        padding: 20px 22px;
+    }
+    .hp-grow-text h3 {
+        margin: 0 0 4px;
+        font-size: 16px; font-weight: 700; color: var(--rh-ink);
+    }
+    .hp-grow-text p {
+        margin: 0;
+        font-size: 12.5px; color: var(--rh-muted);
+    }
+    .hp-grow-links {
+        display: flex; align-items: center; gap: 10px;
+    }
+
+    /* ---- Primary button (same values as the other host pages) ---- */
+    .hp-btn-primary {
+        display: inline-block; padding: 8px 16px; border-radius: 9px;
+        border: 1px solid var(--rh-accent);
+        background: linear-gradient(135deg, #f6b93b, #eda423);
+        color: #1c2a38; font-size: 12px; font-weight: 700;
+        font-family: inherit; text-decoration: none; cursor: pointer;
+        box-shadow: 0 8px 18px rgba(237, 164, 35, 0.35);
+        transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .hp-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 24px rgba(237, 164, 35, 0.45);
+    }
+
+    /* ---- Dark mode (shell-consistent) ---- */
+    body[data-theme="dark"] .hp-page-title { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-search-wrap input { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-search-wrap input::placeholder { color: #5d6875; }
+    body[data-theme="dark"] .hp-article-card { border-color: #1a222b; }
+    body[data-theme="dark"] .hp-article-card strong { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-article-card span { color: #8d99a5; }
+    body[data-theme="dark"] .hp-article-card:hover {
+        background: rgba(237, 164, 35, 0.12);
+        border-color: rgba(237, 164, 35, 0.35);
+    }
+    body[data-theme="dark"] .hp-faq { border-bottom-color: #1a222b; }
+    body[data-theme="dark"] .hp-faq summary { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-faq-body { color: #8d99a5; }
+    body[data-theme="dark"] .hp-grow-banner {
+        background: rgba(237, 164, 35, 0.12);
+        border-color: rgba(237, 164, 35, 0.35);
+    }
+    body[data-theme="dark"] .hp-grow-text h3 { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-grow-text p { color: #8d99a5; }
+    body[data-theme="dark"] .hp-btn-primary { background: linear-gradient(135deg, #f6b93b, #eda423); border-color: #eda423; }
+
+    @media (max-width: 900px) {
+        .hp-article-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .hp-article-card,
+        .hp-btn-primary {
+            transition: none;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="hp-page-header">
+    <div>
+        <h1 class="hp-page-title">Help Center</h1>
+        <p class="hp-page-subtitle">Answers to the questions hosts ask most.</p>
+    </div>
+</div>
+
+{# ---- Search (the page's only icon: legacy <i data-lucide="search">) ---- #}
+<section class="hp-card">
+    <div class="hp-search-wrap" style="max-width:420px;">
+        {{ ui.icon('search') }}
+        <input type="text" id="faqSearch" placeholder="Search help articles..." autocomplete="off">
+    </div>
+</section>
+
+{# ---- Popular guides ---- #}
+<section class="hp-card">
+    <div class="hp-card-header">
+        <h3>Popular Guides</h3>
+    </div>
+    <div class="hp-article-grid">
+        <a href="/how-it-works" class="hp-article-card">
+            <strong>Hosting 101</strong>
+            <span>How hosting works on RoomHive</span>
+        </a>
+        <a href="/host/become-a-host" class="hp-article-card">
+            <strong>Create a Listing</strong>
+            <span>Step-by-step listing guide</span>
+        </a>
+        <a href="/host/payouts" class="hp-article-card">
+            <strong>Getting Paid</strong>
+            <span>Payouts and payout methods</span>
+        </a>
+    </div>
+</section>
+
+{# ---- FAQs (8 entries — "What is Hive Club?" was replaced in legacy
+   with the quit-hosting entry; Hive Club was deleted site-wide) ---- #}
+<section class="hp-card">
+    <div class="hp-card-header">
+        <h3>Frequently Asked Questions</h3>
+    </div>
+
+    {% for faq in faqs %}
+        <details class="hp-faq" data-faq>
+            <summary>{{ faq[0] }}</summary>
+            <p class="hp-faq-body">{{ faq[1] }}</p>
+        </details>
+    {% endfor %}
+
+    <p class="hp-muted" id="faqNoResults" style="display:none;margin-top:14px;">No articles matched your search.</p>
+</section>
+
+{# ---- Contact support ---- #}
+<section class="hp-grow-banner">
+    <div class="hp-grow-text">
+        <div>
+            <h3>Still need help?</h3>
+            <p>Our support team replies within 24 hours.</p>
+        </div>
+    </div>
+    <div class="hp-grow-links">
+        <a href="/contacts" class="hp-btn-primary" style="text-decoration:none;">CONTACT SUPPORT</a>
+    </div>
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    /* FAQ search filter — verbatim from legacy: match against the
+       rendered text of every details[data-faq], hide non-matches,
+       auto-open matches while searching, toggle #faqNoResults. */
+    (function() {
+        var input = document.getElementById('faqSearch');
+        var empty = document.getElementById('faqNoResults');
+        if (!input) return;
+
+        var items = Array.prototype.slice.call(document.querySelectorAll('details[data-faq]'));
+
+        input.addEventListener('input', function() {
+            var q = input.value.trim().toLowerCase();
+            var visible = 0;
+
+            items.forEach(function(d) {
+                var text = d.textContent.toLowerCase();
+                var match = q === '' || text.indexOf(q) !== -1;
+                d.style.display = match ? '' : 'none';
+                if (match) visible++;
+                if (q !== '' && match) d.open = true;
+            });
+
+            empty.style.display = visible === 0 ? '' : 'none';
+        });
+    })();
+</script>
+{% endblock %}

@@ -1,44 +1,31 @@
-# =========================================================
-# ROOMHIVE — local database stack
-#
-#   db      : MariaDB 10.4 (same version family as the old
-#             XAMPP server), data in a named Docker volume
-#             so it survives container rebuilds and reboots.
-#   adminer : lightweight phpMyAdmin replacement at
-#             http://localhost:8081 (server: db, user/pass below).
-#
-# Port choice: 3308 — 3306 belongs to the old XAMPP setup,
-# 3307 is already taken by another Docker container.
-#
-# Start:  docker compose up -d
-# Stop:   docker compose stop        (data kept)
-# Wipe:   docker compose down -v     (DATA DESTROYED — careful)
-# =========================================================
+  services:
+    db:
+      image: mysql
+      container_name: roomhive-db
+      restart: unless-stopped
+      environment:
+        MYSQL_ROOT_PASSWORD: roomhive_root
+        MYSQL_DATABASE: roomhive
+        MYSQL_USER: roomhive
+        MYSQL_PASSWORD: roomhive_pass
+      ports:
+        - "3308:3306"
+      volumes:
+        - roomhive_mysql_data:/var/lib/mysql
+      command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
 
-services:
-  db:
-    image: mariadb:10.4
-    container_name: roomhive-db
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: roomhive_root
-      MYSQL_DATABASE: roomhive
-      MYSQL_USER: roomhive
-      MYSQL_PASSWORD: roomhive_pass
-    ports:
-      - "3308:3306"
-    volumes:
-      - roomhive_db_data:/var/lib/mysql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    phpmyadmin:
+      image: phpmyadmin
+      container_name: roomhive-phpmyadmin
+      restart: unless-stopped
+      environment:
+        PMA_HOST: db
+        PMA_PORT: 3306
+        UPLOAD_LIMIT: 512M
+      ports:
+        - "8082:80"
+      depends_on:
+        - db
 
-  adminer:
-    image: adminer
-    container_name: roomhive-adminer
-    restart: unless-stopped
-    ports:
-      - "8081:8080"
-    depends_on:
-      - db
-
-volumes:
-  roomhive_db_data:
+  volumes:
+    roomhive_mysql_data:

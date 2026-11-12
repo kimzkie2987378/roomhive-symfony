@@ -1,0 +1,386 @@
+{# roomhive/admin/payouts.html.twig
+   Admin › Payouts — extends admin/base.html.twig.
+   1:1 port of legacy admin/adminpayouts.php.
+
+   Top: three stat cards (Platform Commission, Host Earnings,
+   Pending Payout Requests) mirroring the legacy stat-grid.
+
+   Below: a panel with filter tabs (All / Pending / Processing /
+   Completed / Failed) and a 100-row table of payout requests.
+   Each row has an inline status-override form (select + Save)
+   POSTing payout_id + payout_status + csrf_token + ret_status.
+
+   PAYOUTS-TABLE GUARD: if the `payouts` table does not exist yet,
+   the panel renders an empty state (the stat cards still render
+   because platform_fee_amount + host_payout_amount live on
+   `bookings`). Same flag the legacy code set via $payoutTableExists.
+#}
+{% extends 'admin/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'Payouts' %}
+{% set page_heading = 'Payouts' %}
+{% set page_subheading = 'Host withdrawal requests and platform commission overview.' %}
+
+{% block styles %}
+    <style>
+        /* ---- Stat cards (3-col grid, matches legacy stat-grid) ---- */
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 22px;
+        }
+        @media (max-width: 900px) {
+            .stat-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        .stat-card {
+            background: #fff;
+            border: 1px solid #eef1f6;
+            border-radius: 14px;
+            padding: 18px;
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+        }
+        .stat-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
+            background: #fff4e0;
+            color: #c77a00;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .stat-icon .icon {
+            width: 20px;
+            height: 20px;
+        }
+        .stat-body {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+        .stat-label {
+            font-size: 11px;
+            color: #8b93a6;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .stat-value-row {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            margin: 2px 0 4px;
+        }
+        .stat-value {
+            font-size: 22px;
+            font-weight: 800;
+            color: #14142b;
+            line-height: 1.2;
+        }
+        .stat-caption {
+            font-size: 12px;
+            color: #8b93a6;
+        }
+
+        /* ---- Panel ---- */
+        .panel {
+            background: #fff;
+            border: 1px solid #eef1f6;
+            border-radius: 14px;
+            padding: 18px;
+        }
+
+        /* ---- Filter tabs ---- */
+        .filter-tabs {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+        }
+        .filter-tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border-radius: 10px;
+            background: #f6f7fb;
+            color: #5b6172;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            transition:
+                background 0.15s ease,
+                color 0.15s ease;
+        }
+        .filter-tab:hover {
+            background: #eef1f6;
+            color: #14142b;
+        }
+        .filter-tab.active {
+            background: #14142b;
+            color: #fff;
+        }
+        .filter-tab .count {
+            background: rgba(255, 255, 255, 0.18);
+            color: inherit;
+            padding: 1px 7px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        .filter-tab:not(.active) .count {
+            background: #eceef3;
+            color: #5b6172;
+        }
+
+        /* ---- Table ---- */
+        .table-scroll {
+            overflow-x: auto;
+        }
+        table.app-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        table.app-table th {
+            text-align: left;
+            color: #8b93a6;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            padding: 10px 12px;
+            border-bottom: 1px solid #eef1f6;
+            white-space: nowrap;
+        }
+        table.app-table td {
+            padding: 12px;
+            border-bottom: 1px solid #f6f7fb;
+            vertical-align: middle;
+        }
+        table.app-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .people-name {
+            font-weight: 600;
+            color: #14142b;
+        }
+        .amount-strong {
+            font-weight: 700;
+            color: #14142b;
+        }
+
+        /* ---- Inline status-update form ---- */
+        .status-form {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex-wrap: nowrap;
+        }
+        .period-select {
+            border: 1px solid #eef1f6;
+            border-radius: 8px;
+            padding: 6px 8px;
+            font-size: 12.5px;
+            font-weight: 600;
+            color: #14142b;
+            background: #fff;
+            font-family: inherit;
+            cursor: pointer;
+        }
+        .period-select:focus {
+            outline: 2px solid #eda423;
+            outline-offset: -1px;
+        }
+        .view-all {
+            border: none;
+            padding: 6px 12px;
+            border-radius: 8px;
+            background: #14142b;
+            color: #fff;
+            font-size: 12.5px;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+            transition: background 0.15s ease;
+        }
+        .view-all:hover {
+            background: #2a2a45;
+        }
+
+        /* ---- Flash banner ---- */
+        .flash-banner {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 16px;
+        }
+        .flash-banner.success {
+            background: #e7f7ec;
+            color: #2fa84f;
+        }
+        .flash-banner.error {
+            background: #fceaea;
+            color: #e14b4b;
+        }
+        .flash-banner .icon {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+
+        /* ---- Empty state ---- */
+        .empty-state {
+            text-align: center;
+            padding: 50px 16px;
+            color: #8b93a6;
+        }
+        .empty-state .empty-icon {
+            opacity: 0.5;
+            margin-bottom: 12px;
+        }
+        .empty-state .empty-icon .icon {
+            width: 36px;
+            height: 36px;
+        }
+        .empty-state p {
+            font-size: 13.5px;
+            margin: 0;
+            max-width: 460px;
+            margin-left: auto;
+            margin-right: auto;
+            line-height: 1.5;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    {% if flash %}
+        <div class="flash-banner {{ flash.type }}">
+            {{ ui.icon(flash.type == 'success' ? 'check-circle' : 'alert-triangle') }}
+            <span>{{ flash.text }}</span>
+        </div>
+    {% endif %}
+
+    {# ============ STAT CARDS ============ #}
+    <div class="stat-grid">
+        <div class="stat-card">
+            <div class="stat-icon">{{ ui.icon('wallet') }}</div>
+            <div class="stat-body">
+                <span class="stat-label">Platform Commission</span>
+                <div class="stat-value-row"><span class="stat-value">₱{{ platform_earnings|number_format(2, '.', ',') }}</span></div>
+                <span class="stat-caption">From confirmed &amp; completed bookings</span>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">{{ ui.icon('user-check') }}</div>
+            <div class="stat-body">
+                <span class="stat-label">Host Earnings</span>
+                <div class="stat-value-row"><span class="stat-value">₱{{ host_earnings|number_format(2, '.', ',') }}</span></div>
+                <span class="stat-caption">Owed / paid to hosts (gross of payouts)</span>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">{{ ui.icon('clock') }}</div>
+            <div class="stat-body">
+                <span class="stat-label">Pending Payout Requests</span>
+                <div class="stat-value-row"><span class="stat-value">₱{{ pending_amount|number_format(2, '.', ',') }}</span></div>
+                <span class="stat-caption">₱{{ completed_amount|number_format(2, '.', ',') }} already sent</span>
+            </div>
+        </div>
+    </div>
+
+    {# ============ PAYOUTS PANEL ============ #}
+    <div class="panel">
+        <div class="filter-tabs">
+            {% for f in valid_filters %}
+                <a
+                    class="filter-tab {{ status == f ? 'active' : '' }}"
+                    href="?{{ {status: f}|url_encode }}"
+                >
+                    {{ f|capitalize }}
+                    <span class="count">{{ counts[f] }}</span>
+                </a>
+            {% endfor %}
+        </div>
+
+        {% if not payout_table_exists %}
+            <div class="empty-state">
+                <div class="empty-icon">{{ ui.icon('alert-triangle') }}</div>
+                <p>The <code>payouts</code> table does not exist yet — run the CREATE TABLE SQL from the host dashboard setup.</p>
+            </div>
+        {% elseif payouts is empty %}
+            <div class="empty-state">
+                <div class="empty-icon">{{ ui.icon('inbox') }}</div>
+                <p>No payout requests in this view.</p>
+            </div>
+        {% else %}
+            <div class="table-scroll">
+                <table class="app-table">
+                    <thead>
+                        <tr>
+                            <th>Host</th>
+                            <th>Method</th>
+                            <th>Requested</th>
+                            <th>Processed</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                            <th>Update</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in payouts %}
+                            <tr>
+                                <td><span class="people-name">{{ p.host_name }}</span></td>
+                                <td>{{ p.method }}</td>
+                                <td>{{ p.requested_at|date('M j, Y g:i A') }}</td>
+                                <td>
+                                    {% if p.processed_at %}
+                                        {{ p.processed_at|date('M j, Y g:i A') }}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td><strong class="amount-strong">₱{{ p.amount|number_format(2, '.', ',') }}</strong></td>
+                                <td>
+                                    <span class="badge {{ badge_class_map[p.status_label] ?? '' }}">{{ p.status_label }}</span>
+                                </td>
+                                <td>
+                                    <form
+                                        method="post"
+                                        class="status-form"
+                                        action="{{ path('app_admin_payouts') }}?{{ {status: status}|url_encode }}"
+                                    >
+                                        <input type="hidden" name="csrf_token" value="{{ admin_csrf }}">
+                                        <input type="hidden" name="payout_id" value="{{ p.id }}">
+                                        <input type="hidden" name="ret_status" value="{{ status }}">
+                                        <select name="payout_status" class="period-select" aria-label="Payout status">
+                                            {% for opt in valid_statuses %}
+                                                <option value="{{ opt }}" {{ p.status == opt ? 'selected' : '' }}>{{ opt|capitalize }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="submit" class="view-all">Save</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}

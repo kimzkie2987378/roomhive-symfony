@@ -1,0 +1,648 @@
+{# roomhive/host/edit_listing.html.twig
+   Host › Edit Listing — port of legacy user/edit-listing.php
+   (the page every "Edit Listing" link points at:
+   /host/listings/edit?id=N → HostEditListingController).
+   Extends host/base.html.twig; sidebar "My Listings" highlights
+   via active_nav = 'listings'.
+
+   Layout (all CSS is page-local, hp-* idiom like listings.html.twig):
+     • Page header: back link to My Listings + title.
+     • Summary strip: status pill, location, category/property
+       type, current price — read-only context.
+     • Error banner (failed POST — same re-stick pattern as the
+       wizard: values below re-fill from `old`).
+     • "Current photos" card — cover preview + additional-photo
+       grid. Each thumbnail's × is its OWN tiny inline form
+       (intent=remove_photo) — forms cannot nest, so this card
+       sits OUTSIDE the main form. Row-only delete (the wizard
+       never unlinks files — matched).
+     • Main form (multipart, self-posts action=""):
+         hidden id + intent=save + csrf_token
+         "Update photos" — replace cover + add additional photos
+           (same limits as the wizard: JPG/PNG, 5MB, max 20)
+         "Basics" — title, exact address, description, house
+           rules, amenity checkboxes (same 6 keys/labels as the
+           wizard's amenity_options).
+         "Rate & details" — price / capacity / bedrooms /
+           bathrooms / size_sqm / floor / parking. While
+           price_locked these render disabled with a lock note —
+           the controller re-checks the lock inside the
+           transaction and forces the DB values, so the disabled
+           inputs are UX, not the enforcement.
+         Save Changes / Cancel.
+     • listing.status is NOT editable here — the draft→pending→
+       approved lifecycle belongs to the wizard + admin queue; it
+       is shown read-only in the summary strip.
+
+   Shares with HostListingsController: the occupied rule ("can
+   edit if no one occupied" — its link is a locked button while
+   someone is staying) and has_active_booking semantics (pending
+   = reserving or confirmed = occupied → price/specs lock).
+#}
+{% extends 'host/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'listings' %}
+
+{% block page_title %}Edit Listing — RoomHive{% endblock %}
+
+{% block styles %}
+    <style>
+        /* ---- Page header ---- */
+        .rh-edit-head {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+        }
+        .rh-edit-back {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            border: 1px solid var(--rh-line);
+            background: #fff;
+            color: var(--rh-muted);
+            flex-shrink: 0;
+            transition:
+                background 0.15s ease,
+                color 0.15s ease;
+        }
+        .rh-edit-back:hover {
+            background: #f0f1f6;
+            color: var(--rh-ink);
+        }
+        .rh-edit-back svg {
+            width: 16px;
+            height: 16px;
+        }
+        .rh-edit-title {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--rh-ink);
+        }
+        .rh-edit-subtitle {
+            margin: 4px 0 0;
+            font-size: 13px;
+            color: var(--rh-muted);
+        }
+
+        /* ---- Status pills (same values as listings.html.twig) ---- */
+        .hp-status {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+        .hp-status-active {
+            background: #e7f7ec;
+            color: #1fa971;
+        }
+        .hp-status-pending {
+            background: var(--rh-accent-light);
+            color: #b07708;
+        }
+        .hp-status-rejected {
+            background: #fceaea;
+            color: #e14b4b;
+        }
+        .hp-status-unlisted {
+            background: #f0f1f6;
+            color: var(--rh-muted);
+        }
+
+        /* ---- Summary strip ---- */
+        .rh-edit-summary {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+            background: #fff;
+            border: 1px solid var(--rh-line);
+            border-radius: var(--rh-radius);
+            padding: 12px 16px;
+            font-size: 13px;
+            color: var(--rh-muted);
+        }
+        .rh-edit-summary .rh-sum-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .rh-edit-summary svg {
+            width: 14px;
+            height: 14px;
+            color: #8b93a6;
+        }
+        .rh-sum-price {
+            font-weight: 800;
+            color: var(--rh-ink);
+            font-size: 15px;
+        }
+        .rh-sum-sep {
+            width: 1px;
+            height: 18px;
+            background: var(--rh-line);
+        }
+
+        /* ---- Errors banner ---- */
+        .rh-errors {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            background: #fceaea;
+            border: 1px solid #e14b4b;
+            border-radius: 10px;
+            padding: 12px 14px;
+            color: #b32626;
+            font-size: 13px;
+        }
+        .rh-errors svg {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+        .rh-errors ul {
+            margin: 0;
+            padding-left: 18px;
+        }
+        .rh-errors li + li {
+            margin-top: 4px;
+        }
+
+        /* ---- Cards / sections ---- */
+        .rh-card {
+            background: #fff;
+            border: 1px solid var(--rh-line);
+            border-radius: var(--rh-radius);
+            padding: 20px;
+        }
+        .rh-card + .rh-card {
+            margin-top: 16px;
+        }
+        .rh-card-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0 0 14px;
+            font-size: 15px;
+            font-weight: 800;
+            color: var(--rh-ink);
+        }
+        .rh-card-title svg {
+            width: 16px;
+            height: 16px;
+            color: var(--rh-accent);
+        }
+        .rh-card-hint {
+            font-size: 12.5px;
+            color: var(--rh-muted);
+            margin: -8px 0 14px;
+        }
+
+        /* ---- Form fields ---- */
+        .rh-field {
+            margin-bottom: 14px;
+        }
+        .rh-field label {
+            display: block;
+            font-size: 12.5px;
+            font-weight: 700;
+            color: var(--rh-ink);
+            margin-bottom: 6px;
+        }
+        .rh-field input[type="text"],
+        .rh-field input[type="number"],
+        .rh-field textarea,
+        .rh-field select {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 10px 12px;
+            border: 1px solid var(--rh-line);
+            border-radius: 9px;
+            font-size: 13.5px;
+            font-family: inherit;
+            color: var(--rh-ink);
+            background: #fff;
+            outline: none;
+            transition: border-color 0.15s ease;
+        }
+        .rh-field input:focus,
+        .rh-field textarea:focus,
+        .rh-field select:focus {
+            border-color: var(--rh-accent);
+        }
+        .rh-field textarea {
+            min-height: 110px;
+            resize: vertical;
+        }
+        .rh-field input:disabled,
+        .rh-field select:disabled {
+            background: #f6f7fb;
+            color: var(--rh-muted);
+            cursor: not-allowed;
+        }
+        .rh-field input[type="file"] {
+            font-size: 12.5px;
+            color: var(--rh-muted);
+        }
+        .rh-grid2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0 14px;
+        }
+        @media (max-width: 640px) {
+            .rh-grid2 {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* ---- Amenity chips ---- */
+        .rh-amenities {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+            gap: 8px;
+        }
+        .rh-amenity {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid var(--rh-line);
+            border-radius: 9px;
+            padding: 9px 11px;
+            font-size: 12.5px;
+            color: var(--rh-ink);
+            cursor: pointer;
+            transition:
+                border-color 0.15s ease,
+                background 0.15s ease;
+        }
+        .rh-amenity:hover {
+            border-color: var(--rh-accent);
+            background: var(--rh-accent-light);
+        }
+        .rh-amenity input {
+            accent-color: #2f7df6;
+            margin: 0;
+        }
+
+        /* ---- Lock note (rate & details locked) ---- */
+        .rh-lock-note {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #fff4e0;
+            border: 1px solid #f7941d;
+            border-radius: 9px;
+            padding: 10px 12px;
+            font-size: 12.5px;
+            color: #8a5a10;
+            margin-bottom: 14px;
+        }
+        .rh-lock-note svg {
+            width: 14px;
+            height: 14px;
+            flex-shrink: 0;
+        }
+
+        /* ---- Photos ---- */
+        .rh-cover-preview {
+            width: 100%;
+            max-width: 420px;
+            aspect-ratio: 3 / 2;
+            object-fit: cover;
+            border-radius: 12px;
+            border: 1px solid var(--rh-line);
+            display: block;
+            background: #f0eee6;
+        }
+        .rh-cover-none {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            max-width: 420px;
+            aspect-ratio: 3 / 2;
+            border: 1px dashed var(--rh-line);
+            border-radius: 12px;
+            color: var(--rh-muted);
+            font-size: 12.5px;
+            background: #fafaf7;
+        }
+        .rh-ph-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 10px;
+            margin-top: 14px;
+        }
+        .rh-ph {
+            position: relative;
+            aspect-ratio: 4 / 3;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid var(--rh-line);
+            background: #f0eee6;
+        }
+        .rh-ph img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .rh-ph-del {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            margin: 0;
+        }
+        .rh-ph-del button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border: none;
+            border-radius: 7px;
+            background: rgba(28, 42, 56, 0.85);
+            color: #ffffff;
+            cursor: pointer;
+            padding: 0;
+        }
+        .rh-ph-del button:hover {
+            background: #e14b4b;
+        }
+        .rh-ph-del svg {
+            width: 12px;
+            height: 12px;
+        }
+        .rh-ph-none {
+            font-size: 12.5px;
+            color: var(--rh-muted);
+            margin: 14px 0 0;
+        }
+
+        /* ---- Buttons ---- */
+        .rh-btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 20px;
+            border-radius: 9px;
+            border: 1px solid var(--rh-accent);
+            background: var(--rh-accent);
+            color: #ffffff;
+            font-size: 13px;
+            font-weight: 700;
+            font-family: inherit;
+            cursor: pointer;
+            text-decoration: none;
+            transition: filter 0.15s ease;
+        }
+        .rh-btn-primary:hover {
+            filter: brightness(0.94);
+        }
+        .rh-btn-primary svg {
+            width: 14px;
+            height: 14px;
+        }
+        .rh-save-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 4px;
+        }
+
+        /* ---- Dark mode ---- */
+        body[data-theme="dark"] .rh-edit-title {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .rh-edit-back {
+            background: #1a222b;
+            border-color: #232d38;
+            color: #8d99a5;
+        }
+        body[data-theme="dark"] .rh-edit-summary,
+        body[data-theme="dark"] .rh-card {
+            background: #141b24;
+            border-color: #1a222b;
+        }
+        body[data-theme="dark"] .rh-card-title {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .rh-field label {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .rh-field input[type="text"],
+        body[data-theme="dark"] .rh-field input[type="number"],
+        body[data-theme="dark"] .rh-field textarea,
+        body[data-theme="dark"] .rh-field select {
+            background: #1a222b;
+            border-color: #232d38;
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .rh-field input:disabled,
+        body[data-theme="dark"] .rh-field select:disabled {
+            background: #141b24;
+            color: #6b7684;
+        }
+        body[data-theme="dark"] .rh-amenity {
+            border-color: #232d38;
+            color: #cfd6dd;
+        }
+        body[data-theme="dark"] .rh-ph {
+            border-color: #232d38;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    <div class="rh-edit-head">
+        <a href="/host/listings" class="rh-edit-back" title="Back to My Listings" aria-label="Back to My Listings">
+            {{ ui.icon('arrow-left') }}
+        </a>
+        <div>
+            <h1 class="rh-edit-title">Edit Listing</h1>
+            <p class="rh-edit-subtitle">Update your space — price and availability lock while a guest is booked or reserving.</p>
+        </div>
+    </div>
+
+    {% if errors|length %}
+        <div class="rh-errors" style="margin-top:16px;">
+            {{ ui.icon('alert-triangle') }}
+            <ul>
+                {% for e in errors %}
+                    <li>{{ e }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
+    <div class="rh-edit-summary" style="margin-top:16px;">
+        <span class="hp-status {{ l.status_class }}">{{ l.status_label }}</span>
+        <span class="rh-sum-sep"></span>
+        <span class="rh-sum-item">{{ ui.icon('pin') }} {{ l.location }}</span>
+        <span class="rh-sum-sep"></span>
+        <span class="rh-sum-item">{{ ui.icon('building-2') }} {{ l.category_label }} &middot; {{ l.property_label }}</span>
+        <span class="rh-sum-sep"></span>
+        <span class="rh-sum-item"><span class="rh-sum-price">&#8369; {{ old.price|number_format }}</span>&nbsp;/ month</span>
+    </div>
+
+    {# ------------------------------------------------------------
+       CURRENT PHOTOS — outside the main form so every thumbnail
+       can carry its own tiny remove form (forms cannot nest).
+       ------------------------------------------------------------ #}
+    <div class="rh-card" style="margin-top:16px;">
+        <h2 class="rh-card-title">{{ ui.icon('image') }} Current photos</h2>
+
+        {% if cover %}
+            <img class="rh-cover-preview" src="{{ cover.url }}" alt="Cover photo">
+        {% else %}
+            <div class="rh-cover-none">No cover photo yet — upload one below.</div>
+        {% endif %}
+
+        {% if additional|length %}
+            <div class="rh-ph-grid">
+                {% for p in additional %}
+                    <div class="rh-ph">
+                        <img src="{{ p.url }}" alt="Additional photo">
+                        <form method="post" action="" class="rh-ph-del" onsubmit="return confirm('Remove this photo?');">
+                            <input type="hidden" name="id" value="{{ l.id }}">
+                            <input type="hidden" name="intent" value="remove_photo">
+                            <input type="hidden" name="photo_id" value="{{ p.id }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_host_listing_edit }}">
+                            <button type="submit" aria-label="Remove this photo">{{ ui.icon('x') }}</button>
+                        </form>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="rh-ph-none">No additional photos yet — you can add some below.</p>
+        {% endif %}
+    </div>
+
+    {# ------------------------------------------------------------
+       MAIN FORM — self-posts (action="") to the current URL,
+       same convention as the wizard steps.
+       ------------------------------------------------------------ #}
+    <form method="post" action="" enctype="multipart/form-data" style="margin-top:16px;">
+        <input type="hidden" name="id" value="{{ l.id }}">
+        <input type="hidden" name="intent" value="save">
+        <input type="hidden" name="csrf_token" value="{{ csrf_host_listing_edit }}">
+
+        <div class="rh-card">
+            <h2 class="rh-card-title">{{ ui.icon('camera') }} Update photos</h2>
+            <p class="rh-card-hint">JPG or PNG, up to 5MB each, maximum of 20 additional photos. Uploading a new cover replaces the current one.</p>
+
+            <div class="rh-field">
+                <label for="rh-cover">Replace cover photo</label>
+                <input type="file" id="rh-cover" name="cover_photo" accept="image/jpeg,image/png">
+            </div>
+
+            <div class="rh-field" style="margin-bottom:0;">
+                <label for="rh-additional">Add more photos</label>
+                <input type="file" id="rh-additional" name="additional_photos[]" accept="image/jpeg,image/png" multiple>
+            </div>
+        </div>
+
+        <div class="rh-card">
+            <h2 class="rh-card-title">{{ ui.icon('pencil') }} Basics</h2>
+
+            <div class="rh-field">
+                <label for="rh-title">Title</label>
+                <input type="text" id="rh-title" name="title" value="{{ old.title }}" maxlength="255" required>
+            </div>
+
+            <div class="rh-field">
+                <label for="rh-address">Exact address</label>
+                <input type="text" id="rh-address" name="exact_address" value="{{ old.exact_address }}" maxlength="500" required>
+            </div>
+
+            <div class="rh-field">
+                <label for="rh-description">Description</label>
+                <textarea id="rh-description" name="description" required>{{ old.description }}</textarea>
+            </div>
+
+            <div class="rh-field">
+                <label for="rh-rules">House rules</label>
+                <textarea id="rh-rules" name="house_rules" placeholder="Optional — e.g. quiet hours, visitors, curfew.">{{ old.house_rules }}</textarea>
+            </div>
+
+            <div class="rh-field" style="margin-bottom:0;">
+                <label>Amenities</label>
+                <div class="rh-amenities">
+                    {% for a in amenities %}
+                        <label class="rh-amenity">
+                            <input type="checkbox" name="amenities[]" value="{{ a.key }}" {% if a.key in old.amenities %}checked{% endif %}>
+                            {{ a.label }}
+                        </label>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="rh-card">
+            <h2 class="rh-card-title">{{ ui.icon('tag') }} Rate &amp; details</h2>
+
+            {% if price_locked %}
+                <div class="rh-lock-note">
+                    {{ ui.icon('lock') }}
+                    Price and availability are locked while a guest is booked or reserving. These fields unlock when the stay ends.
+                </div>
+            {% endif %}
+
+            <div class="rh-grid2">
+                <div class="rh-field">
+                    <label for="rh-price">Price per month (&#8369;)</label>
+                    <input type="number" id="rh-price" name="price" value="{{ old.price }}" min="1" step="any" required {% if price_locked %}disabled{% endif %}>
+                </div>
+
+                <div class="rh-field">
+                    <label for="rh-capacity">Maximum guests</label>
+                    <select id="rh-capacity" name="capacity" {% if price_locked %}disabled{% endif %}>
+                        {% for value, label in capacity_options %}
+                            <option value="{{ value }}" {% if old.capacity == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="rh-field">
+                    <label for="rh-bedrooms">Bedrooms</label>
+                    <input type="number" id="rh-bedrooms" name="bedrooms" value="{{ old.bedrooms }}" min="1" required {% if price_locked %}disabled{% endif %}>
+                </div>
+
+                <div class="rh-field">
+                    <label for="rh-bathrooms">Bathrooms</label>
+                    <input type="number" id="rh-bathrooms" name="bathrooms" value="{{ old.bathrooms }}" min="1" required {% if price_locked %}disabled{% endif %}>
+                </div>
+
+                <div class="rh-field">
+                    <label for="rh-size">Size (sqm)</label>
+                    <input type="number" id="rh-size" name="size_sqm" value="{{ old.size_sqm }}" min="1" step="any" required {% if price_locked %}disabled{% endif %}>
+                </div>
+
+                <div class="rh-field">
+                    <label for="rh-floor">Floor</label>
+                    <input type="text" id="rh-floor" name="floor" value="{{ old.floor }}" maxlength="50" required {% if price_locked %}disabled{% endif %}>
+                </div>
+
+                <div class="rh-field" style="grid-column: 1 / -1;">
+                    <label for="rh-parking">Parking</label>
+                    <select id="rh-parking" name="parking" {% if price_locked %}disabled{% endif %}>
+                        {% for value, label in parking_options %}
+                            <option value="{{ value }}" {% if old.parking == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="rh-save-row">
+                <button type="submit" class="rh-btn-primary">{{ ui.icon('check') }} Save Changes</button>
+                <a href="/host/listings" class="hp-btn-outline">Cancel</a>
+            </div>
+        </div>
+    </form>
+{% endblock %}

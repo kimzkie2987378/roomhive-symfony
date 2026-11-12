@@ -1,0 +1,665 @@
+﻿{# =========================================================
+   RoomHive — Notifications (full page, BOTH roles)
+   templates/user/notifications.html.twig
+
+   1:1 port of legacy user/notifications.php — the bell dropdown's
+   "View all notifications" target. Works for hosts AND renters
+   (notifications are keyed by user_id).
+
+   REBUILT onto the shared account shell — same recipe as
+   bookings/security/notification_settings:
+
+     - Sidebar: shared partial templates/partials/sidebar.html.twig,
+       highlight key 'notifcenter' (this page). Legacy gave hosts the
+       host dashboard sidebar; that shell isn't ported yet, so both
+       roles get the renter shell — the list markup is identical in
+       both legacy shells anyway. The inline sidebar copy + its CSS
+       are gone; the collapse JS stays on this page.
+     - Footer: shared partials/footer.html.twig (= user_footer.php).
+     - Lucide: guarded loader (window.__rhNavbarLucide — never
+       double-loads with the navbar's).
+     - Reveal: the REAL legacy mechanism (.up-reveal waits for
+       .in-view) + the 1.5s failsafe — the old kill-switch CSS and
+       the hardcoded in-view class are gone.
+     - Theme: app-wide boot was already on this page (localStorage
+       roomhive_theme → html.dark + html[data-theme]) — kept as is.
+
+   LAYOUT / SIDEBAR FIX (page-local overrides, no other account page
+   is affected — same geometry as the notification settings page):
+     - main.up-dashboard — bumped specificity so the overrides always
+       beat myaccount.css, and the clearance is PADDING (110px top):
+       margins can collapse away, padding can never — so the sidebar
+       box (toggle + Overview link) can no longer slide under the
+       fixed navbar. Sidebar top = 110px, card top = 185px.
+     - .up-dashboard .up-sidebar top: 110px — the sticky offset now
+       matches the natural top, so the sidebar also stays clear of
+       the navbar while scrolling (the partial's default is 86px).
+     - max-width: 1560px — occupies the available area instead of
+       the legacy ~1240px cap.
+
+   Content (1:1 with legacy):
+   - "All Notifications" header + "n unread" pill + Mark all as read
+   - np-item rows: photo chip (lucide fallback) or coloured lucide
+     icon chip, label (emoji stripped), context line, relative time,
+     unread dot; click = mark read then navigate to the stored link
+   - pagination (‹ Newer / n / m / Older ›) when > 1 page
+   - POST /notifications/mark-read {id} / {all:1} replaces the legacy
+     mark-notifications-read.php endpoint.
+
+   Data from NotificationsController::index (user, is_host, items,
+   unread_count, notif_count, page, total_pages). Controller
+   untouched — template-only change.
+========================================================= #}
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Notifications · RoomHive</title>
+
+        <script>
+            /* theme boot — before paint (app key: roomhive_theme) */
+            (function () {
+                try {
+                    if (localStorage.getItem("roomhive_theme") === "dark") {
+                        document.documentElement.classList.add("dark");
+                        document.documentElement.setAttribute("data-theme", "dark");
+                    }
+                } catch (e) {}
+            })();
+            document.documentElement.classList.add("js");
+        </script>
+
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/myaccount.css') }}">
+
+        <style>
+            :root {
+                --rh-ink: #1c2a38;
+                --rh-muted: #66788a;
+                --rh-line: #e6ebf1;
+                --rh-card: #ffffff;
+                --rh-accent: #eda423;
+                --rh-accent-deep: #d98c12;
+                --rh-radius: 16px;
+            }
+
+            body {
+                background: #f3f5f9;
+            }
+
+            .up-dashboard,
+            .up-dashboard * {
+                box-sizing: border-box;
+            }
+
+            /* =========================================================
+                                                                       NAVBAR CLEARANCE + LAYOUT — page-local, bulletproof
+                                                                       Sidebar fix: the sidebar box was sliding under the fixed
+                                                                       navbar (toggle + Overview link hidden) and the shell stayed
+                                                                       at the ~1240px cap — plain .up-dashboard rules can lose to
+                                                                       myaccount.css, and a top margin can collapse away. So:
+                                                                         - main.up-dashboard (higher specificity) always wins;
+                                                                         - the clearance is PADDING — margins can collapse,
+                                                                           padding can never, so the sidebar cannot ride under
+                                                                           the bar; sidebar top = 110px, card top = 185px, the
+                                                                           same geometry as the notification settings page.
+                                                                    ========================================================== */
+            main.up-dashboard {
+                margin-top: 0;
+                padding: 110px 20px 70px;
+                max-width: 1560px;
+            }
+
+            /* the MIDDLE COLUMN (notification card) keeps its extra 75px
+                                                                       drop below the shell's 110px clearance */
+            .up-dashboard .up-content {
+                padding-top: 75px;
+            }
+
+            /* sticky offset matches the natural top — when you scroll, the
+                                                                       sidebar sticks at the same 110px line instead of tucking
+                                                                       under the navbar (the partial's default is 86px) */
+            .up-dashboard .up-sidebar {
+                top: 110px;
+            }
+
+            /* sidebar markup + styles live in templates/partials/sidebar.html.twig */
+
+            svg.lucide {
+                display: inline-block;
+                vertical-align: -0.18em;
+                flex-shrink: 0;
+            }
+
+            /* ---- Notifications page (np-*, carried over 1:1) ---- */
+            .np-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 14px;
+                flex-wrap: wrap;
+                margin-bottom: 18px;
+            }
+            .np-head h2 {
+                margin: 0;
+                font-size: 20px;
+                font-weight: 800;
+                color: #1c2a38;
+                display: flex;
+                align-items: center;
+            }
+            .np-unread-pill {
+                display: inline-block;
+                padding: 4px 12px;
+                border-radius: 999px;
+                background: #fdf1dc;
+                border: 1px solid rgba(237, 164, 35, 0.5);
+                color: #b07708;
+                font-size: 11.5px;
+                font-weight: 800;
+                margin-left: 8px;
+                vertical-align: middle;
+            }
+            .np-markall {
+                background: linear-gradient(135deg, #f6b93b, #eda423);
+                border: none;
+                color: #1c2a38;
+                font-family: inherit;
+                font-size: 12.5px;
+                font-weight: 800;
+                padding: 10px 18px;
+                border-radius: 999px;
+                cursor: pointer;
+                box-shadow: 0 8px 18px rgba(237, 164, 35, 0.35);
+                transition:
+                    transform 0.15s ease,
+                    box-shadow 0.15s ease;
+            }
+            .np-markall:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 12px 24px rgba(237, 164, 35, 0.45);
+            }
+            .np-list {
+                display: flex;
+                flex-direction: column;
+            }
+            .np-item {
+                display: flex;
+                align-items: flex-start;
+                gap: 12px;
+                width: 100%;
+                padding: 14px 12px;
+                background: none;
+                border: none;
+                border-bottom: 1px solid rgba(28, 42, 56, 0.06);
+                text-align: left;
+                font-family: inherit;
+                cursor: pointer;
+                transition: background 0.15s ease;
+                border-radius: 10px;
+            }
+            .np-item:hover {
+                background: #fff8ec;
+            }
+            .np-item.unread {
+                background: #fff8ec;
+            }
+            .np-item.unread:hover {
+                background: #fdf1dc;
+            }
+            .np-dot {
+                width: 9px;
+                height: 9px;
+                flex-shrink: 0;
+                align-self: center;
+                background: #eda423;
+                border-radius: 50%;
+            }
+            .np-item:not(.unread) .np-dot {
+                background: transparent;
+                border: 1px solid rgba(28, 42, 56, 0.12);
+            }
+
+            /* ---- Lucide icon chip ---- */
+            .np-ic {
+                width: 42px;
+                height: 42px;
+                flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 12px;
+            }
+            .np-ic svg {
+                width: 19px;
+                height: 19px;
+                stroke-width: 2;
+            }
+            .np-ic-blue {
+                background: #e7f0ff;
+                color: #0b57d0;
+            }
+            .np-ic-green {
+                background: #e8f8f1;
+                color: #178a50;
+            }
+            .np-ic-red {
+                background: #fdecec;
+                color: #b3261e;
+            }
+            .np-ic-yellow {
+                background: #fdf1dc;
+                color: #c77a00;
+            }
+            .np-ic-honey {
+                background: #fff6e9;
+                color: #b07708;
+            }
+            .np-ic-gray {
+                background: #f0f1f6;
+                color: #5b6172;
+            }
+            .np-ic-photo {
+                padding: 0;
+                overflow: hidden;
+                background: #f0eee6;
+            }
+            .np-ic-photo img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                display: block;
+            }
+            .np-ic-fallback {
+                display: none;
+                width: 100%;
+                height: 100%;
+                align-items: center;
+                justify-content: center;
+                background: #fdf1dc;
+                color: #b07708;
+            }
+            .np-body {
+                flex: 1;
+                min-width: 0;
+            }
+            .np-label {
+                display: block;
+                margin: 0;
+                color: #1c2a38;
+                font-size: 13.5px;
+                font-weight: 600;
+                line-height: 1.45;
+                overflow-wrap: anywhere;
+            }
+            .np-item.unread .np-label {
+                font-weight: 700;
+            }
+            .np-ctx {
+                display: block;
+                margin-top: 2px;
+                color: #8d99a5;
+                font-size: 11.5px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .np-time {
+                display: block;
+                margin-top: 3px;
+                color: #8d99a5;
+                font-size: 11px;
+            }
+            .np-empty {
+                text-align: center;
+                padding: 60px 20px;
+                color: #8d99a5;
+                font-size: 14px;
+            }
+            .np-empty-icon {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin: 0 auto 12px;
+                width: 64px;
+                height: 64px;
+                border-radius: 50%;
+                background: #f0f1f6;
+                color: #8d99a5;
+            }
+            .np-empty-icon svg {
+                width: 28px;
+                height: 28px;
+            }
+            .np-pagination {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                padding-top: 18px;
+            }
+            .np-page-btn {
+                padding: 8px 16px;
+                border-radius: 999px;
+                border: 1px solid rgba(28, 42, 56, 0.08);
+                background: #fff;
+                color: #1c2a38;
+                font-family: inherit;
+                font-size: 12.5px;
+                font-weight: 700;
+                text-decoration: none;
+                transition:
+                    border-color 0.15s ease,
+                    color 0.15s ease;
+            }
+            .np-page-btn:hover {
+                border-color: #eda423;
+                color: #b07708;
+            }
+            .np-page-btn.active {
+                background: #fdf1dc;
+                border-color: #eda423;
+                color: #b07708;
+            }
+            .np-page-btn[disabled] {
+                opacity: 0.45;
+                cursor: default;
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .np-item,
+                .np-markall {
+                    transition: none !important;
+                }
+            }
+        </style>
+    </head>
+
+    <body>
+
+        {{ include('partials/navbar.html.twig', {
+        is_logged_in: true,
+        is_host: is_host ?? false,
+        nav_avatar: user.avatar_path ?? null,
+        notification_count: notif_count ?? 0,
+        current_page: 'notifications'
+    }) }}
+
+        <main class="up-dashboard">
+
+            <!-- ==================================================
+             SIDEBAR — shared partial (templates/partials/sidebar.html.twig)
+             highlight key: 'notifcenter' (this page — the settings page
+             is 'notifications') · collapse JS stays on this page
+        =================================================== -->
+            {% include 'partials/sidebar.html.twig' with { active_sidebar: 'notifcenter' } %}
+
+            <div class="up-content">
+
+                <section class="up-card up-reveal">
+
+                    <div class="np-head">
+                        <h2>
+                            All Notifications
+                            {% if unread_count > 0 %}
+                                <span class="np-unread-pill">{{ unread_count }} unread</span>
+                            {% endif %}
+                        </h2>
+                        {% if unread_count > 0 %}
+                            <button type="button" class="np-markall" id="npMarkAll">Mark all as read</button>
+                        {% endif %}
+                    </div>
+
+                    <div class="np-list" id="npList">
+                        {% if items is empty %}
+                            <div class="np-empty"><span class="np-empty-icon"><i data-lucide="bell"></i></span>No notifications yet. Activity on your bookings will show up here.</div>
+                        {% else %}
+                            {% for item in items %}
+                                <button
+                                    type="button"
+                                    class="np-item{{ item.unread ? ' unread' : '' }}"
+                                    data-id="{{ item.id }}"
+                                    data-link="{{ item.link }}"
+                                >
+                                    {% if item.img %}
+                                        <span class="np-ic np-ic-photo">
+                                            <img
+                                                src="{{ item.img }}"
+                                                alt=""
+                                                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
+                                            >
+                                            <span class="np-ic-fallback">
+                                                <i data-lucide="{{ item.icon }}"></i>
+                                            </span>
+                                        </span>
+                                    {% else %}
+                                        <span class="np-ic {{ item.icls }}">
+                                            <i data-lucide="{{ item.icon }}"></i>
+                                        </span>
+                                    {% endif %}
+
+                                    <span class="np-body">
+                                        <span class="np-label">{{ item.label }}</span>
+                                        {% if item.ctx %}
+                                            <span class="np-ctx">{{ item.ctx }}</span>
+                                        {% endif %}
+                                        <span class="np-time">{{ item.time }}</span>
+                                    </span>
+
+                                    <span class="np-dot"></span>
+                                </button>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+
+                    {% if total_pages > 1 %}
+                        <div class="np-pagination">
+                            {% if page > 1 %}
+                                <a class="np-page-btn" href="?page={{ page - 1 }}">&larr; Newer</a>
+                            {% else %}
+                                <span class="np-page-btn" disabled>&larr; Newer</span>
+                            {% endif %}
+
+                            <span class="np-page-btn active">{{ page }} / {{ total_pages }}</span>
+
+                            {% if page < total_pages %}
+                                <a class="np-page-btn" href="?page={{ page + 1 }}">Older &rarr;</a>
+                            {% else %}
+                                <span class="np-page-btn" disabled>Older &rarr;</span>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+
+                </section>
+
+            </div>
+        </main>
+
+        {{ include('partials/footer.html.twig') }}
+
+        <!-- Lucide — guarded loader, same key as navbar (never double-runs) -->
+        <script>
+            (function () {
+                "use strict";
+                function renderRhIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
+                }
+                if (!window.__rhNavbarLucide) {
+                    window.__rhNavbarLucide = true;
+                    var s = document.createElement("script");
+                    s.src = "https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js";
+                    s.addEventListener("load", renderRhIcons);
+                    document.head.appendChild(s);
+                }
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", renderRhIcons);
+                } else {
+                    renderRhIcons();
+                }
+                window.addEventListener("load", renderRhIcons);
+            })();
+        </script>
+
+        <!-- Sidebar collapse — same behavior + localStorage key as legacy -->
+        <script>
+            (function () {
+                var sidebar = document.getElementById("upSidebar");
+                var toggle = document.getElementById("upSidebarToggle");
+                if (!sidebar || !toggle) {
+                    return;
+                }
+
+                var STORAGE_KEY = "roomhive_sidebar_collapsed";
+                var links = sidebar.querySelectorAll(".up-side-link");
+
+                function updateTitles(collapsed) {
+                    links.forEach(function (link) {
+                        var label = link.querySelector(".up-side-label");
+                        if (collapsed) {
+                            link.setAttribute("title", label ? label.textContent : "");
+                        } else {
+                            link.removeAttribute("title");
+                        }
+                    });
+                }
+
+                function applyState(collapsed) {
+                    sidebar.classList.toggle("collapsed", collapsed);
+                    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                    toggle.setAttribute(
+                        "aria-label",
+                        collapsed ? "Expand sidebar" : "Collapse sidebar",
+                    );
+                    updateTitles(collapsed);
+                }
+
+                var savedCollapsed = false;
+                try {
+                    savedCollapsed = localStorage.getItem(STORAGE_KEY) === "1";
+                } catch (e) {}
+                applyState(savedCollapsed);
+
+                toggle.addEventListener("click", function () {
+                    var nowCollapsed = !sidebar.classList.contains("collapsed");
+                    applyState(nowCollapsed);
+                    try {
+                        localStorage.setItem(STORAGE_KEY, nowCollapsed ? "1" : "0");
+                    } catch (e) {}
+                });
+            })();
+        </script>
+
+        <!-- Reveal — the REAL legacy mechanism: myaccount.css waits for .in-view.
+     Plus a 1.5s failsafe so the page can never render blank. -->
+        <script>
+            (function () {
+                "use strict";
+
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                var revealEls = Array.prototype.slice.call(
+                    document.querySelectorAll(".up-reveal"),
+                );
+
+                function showAll() {
+                    revealEls.forEach(function (el) {
+                        el.classList.add("in-view");
+                    });
+                }
+
+                if (reduced || !("IntersectionObserver" in window)) {
+                    showAll();
+                } else {
+                    var io = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) {
+                                    return;
+                                }
+                                var el = entry.target;
+                                io.unobserve(el);
+                                el.classList.add("in-view");
+                                window.setTimeout(function () {
+                                    el.style.setProperty("--i", "0");
+                                }, 1200);
+                            });
+                        },
+                        {
+                            threshold: 0.12,
+                            rootMargin: "0px 0px -40px 0px",
+                        },
+                    );
+                    revealEls.forEach(function (el) {
+                        io.observe(el);
+                    });
+
+                    /* failsafe — force-reveal anything still hidden after 1.5s */
+                    setTimeout(showAll, 1500);
+                }
+            })();
+        </script>
+
+        <script>
+            (function () {
+                "use strict";
+
+                /* ---- Click a notification: mark read, then navigate ---- */
+                document.querySelectorAll(".np-item").forEach(function (item) {
+                    item.addEventListener("click", function () {
+                        var id = item.getAttribute("data-id");
+                        var link = item.getAttribute("data-link") || "/notifications";
+
+                        if (item.classList.contains("unread")) {
+                            item.classList.remove("unread");
+
+                            fetch('{{ path("app_notifications_mark_read") }}', {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/x-www-form-urlencoded",
+                                },
+                                body: "id=" + encodeURIComponent(id),
+                                credentials: "same-origin",
+                            }).catch(function () {});
+                        }
+
+                        window.location.href = link;
+                    });
+                });
+
+                /* ---- Mark all as read ---- */
+                var markAllBtn = document.getElementById("npMarkAll");
+
+                if (markAllBtn) {
+                    markAllBtn.addEventListener("click", function () {
+                        document
+                            .querySelectorAll(".np-item.unread")
+                            .forEach(function (item) {
+                                item.classList.remove("unread");
+                            });
+
+                        var pill = document.querySelector(".np-unread-pill");
+                        if (pill) {
+                            pill.remove();
+                        }
+
+                        markAllBtn.remove();
+
+                        fetch('{{ path("app_notifications_mark_read") }}', {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/x-www-form-urlencoded",
+                            },
+                            body: "all=1",
+                            credentials: "same-origin",
+                        }).catch(function () {});
+                    });
+                }
+            })();
+        </script>
+
+    </body>
+
+</html>

@@ -1,0 +1,1516 @@
+{# roomhive/host/profile.html.twig
+   Host Profile (Overview dashboard) — extends host/base.html.twig.
+   1:1 port of legacy host/hostprofile.php.
+
+   Four sections:
+     1. Profile Information card — avatar with camera-upload button,
+        full name, email, phone, age, location, bio.
+     2. Performance Overview — 4 mini charts:
+        a) Bookings (30d) — vertical bar sparkline
+        b) Occupancy Rate — SVG donut ring
+        c) Earnings (30d) — heatmap strip
+        d) Booking Status Mix — horizontal stacked bar + legend
+        Plus a daily earnings SVG area/line chart below.
+     3. Earnings Trend — 6-month bar chart with ₱k labels.
+     4. My Listings — table with cover photo, title, location,
+        bookings/occupancy/earnings metrics, status badge, current
+        occupant strip (when occupied), and a kebab menu with
+        Accept/Reject (pending tenant) or Delete (when not occupied).
+
+   ACTION ENDPOINTS:
+     /host/profile/avatar         ← DONE — HostProfileAvatarController.php
+                                    (port of legacy uploadavatar.php; same
+                                    storage contract as POST /profile/avatar:
+                                    public/uploads/avatars/avatar-{id}-{ts}.ext)
+     /host/bookings/{id}/accept   ← TODO (legacy accept-booking.php)
+     /host/bookings/{id}/reject   ← TODO (legacy reject-booking.php)
+     /host/listings/{id}/delete   ← TODO (legacy delete-listing.php)
+   The JS below uses these paths: the camera button works today; the
+   accept/reject/delete fetches still 404 until those routes are ported.
+
+   === OCCUPANCY CARD FIX (this version) ===
+     The "30-day window" label was wrapped in <strong>, which inherits
+     .hp-stat-card strong { font-size: 22px; font-weight: 800 } —
+     producing an oversized heading that dominated the card next to
+     the 11px label and 10.5px subtext (visually it looked like the
+     value and label had swapped). Moved "30-day window" into the
+     existing .hp-stat-sub span (joined with " · {{ total_occupied_nights }}
+     occupied nights"), so the donut's {{ occupancy_rate }}% stays
+     the only big number on the card — which was always the intent
+     (the donut IS the value viz; the text column just labels it).
+
+   === IMAGE FALLBACK FIX (this version) ===
+     The avatar used to render as an orange circle with the alt text
+     inside — the classic double-404: {{ host.avatar }} failed AND the
+     onerror target /images/default-avatar.png was missing from
+     public/images/. Fixed in two layers:
+       1. The onerror chains now end in an INLINE SVG DATA URI
+          (rh_avatar_fallback / rh_cover_fallback, set right below) —
+          a clean placeholder renders even with zero files on disk.
+       2. Real PNGs still ship: copy default-avatar.png and
+          ListingPlaceholder.png into public/images/ so every OTHER
+          reference to those paths (navbar chip, pending tenants, edit
+          profile, admin lists) is fixed too.
+     Also new here: every Profile Information field now carries its
+     lucide icon (person / mail / phone / calendar-days / pin /
+     file-text / calendar-check) via the shared ui.icon() macro.
+#}
+{% extends 'host/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'overview' %}
+
+{# ---- Bulletproof image fallbacks (inline SVG data URIs) ----
+   onerror chain: broken src → placeholder path → if that PNG is ALSO
+   missing from public/images/, these data URIs still render a clean
+   placeholder. No broken-image icon, no alt-text overflow, works
+   with zero files on disk. Percent-encoded: safe inside the
+   double-quoted HTML attribute and the single-quoted JS string. #}
+{% set rh_avatar_fallback = "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Crect%20width%3D%22100%22%20height%3D%22100%22%20fill%3D%22%23f3e7cf%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2238%22%20r%3D%2217%22%20fill%3D%22%23c9962e%22%2F%3E%3Cpath%20d%3D%22M15%20100a35%2035%200%200%201%2070%200z%22%20fill%3D%22%23c9962e%22%2F%3E%3C%2Fsvg%3E" %}
+{% set rh_cover_fallback = "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20160%20120%22%3E%3Crect%20width%3D%22160%22%20height%3D%22120%22%20fill%3D%22%23f6f2e8%22%2F%3E%3Cpath%20d%3D%22M80%2024%20L30%2066h14v34h72V66h14z%22%20fill%3D%22%23d9c7a0%22%2F%3E%3Cpath%20d%3D%22M74%20100V82h12v18z%22%20fill%3D%22%23c2a670%22%2F%3E%3C%2Fsvg%3E" %}
+
+{% block styles %}
+    <style>
+        /* ---- Profile Information card ---- */
+        .hp-profile-body {
+            display: flex;
+            gap: 24px;
+            align-items: flex-start;
+        }
+        @media (max-width: 600px) {
+            .hp-profile-body {
+                flex-direction: column;
+            }
+        }
+
+        .hp-profile-photo {
+            position: relative;
+            flex-shrink: 0;
+        }
+        .hp-profile-photo img {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            object-fit: cover;
+            background: var(--rh-accent);
+            border: 3px solid #fff;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            /* clip alt text + broken-image icon to the circular box:
+                                       when the src fails to load AND the onerror fallback also
+                                       fails (file missing from public/images/), the alt text
+                                       "kim divino" would otherwise overflow horizontally past
+                                       the circle and look like an ellipse. overflow:hidden
+                                       keeps the broken-image icon + alt text inside the box,
+                                       so the avatar stays a clean circle while you debug the
+                                       missing default-avatar.png file. */
+            overflow: hidden;
+            display: block;
+        }
+        .hp-photo-edit {
+            position: absolute;
+            right: -2px;
+            bottom: -2px;
+            z-index: 2;
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #fff;
+            border: 1px solid rgba(28, 42, 56, 0.15);
+            border-radius: 50%;
+            color: #b07708;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+            transition:
+                transform 0.15s ease,
+                background 0.15s ease;
+        }
+        .hp-photo-edit:hover {
+            background: #fdf1dc;
+            transform: scale(1.08);
+        }
+        .hp-photo-edit:disabled {
+            opacity: 0.6;
+            cursor: wait;
+        }
+        .hp-photo-edit .icon {
+            width: 15px;
+            height: 15px;
+        }
+
+        .hp-profile-col {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+            flex: 1;
+        }
+        .hp-field-label {
+            font-size: 11px;
+            color: var(--rh-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .hp-field-value {
+            font-size: 14px;
+            color: var(--rh-ink);
+            font-weight: 500;
+            margin: 0 0 10px;
+        }
+        .hp-field-with-icon .icon {
+            width: 14px;
+            height: 14px;
+            color: #b07708;
+            vertical-align: -2px;
+        }
+
+        /* ---- Performance Overview ---- */
+        .hp-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+        }
+        @media (max-width: 900px) {
+            .hp-stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        @media (max-width: 500px) {
+            .hp-stats {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .hp-stat-card {
+            background: #fafbfd;
+            border: 1px solid var(--rh-line);
+            border-radius: 12px;
+            padding: 14px;
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+        }
+        .hp-stat-label {
+            display: block;
+            font-size: 11px;
+            color: var(--rh-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .hp-stat-card strong {
+            font-size: 22px;
+            font-weight: 800;
+            color: var(--rh-ink);
+            display: block;
+            margin-top: 2px;
+        }
+        .hp-stat-sub {
+            display: block;
+            margin-top: 2px;
+            font-size: 10.5px;
+            color: var(--rh-muted);
+        }
+
+        /* 1) Bookings sparkline */
+        .hp-mini-spark {
+            display: flex;
+            align-items: flex-end;
+            gap: 2px;
+            height: 38px;
+            margin-top: 12px;
+        }
+        .hp-mini-spark span {
+            flex: 1;
+            min-width: 3px;
+            background: linear-gradient(180deg, #f6c04e, #eda423);
+            border-radius: 2px 2px 0 0;
+            transition: height 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .js .hp-mini-spark:not(.on) span {
+            height: 5% !important;
+        }
+        .hp-mini-spark.on span {
+            height: var(--h, 5%);
+        }
+
+        /* 2) Donut */
+        .hp-donut {
+            position: relative;
+            width: 64px;
+            height: 64px;
+            flex-shrink: 0;
+        }
+        .hp-donut svg {
+            width: 100%;
+            height: 100%;
+            transform: rotate(-90deg);
+        }
+        .hp-donut-bg {
+            fill: none;
+            stroke: #f0f1f6;
+            stroke-width: 5;
+        }
+        .hp-donut-fg {
+            fill: none;
+            stroke: var(--rh-accent);
+            stroke-width: 5;
+            stroke-linecap: round;
+            stroke-dasharray: 125.66;
+            stroke-dashoffset: 125.66;
+            transition: stroke-dashoffset 1.4s ease 0.3s;
+        }
+        .hp-donut-num {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 14px;
+            font-weight: 800;
+            color: var(--rh-ink);
+        }
+
+        /* 3) Earnings heatmap */
+        .hp-heat {
+            display: flex;
+            gap: 2px;
+            height: 38px;
+            margin-top: 12px;
+        }
+        .hp-heat span {
+            flex: 1;
+            min-width: 3px;
+            background: rgba(237, 164, 35, var(--a, 0.08));
+            border-radius: 3px;
+            opacity: 1;
+            transition: opacity 0.5s ease;
+        }
+        .js .hp-heat:not(.on) span {
+            opacity: 0;
+        }
+        .hp-heat.on span {
+            opacity: 1;
+        }
+
+        /* 4) Status mix stacked bar */
+        .hp-mixbar {
+            display: flex;
+            height: 14px;
+            margin-top: 12px;
+            background: #f0f1f6;
+            border-radius: 999px;
+            overflow: hidden;
+        }
+        .hp-mixbar span {
+            width: 0%;
+            transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .hp-mixbar.on span {
+            width: var(--w, 0%);
+        }
+        .hp-mixbar-empty {
+            display: block;
+            margin-top: 12px;
+            padding: 4px 10px;
+            border: 1px dashed rgba(28, 42, 56, 0.2);
+            border-radius: 999px;
+            font-size: 10.5px;
+            color: var(--rh-muted);
+            text-align: center;
+        }
+        .hp-mix-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 14px;
+            margin-top: 9px;
+        }
+        .hp-mix-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 10.5px;
+            color: var(--rh-muted);
+        }
+        .hp-mix-dot {
+            width: 9px;
+            height: 9px;
+            flex-shrink: 0;
+            border-radius: 50%;
+        }
+
+        /* ---- Daily earnings SVG chart ---- */
+        .pv-chart {
+            margin-top: 20px;
+        }
+        .pv-chart svg {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        .pv-line {
+            fill: none;
+            stroke: var(--rh-accent);
+            stroke-width: 2.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .js .pv-anim-line {
+            stroke-dasharray: 1;
+            stroke-dashoffset: 1;
+            transition: stroke-dashoffset 1.6s ease 0.15s;
+        }
+        .pv-chart.on .pv-anim-line {
+            stroke-dashoffset: 0;
+        }
+        .pv-area {
+            fill: rgba(237, 164, 35, 0.16);
+            opacity: 1;
+            transition: opacity 0.9s ease 0.8s;
+        }
+        .js .pv-chart:not(.on) .pv-area {
+            opacity: 0;
+        }
+        .pv-chart.on .pv-area {
+            opacity: 1;
+        }
+        .pv-dot {
+            fill: #fff;
+            stroke: var(--rh-accent);
+            stroke-width: 2;
+            cursor: pointer;
+            transition: r 0.12s ease;
+        }
+        .pv-dot:hover {
+            r: 4.5;
+        }
+        .pv-grid {
+            stroke: rgba(28, 42, 56, 0.08);
+            stroke-width: 1;
+        }
+        .pv-txt {
+            font-size: 10px;
+            fill: var(--rh-muted);
+            font-family: "Poppins", sans-serif;
+        }
+        .pv-xlabels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 6px;
+            font-size: 10px;
+            color: var(--rh-muted);
+        }
+        .pv-empty-note {
+            margin: 8px 0 0;
+            font-size: 11.5px;
+            font-style: italic;
+            color: var(--rh-muted);
+        }
+
+        /* ---- Earnings trend bars ---- */
+        .hp-earn-summary {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .hp-earn-summary strong {
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--rh-ink);
+        }
+        .hp-earn-summary span {
+            font-size: 12px;
+            color: var(--rh-muted);
+        }
+        .hp-bars {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+            height: 180px;
+        }
+        .hp-bar-col {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            height: 100%;
+        }
+        .hp-bar-value {
+            font-size: 10.5px;
+            font-weight: 700;
+            color: var(--rh-ink);
+            white-space: nowrap;
+        }
+        .hp-bar-track {
+            flex: 1;
+            width: 100%;
+            max-width: 46px;
+            display: flex;
+            align-items: flex-end;
+            background: #f6f7fb;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .hp-bar {
+            width: 100%;
+            height: 0%;
+            background: linear-gradient(180deg, #f6c04e, #eda423);
+            border-radius: 8px 8px 0 0;
+            transition: height 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .hp-bar-label {
+            font-size: 11px;
+            color: var(--rh-muted);
+        }
+
+        /* ---- My Listings table ---- */
+        .hp-listings-empty {
+            text-align: center;
+            padding: 40px 16px;
+        }
+        .hp-listings-empty-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--rh-ink);
+            margin: 0 0 6px;
+        }
+        .hp-listings-empty-text {
+            font-size: 13px;
+            color: var(--rh-muted);
+            margin: 0 0 16px;
+        }
+
+        .hp-listings-table {
+            display: flex;
+            flex-direction: column;
+        }
+        .hp-listings-head {
+            display: flex;
+            gap: 12px;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--rh-line);
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--rh-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .hp-listings-head span:nth-child(1) {
+            flex: 2;
+        }
+        .hp-listings-head span:nth-child(2),
+        .hp-listings-head span:nth-child(3),
+        .hp-listings-head span:nth-child(4) {
+            flex: 1;
+            text-align: center;
+        }
+        .hp-listings-head span:nth-child(5) {
+            flex: 1.5;
+            text-align: right;
+        }
+
+        .hp-listing-row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            padding: 14px 0;
+            border-bottom: 1px solid #f6f7fb;
+        }
+        .hp-listing-row:last-child {
+            border-bottom: none;
+        }
+
+        .hp-listing-info {
+            flex: 2;
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            min-width: 0;
+        }
+        .hp-listing-info img {
+            width: 56px;
+            height: 56px;
+            border-radius: 10px;
+            object-fit: cover;
+            flex-shrink: 0;
+            background: #f6f4ee;
+        }
+        .hp-listing-info > div {
+            min-width: 0;
+        }
+        .hp-listing-info h4 {
+            margin: 0 0 2px;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--rh-ink);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .hp-listing-info p {
+            margin: 0 0 6px;
+            font-size: 12px;
+            color: var(--rh-muted);
+        }
+
+        .hp-tenant-strip {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 6px;
+            padding: 8px 10px;
+            background: #f7f9fc;
+            border: 1px dashed rgba(28, 42, 56, 0.18);
+            border-radius: 10px;
+        }
+        .hp-tenant-strip img {
+            width: 34px;
+            height: 34px;
+            flex-shrink: 0;
+            border-radius: 8px;
+            object-fit: cover;
+        }
+        .hp-tenant-strip > div {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            min-width: 0;
+        }
+        .hp-tenant-name {
+            font-size: 12.5px;
+            font-weight: 800;
+            color: var(--rh-ink);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .hp-tenant-meta {
+            font-size: 11px;
+            color: var(--rh-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .hp-tico {
+            width: 12px;
+            height: 12px;
+            vertical-align: -1.5px;
+            color: inherit;
+        }
+
+        .hp-listing-metric {
+            flex: 1;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--rh-ink);
+        }
+
+        .hp-listing-actions {
+            flex: 1.5;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            justify-content: flex-end;
+        }
+
+        .hp-status {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+        .hp-status-active {
+            background: #e7f7ec;
+            color: #1fa971;
+        }
+        .hp-status-pending {
+            background: var(--rh-accent-light);
+            color: #b07708;
+        }
+        .hp-status-rejected {
+            background: #fceaea;
+            color: #e14b4b;
+        }
+        .hp-status-unlisted {
+            background: #f0f1f6;
+            color: var(--rh-muted);
+        }
+        .hp-status-occupied {
+            background: #e9f0fa;
+            color: #33517e;
+            border: 1px solid rgba(51, 81, 126, 0.28);
+        }
+
+        .hp-menu-wrap {
+            position: relative;
+        }
+        .hp-listing-menu {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border: 1px solid var(--rh-line);
+            border-radius: 8px;
+            background: #fff;
+            color: var(--rh-muted);
+            cursor: pointer;
+        }
+        .hp-listing-menu .icon {
+            width: 16px;
+            height: 16px;
+        }
+
+        .hp-menu-dropdown {
+            display: none;
+            position: absolute;
+            top: calc(100% + 6px);
+            right: 0;
+            z-index: 20;
+            min-width: 180px;
+            background: #fff;
+            border: 1px solid var(--rh-line);
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(20, 20, 43, 0.18);
+            padding: 6px;
+        }
+        .hp-menu-wrap.open .hp-menu-dropdown {
+            display: block;
+        }
+        .hp-menu-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            padding: 8px 10px;
+            border: none;
+            background: transparent;
+            font-size: 12.5px;
+            font-weight: 600;
+            color: var(--rh-ink);
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: left;
+            font-family: inherit;
+        }
+        .hp-menu-item:hover {
+            background: #f6f7fb;
+        }
+        .hp-menu-item .icon {
+            width: 14px;
+            height: 14px;
+        }
+        .hp-menu-accept:hover {
+            background: #e7f7ec;
+            color: #1fa971;
+        }
+        .hp-menu-reject:hover,
+        .hp-menu-delete:hover {
+            background: #fceaea;
+            color: #e14b4b;
+        }
+        .hp-menu-locked {
+            cursor: default !important;
+            opacity: 0.65;
+        }
+
+        /* ---- Scroll reveal ---- */
+        .hp-reveal {
+            opacity: 0;
+            transform: translateY(20px);
+            transition:
+                opacity 0.6s ease,
+                transform 0.6s ease;
+            transition-delay: calc(var(--i, 0) * 80ms);
+        }
+        .hp-reveal.in-view {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* ---- Dark mode for host profile content ---- */
+        body[data-theme="dark"] .hp-stat-card {
+            background: #0d1218;
+            border-color: #1a222b;
+        }
+        body[data-theme="dark"] .hp-stat-card strong {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-field-value {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-donut-num {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-donut-bg {
+            stroke: #1a222b;
+        }
+        body[data-theme="dark"] .hp-listing-info h4 {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-listing-metric {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-bar-track {
+            background: #1a222b;
+        }
+        body[data-theme="dark"] .hp-bar-value {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-tenant-strip {
+            background: #1a222b;
+            border-color: rgba(232, 236, 241, 0.14);
+        }
+        body[data-theme="dark"] .hp-tenant-name {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-listing-menu {
+            background: #141b24;
+            border-color: #1a222b;
+            color: #8d99a5;
+        }
+        body[data-theme="dark"] .hp-menu-dropdown {
+            background: #141b24;
+            border-color: #1a222b;
+        }
+        body[data-theme="dark"] .hp-menu-item:hover {
+            background: #1a222b;
+        }
+        body[data-theme="dark"] .hp-menu-item {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-earn-summary strong {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .pv-grid {
+            stroke: rgba(232, 236, 241, 0.1);
+        }
+        body[data-theme="dark"] .pv-txt {
+            fill: #8d99a5;
+        }
+        body[data-theme="dark"] .pv-dot {
+            fill: #1a222b;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .hp-mini-spark span,
+            .hp-heat span,
+            .hp-mixbar span,
+            .hp-bar {
+                transition: none;
+            }
+            .js .hp-mini-spark:not(.on) span {
+                height: var(--h, 5%) !important;
+            }
+            .js .hp-heat:not(.on) span {
+                opacity: 1;
+            }
+            .js .hp-mixbar:not(.on) span {
+                width: var(--w, 0%);
+            }
+            .js .pv-anim-line {
+                transition: none;
+                stroke-dashoffset: 0 !important;
+            }
+            .js .pv-chart:not(.on) .pv-area {
+                opacity: 1;
+            }
+            .hp-reveal {
+                opacity: 1;
+                transform: none;
+                transition: none;
+            }
+        }
+
+        @media (max-width: 700px) {
+            .hp-listings-head {
+                display: none;
+            }
+            .hp-listing-row {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .hp-listing-info {
+                flex: 1 1 100%;
+            }
+            .hp-listing-metric {
+                flex: 1;
+                text-align: left;
+                font-size: 12px;
+            }
+            .hp-listing-metric::before {
+                content: attr(data-label);
+                display: block;
+                font-size: 10px;
+                color: var(--rh-muted);
+                font-weight: 400;
+            }
+            .hp-listing-actions {
+                flex: 1;
+                justify-content: flex-end;
+            }
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+
+    {# ============ PROFILE INFORMATION ============ #}
+    <section class="hp-card hp-reveal">
+        <div class="hp-card-header">
+            <h3>Profile Information</h3>
+            <a href="/host/profile/edit" class="hp-btn-outline">Edit Profile</a>
+        </div>
+        <div class="hp-profile-body">
+            <div class="hp-profile-photo">
+                <img
+                    src="{{ host.avatar }}"
+                    alt="{{ host.name }}"
+                    id="hostProfileAvatarImg"
+                    onerror="this.onerror=null;this.src='{{ rh_avatar_fallback }}';"
+                >
+                <button type="button" class="hp-photo-edit" id="hostPhotoButton" aria-label="Change profile photo" title="Change profile photo">
+                    {{ ui.icon('camera') }}
+                </button>
+                <input type="file" id="hostAvatarFileInput" accept="image/jpeg,image/png,image/webp" style="display:none">
+            </div>
+            <div class="hp-profile-col">
+                <span class="hp-field-label">Full Name</span>
+                <p class="hp-field-value hp-field-with-icon">{{ ui.icon('person') }} {{ host.name }}</p>
+                <span class="hp-field-label">Email Address</span>
+                <p class="hp-field-value hp-field-with-icon">{{ ui.icon('mail') }} {{ host.email }}</p>
+                <span class="hp-field-label">Phone Number</span>
+                <p class="hp-field-value hp-field-with-icon">{{ ui.icon('phone') }} {{ host.phone != '' ? host.phone : '—' }}</p>
+                <span class="hp-field-label">Age</span>
+                <p class="hp-field-value hp-field-with-icon">{{ ui.icon('calendar-days') }} {{ host.age != '' ? host.age : '—' }}</p>
+            </div>
+            <div class="hp-profile-col">
+                <span class="hp-field-label">Location</span>
+                <p class="hp-field-value hp-field-with-icon">
+                    {% if host.location != '' %}
+                        {{ ui.icon('pin') }} {{ host.location }}
+                    {% else %}{{ ui.icon('pin') }} —{% endif %}
+                </p>
+                <span class="hp-field-label">Bio</span>
+                <p class="hp-field-value hp-field-with-icon">{{ ui.icon('file-text') }} {{ host.about != '' ? host.about : 'No bio added yet.' }}</p>
+                <span class="hp-field-label">Member Since</span>
+                <p class="hp-field-value hp-field-with-icon">{{ ui.icon('calendar-check') }} {{ host.member_since }}</p>
+            </div>
+        </div>
+    </section>
+
+    {# ============ PERFORMANCE OVERVIEW ============ #}
+    <section class="hp-card hp-reveal" style="--i: 1;">
+        <div class="hp-card-header">
+            <h3>Performance Overview</h3>
+            <span class="hp-muted">Last 30 days · live</span>
+        </div>
+        <div class="hp-stats">
+            {# 1) Bookings sparkline #}
+            <div class="hp-stat-card hp-reveal">
+                <div style="min-width:0; width:100%;">
+                    <span class="hp-stat-label">Bookings — 30 days</span>
+                    <strong data-count="{{ bookings_30d }}" data-decimals="0">{{ bookings_30d }}</strong>
+                    <span class="hp-stat-sub">{{ total_bookings }} all-time · one bar per day</span>
+                    <div class="hp-mini-spark" data-spark>
+                        {% for p in daily_series %}
+                            <span style="--h: {{ p.spark_h }}%;" title="{{ p.label }}: {{ p.bookings }} booking{{ p.bookings == 1 ? '' : 's' }}"></span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            {# 2) Occupancy donut #}
+            <div class="hp-stat-card hp-reveal">
+                <div class="hp-donut" data-pct="{{ occupancy_rate }}">
+                    <svg viewBox="0 0 48 48">
+                        <circle class="hp-donut-bg" cx="24" cy="24" r="20"></circle>
+                        <circle class="hp-donut-fg" cx="24" cy="24" r="20"></circle>
+                    </svg>
+                    <span class="hp-donut-num">{{ occupancy_rate }}%</span>
+                </div>
+                <div>
+                    <span class="hp-stat-label">Occupancy Rate</span>
+                    <span class="hp-stat-sub">30-day window · {{ total_occupied_nights }} occupied nights</span>
+                </div>
+            </div>
+
+            {# 3) Earnings heatmap #}
+            <div class="hp-stat-card hp-reveal">
+                <div style="min-width:0; width:100%;">
+                    <span class="hp-stat-label">Earnings — 30 days</span>
+                    <strong>₱<span data-count="{{ earnings_30d }}" data-decimals="2">{{ earnings_30d|number_format(2, '.', ',') }}</span></strong>
+                    <span class="hp-stat-sub">₱ {{ total_earnings|number_format(2, '.', ',') }} all-time · darker = more</span>
+                    <div class="hp-heat" data-spark>
+                        {% for p in daily_series %}
+                            <span style="--a: {{ p.heat_a }};" title="{{ p.label }}: ₱{{ p.earnings|number_format(2, '.', ',') }}"></span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            {# 4) Status mix stacked bar #}
+            <div class="hp-stat-card hp-reveal">
+                <div style="min-width:0; width:100%;">
+                    <span class="hp-stat-label">Booking Status Mix</span>
+                    <strong data-count="{{ mix_total }}" data-decimals="0">{{ mix_total }}</strong>
+                    <span class="hp-stat-sub">all bookings on your listings</span>
+                    {% if mix_total > 0 %}
+                        <div class="hp-mixbar" data-spark>
+                            {% for seg in mix_segments %}
+                                {% if seg.count > 0 %}
+                                    <span style="--w: {{ seg.pct }}%; background: {{ seg.color }};" title="{{ seg.label }}: {{ seg.count }} ({{ seg.pct }}%)"></span>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                        <div class="hp-mix-legend">
+                            {% for seg in mix_segments %}
+                                <span class="hp-mix-item">
+                                    <span class="hp-mix-dot" style="background: {{ seg.color }};"></span>
+                                    {{ seg.label }}: {{ seg.count }}
+                                </span>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <span class="hp-mixbar-empty">No bookings yet</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {# Daily earnings SVG area/line chart #}
+        <div class="pv-chart" id="pvDailyChart">
+            <div class="hp-card-header" style="margin-bottom: 4px;">
+                <span class="hp-stat-label" style="font-size: 12.5px; font-weight: 800; color: var(--rh-ink);">Daily Earnings — 30 days</span>
+                <span class="hp-muted">hover a point for details</span>
+            </div>
+            <svg viewBox="0 0 600 160" role="img" aria-label="Daily earnings for the last 30 days">
+                <line class="pv-grid" x1="8" y1="18" x2="592" y2="18"></line>
+                <line class="pv-grid" x1="8" y1="84" x2="592" y2="84"></line>
+                <line class="pv-grid" x1="8" y1="150" x2="592" y2="150"></line>
+                <text class="pv-txt" x="2" y="13">₱{{ chart_earn_max|number_format(0) }}</text>
+                <text class="pv-txt" x="2" y="147">0</text>
+                <path class="pv-area" d="{{ pv_area_path }}"></path>
+                <polyline class="pv-line pv-anim-line" pathLength="1" points="{{ pv_points_str }}"></polyline>
+                {% for p in daily_series %}
+                    <circle class="pv-dot" cx="{{ p.pv_x }}" cy="{{ p.pv_y }}" r="3">
+                        <title>₱ {{ p.earnings|number_format(2, '.', ',') }} — {{ p.label }}</title>
+                    </circle>
+                {% endfor %}
+            </svg>
+            <div class="pv-xlabels">
+                {% for lbl in daily_x_labels %}<span>{{ lbl }}</span>{% endfor %}
+            </div>
+            {% if daily_earn_max <= 0 %}
+                <p class="pv-empty-note">No confirmed earnings in the last 30 days yet — new confirmed bookings will plot here automatically.</p>
+            {% endif %}
+        </div>
+    </section>
+
+    {# ============ EARNINGS TREND (6-month bar chart) ============ #}
+    <section class="hp-card hp-reveal" style="--i: 2;">
+        <div class="hp-card-header">
+            <h3>Earnings Trend</h3>
+            <span class="hp-muted">Last 6 months</span>
+        </div>
+        <div class="hp-earn-summary">
+            <strong>₱ {{ six_month_total|number_format(2, '.', ',') }}</strong>
+            <span>earned since {{ earn_months[0].label|default('') }}</span>
+        </div>
+        <div class="hp-bars" id="hpEarnChart">
+            {% for m in earn_months %}
+                <div class="hp-bar-col" title="₱ {{ m.total|number_format(2, '.', ',') }} — {{ m.label }}">
+                    <span class="hp-bar-value">
+                        {{ m.total > 0 ? '₱' ~ (m.total / 1000)|number_format(1) ~ 'k' : '–' }}
+                    </span>
+                    <div class="hp-bar-track">
+                        <div class="hp-bar" data-h="{{ m.pct }}" style="height:0%;"></div>
+                    </div>
+                    <span class="hp-bar-label">{{ m.label }}</span>
+                </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    {# ============ MY LISTINGS ============ #}
+    <section class="hp-card hp-reveal" style="--i: 3;">
+        <div class="hp-card-header">
+            <h3>My Listings ({{ listings_total }})</h3>
+            <a href="/host/listings" class="hp-btn-outline">View All Listings</a>
+        </div>
+
+        {% if listings is empty %}
+            <div class="hp-listings-empty">
+                <p class="hp-listings-empty-title">You haven't listed any properties yet</p>
+                <p class="hp-listings-empty-text">Once you add a space, it will show up here.</p>
+                <a href="/host/become-a-host" class="hp-btn-outline">LIST YOUR SPACE</a>
+            </div>
+        {% else %}
+            <div class="hp-listings-table">
+                <div class="hp-listings-head">
+                    <span>Listing</span>
+                    <span>Bookings</span>
+                    <span>Occupancy</span>
+                    <span>Earnings</span>
+                    <span>Status</span>
+                </div>
+                {% for l in listings %}
+                    <div class="hp-listing-row">
+                        <div class="hp-listing-info">
+                            <img
+                                src="{{ l.cover_photo }}"
+                                alt="{{ l.title }}"
+                                onerror="this.onerror=null;this.src='{{ rh_cover_fallback }}';"
+                            >
+                            <div>
+                                <h4>{{ l.title }}</h4>
+                                <p>{{ l.location }}</p>
+                                {% if l.is_occupied and l.occupant %}
+                                    <div class="hp-tenant-strip" title="Current occupant of this space">
+                                        <img
+                                            src="{{ l.occupant.avatar }}"
+                                            alt=""
+                                            onerror="this.onerror=null;this.src='{{ rh_avatar_fallback }}';"
+                                        >
+                                        <div>
+                                            <span class="hp-tenant-name">
+                                                <i data-lucide="user" class="hp-tico"></i> {{ l.occupant.name }}
+                                            </span>
+                                            <span class="hp-tenant-meta">
+                                                <i data-lucide="mail" class="hp-tico"></i> {{ l.occupant.email }}
+                                            </span>
+                                            <span class="hp-tenant-meta">
+                                                Stay: {{ l.occupant.checkin }} → {{ l.occupant.checkout }}
+                                                {% if l.occupant.phone != '' %} · <i data-lucide="phone" class="hp-tico"></i> {{ l.occupant.phone }}{% endif %}
+                                            </span>
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <span class="hp-listing-metric" data-label="Bookings">{{ l.stats_bookings }}</span>
+                        <span class="hp-listing-metric" data-label="Occupancy">{{ l.listing_occupancy }}%</span>
+                        <span class="hp-listing-metric" data-label="Earnings">₱ {{ l.stats_earnings|number_format(2, '.', ',') }}</span>
+                        <div class="hp-listing-actions">
+                            {% if l.is_occupied %}
+                                <span class="hp-status hp-status-occupied" title="Currently occupied by {{ l.occupant.name }} ({{ l.occupant.checkin }} → {{ l.occupant.checkout }})">Occupied</span>
+                            {% else %}
+                                <span class="hp-status {{ status_class_map[l.status] ?? 'hp-status-pending' }}">{{ status_label_map[l.status] ?? l.status|capitalize }}</span>
+                            {% endif %}
+
+                            {% if l.pending_booking_id %}
+                                <span class="hp-status hp-status-pending" title="{{ l.pending_tenant_name }} is awaiting your decision">Applicant Pending</span>
+                            {% endif %}
+
+                            <div class="hp-menu-wrap">
+                                <button type="button" class="hp-listing-menu" data-listing-id="{{ l.id }}" aria-haspopup="true" aria-expanded="false" aria-label="More options">
+                                    <i data-lucide="ellipsis-vertical">&#8942;</i>
+                                </button>
+                                <div class="hp-menu-dropdown">
+                                    {% if l.pending_booking_id %}
+                                        <button type="button" class="hp-menu-item hp-menu-accept" data-booking-id="{{ l.pending_booking_id }}" data-tenant-name="{{ l.pending_tenant_name }}">
+                                            <i data-lucide="check"></i> Accept Tenant
+                                        </button>
+                                        <button type="button" class="hp-menu-item hp-menu-reject" data-booking-id="{{ l.pending_booking_id }}" data-tenant-name="{{ l.pending_tenant_name }}">
+                                            <i data-lucide="x"></i> Reject Tenant
+                                        </button>
+                                    {% endif %}
+                                    {% if l.is_occupied %}
+                                        <span class="hp-menu-item hp-menu-locked" aria-disabled="true" title="This space is currently occupied and cannot be deleted">
+                                            <i data-lucide="lock"></i> Occupied — can't delete
+                                        </span>
+                                    {% else %}
+                                        <button type="button" class="hp-menu-item hp-menu-delete" data-listing-id="{{ l.id }}" data-listing-title="{{ l.title }}">
+                                            <i data-lucide="trash-2"></i> Delete Listing
+                                        </button>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </section>
+
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        (function () {
+            "use strict";
+            var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+            /* ---- Scroll reveal ---- */
+            var revealEls = Array.prototype.slice.call(
+                document.querySelectorAll(".hp-reveal"),
+            );
+            if (reduced || !("IntersectionObserver" in window)) {
+                revealEls.forEach(function (el) {
+                    el.classList.add("in-view");
+                });
+            } else {
+                var io = new IntersectionObserver(
+                    function (entries) {
+                        entries.forEach(function (entry) {
+                            if (!entry.isIntersecting) return;
+                            var el = entry.target;
+                            io.unobserve(el);
+                            el.classList.add("in-view");
+                            window.setTimeout(function () {
+                                el.style.setProperty("--i", "0");
+                            }, 1200);
+                        });
+                    },
+                    { threshold: 0.12, rootMargin: "0px 0px -40px 0px" },
+                );
+                revealEls.forEach(function (el) {
+                    io.observe(el);
+                });
+            }
+
+            /* ---- Count-ups (stat cards) ---- */
+            var counters = document.querySelectorAll("[data-count]");
+            if (counters.length && !reduced && "IntersectionObserver" in window) {
+                var cIO = new IntersectionObserver(
+                    function (entries) {
+                        entries.forEach(function (entry) {
+                            if (!entry.isIntersecting) return;
+                            var el = entry.target;
+                            cIO.unobserve(el);
+                            var target = parseFloat(el.getAttribute("data-count")) || 0;
+                            var dec =
+                                parseInt(el.getAttribute("data-decimals"), 10) || 0;
+                            var t0 = null;
+                            var step = function (ts) {
+                                if (!t0) t0 = ts;
+                                var k = Math.min((ts - t0) / 1400, 1);
+                                var eased = 1 - Math.pow(1 - k, 3);
+                                el.textContent = (target * eased).toLocaleString(
+                                    undefined,
+                                    {
+                                        minimumFractionDigits: dec,
+                                        maximumFractionDigits: dec,
+                                    },
+                                );
+                                if (k < 1) window.requestAnimationFrame(step);
+                            };
+                            window.requestAnimationFrame(step);
+                        });
+                    },
+                    { threshold: 0.6 },
+                );
+                Array.prototype.forEach.call(counters, function (el) {
+                    cIO.observe(el);
+                });
+            }
+
+            /* ---- Occupancy donut ---- */
+            var C = 125.66;
+            function setDonut(d) {
+                var fg = d.querySelector(".hp-donut-fg");
+                var pct = parseFloat(d.getAttribute("data-pct")) || 0;
+                if (fg) fg.style.strokeDashoffset = (C * (1 - pct / 100)).toFixed(2);
+            }
+            var donuts = document.querySelectorAll(".hp-donut");
+            if (donuts.length) {
+                if (reduced || !("IntersectionObserver" in window)) {
+                    donuts.forEach(setDonut);
+                } else {
+                    var dIO = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) return;
+                                var d = entry.target;
+                                dIO.unobserve(d);
+                                window.setTimeout(function () {
+                                    setDonut(d);
+                                }, 250);
+                            });
+                        },
+                        { threshold: 0.5 },
+                    );
+                    donuts.forEach(function (d) {
+                        dIO.observe(d);
+                    });
+                }
+            }
+
+            /* ---- Trend bars ---- */
+            var chart = document.getElementById("hpEarnChart");
+            if (chart) {
+                var bars = chart.querySelectorAll(".hp-bar[data-h]");
+                var grow = function () {
+                    bars.forEach(function (bar, i) {
+                        bar.style.transitionDelay = i * 70 + "ms";
+                        bar.style.height = (bar.getAttribute("data-h") || 0) + "%";
+                    });
+                };
+                if (reduced || !("IntersectionObserver" in window)) {
+                    grow();
+                } else {
+                    var bIO = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) return;
+                                bIO.unobserve(entry.target);
+                                window.setTimeout(grow, 200);
+                            });
+                        },
+                        { threshold: 0.35 },
+                    );
+                    bIO.observe(chart);
+                }
+            }
+
+            /* ---- Mini charts (sparkline / heatmap / stacked bar) ---- */
+            document
+                .querySelectorAll(".hp-mini-spark, .hp-heat, .hp-mixbar")
+                .forEach(function (viz) {
+                    if (reduced || !("IntersectionObserver" in window)) {
+                        viz.classList.add("on");
+                        return;
+                    }
+                    var vIO = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) return;
+                                vIO.unobserve(entry.target);
+                                entry.target
+                                    .querySelectorAll("span")
+                                    .forEach(function (seg, i) {
+                                        seg.style.transitionDelay = i * 16 + "ms";
+                                    });
+                                entry.target.classList.add("on");
+                            });
+                        },
+                        { threshold: 0.4 },
+                    );
+                    vIO.observe(viz);
+                });
+
+            /* ---- Daily earnings chart ---- */
+            var pvChart = document.getElementById("pvDailyChart");
+            if (pvChart) {
+                if (reduced || !("IntersectionObserver" in window)) {
+                    pvChart.classList.add("on");
+                } else {
+                    var pIO = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) return;
+                                pIO.unobserve(entry.target);
+                                entry.target.classList.add("on");
+                            });
+                        },
+                        { threshold: 0.35 },
+                    );
+                    pIO.observe(pvChart);
+                }
+            }
+
+            /* ---- PROFILE PHOTO CAMERA UPLOAD ----
+                       POSTs to /host/profile/avatar (HostProfileAvatarController.php —
+                       response contract: {login:true} | {success:true,avatar_url} | {error}) */
+            var photoButton = document.getElementById("hostPhotoButton");
+            var avatarInput = document.getElementById("hostAvatarFileInput");
+            var profileImg = document.getElementById("hostProfileAvatarImg");
+            var navAvatarImg = document.getElementById("hostChipAvatarImg");
+
+            if (photoButton && avatarInput && profileImg) {
+                photoButton.addEventListener("click", function () {
+                    avatarInput.click();
+                });
+                avatarInput.addEventListener("change", function () {
+                    var file = avatarInput.files && avatarInput.files[0];
+                    if (!file) return;
+                    var allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+                    if (allowedTypes.indexOf(file.type) === -1) {
+                        window.alert("Please choose a JPG, PNG, or WEBP image.");
+                        avatarInput.value = "";
+                        return;
+                    }
+                    if (file.size > 5 * 1024 * 1024) {
+                        window.alert(
+                            "That image is too large. Please choose one under 5MB.",
+                        );
+                        avatarInput.value = "";
+                        return;
+                    }
+                    var previewUrl = URL.createObjectURL(file);
+                    var previousSrc = profileImg.src;
+                    profileImg.src = previewUrl;
+                    if (navAvatarImg) navAvatarImg.src = previewUrl;
+                    photoButton.disabled = true;
+                    var formData = new FormData();
+                    formData.append("avatar", file);
+                    fetch("/host/profile/avatar", {
+                        method: "POST",
+                        body: formData,
+                        credentials: "same-origin",
+                    })
+                        .then(function (res) {
+                            return res.json();
+                        })
+                        .then(function (data) {
+                            if (data && data.login) {
+                                window.location.href = "/login";
+                                return;
+                            }
+                            if (data && data.success && data.avatar_url) {
+                                profileImg.src = data.avatar_url;
+                                if (navAvatarImg) navAvatarImg.src = data.avatar_url;
+                            } else {
+                                profileImg.src = previousSrc;
+                                if (navAvatarImg) navAvatarImg.src = previousSrc;
+                                window.alert(
+                                    (data && data.error) ||
+                                        "Could not update your profile photo.",
+                                );
+                            }
+                        })
+                        .catch(function () {
+                            profileImg.src = previousSrc;
+                            if (navAvatarImg) navAvatarImg.src = previousSrc;
+                            window.alert(
+                                "Something went wrong uploading your photo. Please try again.",
+                            );
+                        })
+                        .then(function () {
+                            URL.revokeObjectURL(previewUrl);
+                            photoButton.disabled = false;
+                            avatarInput.value = "";
+                        });
+                });
+            }
+        })();
+
+        /* ---- LISTING 3-DOT MENU + ACCEPT/REJECT/DELETE ----
+                                           TODO: these 3 routes need to be created (ports of accept-booking.php,
+                                           reject-booking.php, delete-listing.php). Until then these fetches
+                                           will 404. */
+        (function () {
+            document.querySelectorAll(".hp-listing-menu").forEach(function (btn) {
+                btn.addEventListener("click", function (e) {
+                    e.stopPropagation();
+                    var wrap = btn.closest(".hp-menu-wrap");
+                    var wasOpen = wrap.classList.contains("open");
+                    document
+                        .querySelectorAll(".hp-menu-wrap.open")
+                        .forEach(function (w) {
+                            w.classList.remove("open");
+                        });
+                    if (!wasOpen) {
+                        wrap.classList.add("open");
+                        btn.setAttribute("aria-expanded", "true");
+                    } else {
+                        btn.setAttribute("aria-expanded", "false");
+                    }
+                });
+            });
+            document.addEventListener("click", function () {
+                document.querySelectorAll(".hp-menu-wrap.open").forEach(function (w) {
+                    w.classList.remove("open");
+                });
+            });
+
+            document.querySelectorAll(".hp-menu-delete").forEach(function (btn) {
+                btn.addEventListener("click", function () {
+                    var listingId = btn.getAttribute("data-listing-id");
+                    var listingTitle =
+                        btn.getAttribute("data-listing-title") || "this listing";
+                    if (
+                        !confirm(
+                            'Delete "' + listingTitle + '"? This cannot be undone.',
+                        )
+                    )
+                        return;
+                    btn.disabled = true;
+                    btn.textContent = "Deleting...";
+                    fetch(
+                        "/host/listings/" + encodeURIComponent(listingId) + "/delete",
+                        {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/x-www-form-urlencoded",
+                            },
+                        },
+                    )
+                        .then(function (res) {
+                            return res.json();
+                        })
+                        .then(function (data) {
+                            if (data.success) {
+                                var row = btn.closest(".hp-listing-row");
+                                if (row) row.remove();
+                            } else {
+                                alert(data.message || "Could not delete this listing.");
+                                btn.disabled = false;
+                                btn.textContent = "Delete Listing";
+                            }
+                        })
+                        .catch(function () {
+                            alert(
+                                "Something went wrong deleting this listing. Please try again.",
+                            );
+                            btn.disabled = false;
+                            btn.textContent = "Delete Listing";
+                        });
+                });
+            });
+
+            function handleDecision(btn, endpoint, confirmMessage, busyText) {
+                var bookingId = btn.getAttribute("data-booking-id");
+                var tenantName = btn.getAttribute("data-tenant-name") || "this tenant";
+                if (!confirm(confirmMessage.replace("%s", tenantName))) return;
+                btn.disabled = true;
+                btn.textContent = busyText;
+                fetch(endpoint.replace("{id}", encodeURIComponent(bookingId)), {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                })
+                    .then(function (res) {
+                        return res.json();
+                    })
+                    .then(function (data) {
+                        if (data.success) window.location.reload();
+                        else {
+                            alert(data.message || "Could not update this application.");
+                            btn.disabled = false;
+                        }
+                    })
+                    .catch(function () {
+                        alert("Something went wrong. Please try again.");
+                        btn.disabled = false;
+                    });
+            }
+
+            document.querySelectorAll(".hp-menu-accept").forEach(function (btn) {
+                btn.addEventListener("click", function () {
+                    handleDecision(
+                        btn,
+                        "/host/bookings/{id}/accept",
+                        "Accept %s's application for this listing?",
+                        "Accepting...",
+                    );
+                });
+            });
+            document.querySelectorAll(".hp-menu-reject").forEach(function (btn) {
+                btn.addEventListener("click", function () {
+                    handleDecision(
+                        btn,
+                        "/host/bookings/{id}/reject",
+                        "Reject %s's application for this listing? Their reserve will be refunded in full.",
+                        "Rejecting...",
+                    );
+                });
+            });
+        })();
+    </script>
+{% endblock %}

@@ -1,0 +1,1802 @@
+{# =========================================================
+   RoomHive — Booking Details (guest side)
+   templates/booking/details.html.twig
+
+   1:1 port of legacy booking/booking-details.php — the page a
+   booking row opens from My Bookings (/bookings → /booking/{id}),
+   the legacy URL /booking/details/{id} also routes here (both
+   names live on BookingController), and it is the page
+   /listings/{id}/payment?pay_balance=N bounces back to once the
+   balance is settled.
+
+   Layout (matched against the live legacy screenshot):
+     Card 1 — amber "Application pending — {host} has 24 hours…"
+              banner (pending only) · cover + title + location pin
+              + status pill + payment label · 4 grey boxes (CHECK-IN /
+              CHECK-OUT / GUESTS / BOOKED ON) · divider · host row
+              (avatar, name, "Your host for this stay", MESSAGE HOST).
+     Card 2 — Payment Summary: Booking Total · dotted rule · Amount
+              Paid · progress bar + "{n}% of the booking is paid" ·
+              Remaining Balance (amber, big) — or Refunded to Wallet
+              (green) on cancelled/rejected bookings · PAY BALANCE
+              ₱n (dark) + BACK TO MY BOOKINGS (amber outline) ·
+              dotted rule · CANCEL BOOKING (red outline, pending
+              only).
+
+   Buttons:
+     PAY BALANCE        → /listings/{listing}/payment?pay_balance={id}
+                          (the balance mode the payment page +
+                          payments history already use)
+     BACK TO MY BOOKINGS→ /bookings
+     MESSAGE HOST       → /messages
+     Payment History    → /payments
+     CANCEL BOOKING     → POST /booking/cancel-booking
+                          (BookingCancelController — copy BOTH files
+                          together; JS confirm guards the click)
+
+   WISHLIST HEART (top-right of the cover):
+     glass circle + heart icon · click → red fill + pulsing glow
+     (= saved to wishlist) · click again → glow off (= removed).
+     Initial glow state comes from the `wished` variable
+     BookingController feeds (SELECT on the legacy `wishlist` table,
+     unique key uq_user_listing). Every click POSTs listing_id to
+     the SAME /wishlist/toggle endpoint the My Wishlist page remove
+     buttons use — response shape {ok, added} or {ok, saved} both
+     accepted. Optimistic UI: the glow flips instantly on click,
+     then snaps to the server's answer (or reverts if not ok).
+
+   REVIEW BOX — "rate your stay" overlay (this version):
+     Pops up as a screen overlay when the stay is FINISHED (status
+     completed — first visit, unless previously skipped) or the
+     guest JUST cancelled (?review=1 on the redirect from
+     BookingCancelController), and only while the guest hasn't
+     reviewed the listing yet. Layout 1:1 to the request:
+       X (top-right)  — closes the box if the user doesn't want to
+         rate; the skip is remembered in the session
+         (POST /reviews/dismiss) so a completed stay is never nagged
+         twice; the amber "RATE YOUR STAY" button on the page
+         re-opens it any time. Backdrop click + ESC close too.
+       Upper          — 5 big stars, click to rate (hover previews,
+         labels Terrible → Excellent), submit unlocks on the first
+         star.
+       Lower          — comment textarea (optional, 1000-char cap).
+       SUBMIT REVIEW  → POST /reviews/submit (ReviewSubmitController)
+         → thanks panel → box auto-closes and the strip flips into
+         the green "You rated this stay" row.
+     The saved review shows on BOTH profiles automatically — the
+     guest's /reviews page (user/reviews.html.twig) and the host's
+     /host/reviews page (plus the host public profile + the listing
+     page stars) — every one of them reads the same legacy
+     `reviews` table, so no extra wiring is needed.
+
+   Data from BookingController (b.*, listing_*, cover*, host_,
+   wished, review_open, show_review, already_reviewed, my_review,
+   is_host, nav_avatar, notification_count). THIS VERSION
+   PAIRS WITH BookingController.php + BookingCancelController.php +
+   ReviewSubmitController.php — copy ALL FOUR files together.
+
+   Styles are page-local on the established shell pattern (navbar +
+   sidebar partials, sidebar highlight 'bookings'), so myaccount.css
+   can never drift the layout. Dark-mode variants included.
+========================================================= #}
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Booking Details · RoomHive</title>
+
+        <script>
+            /* theme boot — before paint */
+            (function () {
+                try {
+                    if (localStorage.getItem("roomhive_theme") === "dark") {
+                        document.documentElement.classList.add("dark");
+                        document.documentElement.setAttribute("data-theme", "dark");
+                    }
+                } catch (e) {}
+            })();
+            document.documentElement.classList.add("js");
+        </script>
+
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/myaccount.css') }}">
+
+        <style>
+            :root {
+                --rh-ink: #1c2a38;
+                --rh-muted: #66788a;
+                --rh-line: #e6ebf1;
+                --rh-card: #ffffff;
+                --rh-accent: #eda423;
+                --rh-radius: 16px;
+            }
+
+            /* =========================================================
+                                                                                           NAVBAR CLEARANCE + LAYOUT — page-local, bulletproof
+                                                                                           Same geometry as the bookings page: main.up-dashboard
+                                                                                           wins on specificity, the clearance is PADDING (110px),
+                                                                                           the middle column drops another 75px, the sticky rail
+                                                                                           sits on the 110px line.
+                                                                                    ========================================================== */
+            main.up-dashboard {
+                margin-top: 0;
+                padding: 110px 20px 70px;
+                max-width: 1560px;
+            }
+
+            .up-dashboard .up-content {
+                padding-top: 75px;
+            }
+
+            .up-dashboard .up-sidebar {
+                top: 110px;
+            }
+
+            .nav-bell svg {
+                width: 22px;
+                height: 22px;
+                display: block;
+            }
+
+            /* =========================================================
+                                                                                           CARD 1 — BOOKING OVERVIEW
+                                                                                    ========================================================== */
+            main.up-dashboard .bd-overview {
+                padding: 24px 26px;
+            }
+
+            /* amber pending banner */
+            .bd-banner {
+                display: flex;
+                align-items: flex-start;
+                gap: 11px;
+                background: #fdf6e7;
+                border: 1px solid #f3d9a4;
+                border-radius: 10px;
+                padding: 13px 18px;
+                margin-bottom: 20px;
+            }
+            .bd-banner svg {
+                width: 17px;
+                height: 17px;
+                flex-shrink: 0;
+                margin-top: 1px;
+                color: #b07a1e;
+            }
+            .bd-banner p {
+                margin: 0;
+                font-size: 13.5px;
+                font-weight: 600;
+                line-height: 1.5;
+                color: #8a5a00;
+            }
+
+            /* cover + title block */
+            .bd-header {
+                display: flex;
+                align-items: flex-start;
+                gap: 20px;
+            }
+            .bd-cover {
+                position: relative;
+                overflow: hidden;
+                flex-shrink: 0;
+                width: 170px;
+                height: 112px;
+                border-radius: 12px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: linear-gradient(135deg, #dfe6ee, #c9d4e0);
+                color: #93a5b7;
+            }
+            .bd-cover svg {
+                width: 26px;
+                height: 26px;
+            }
+            .bd-cover img {
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+            }
+
+            .bd-head-info {
+                flex: 1 1 auto;
+                min-width: 0;
+            }
+            .bd-head-info h1 {
+                margin: 2px 0 7px;
+                font-size: 25px;
+                font-weight: 800;
+                color: var(--rh-ink);
+                line-height: 1.2;
+                overflow-wrap: anywhere;
+            }
+            .bd-location {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                margin: 0;
+                font-size: 13.5px;
+                color: var(--rh-muted);
+            }
+            .bd-location svg {
+                width: 14px;
+                height: 14px;
+                flex-shrink: 0;
+            }
+
+            /* status pill + payment label */
+            .bd-pills {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin-top: 12px;
+            }
+            .up-status {
+                display: inline-block;
+                font-size: 11.5px;
+                font-weight: 700;
+                padding: 3px 9px;
+                border-radius: 999px;
+                text-transform: capitalize;
+            }
+            .up-status-pending {
+                background: #fff6e6;
+                color: #8a5a00;
+            }
+            .up-status-confirmed,
+            .up-status-completed {
+                background: #e8f7ef;
+                color: #14683e;
+            }
+            .up-status-cancelled {
+                background: #fdecec;
+                color: #a33a3a;
+            }
+            .up-status-rejected {
+                background: #fdecea;
+                color: #a1332e;
+            }
+            .up-status-other {
+                background: #eef1f5;
+                color: #5b6b7c;
+            }
+            .bd-pay-label {
+                font-size: 12.5px;
+                font-weight: 700;
+                color: var(--rh-ink);
+            }
+
+            /* the four grey info boxes */
+            .bd-boxes {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 16px;
+                margin-top: 22px;
+            }
+            .bd-box {
+                background: #f4f6fa;
+                border: 1px solid #e9edf3;
+                border-radius: 12px;
+                padding: 13px 18px;
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                min-width: 0;
+            }
+            .bd-box-label {
+                font-size: 10.5px;
+                font-weight: 800;
+                letter-spacing: 0.8px;
+                text-transform: uppercase;
+                color: #8b95a8;
+            }
+            .bd-box-value {
+                font-size: 15px;
+                font-weight: 800;
+                color: var(--rh-ink);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            /* host row */
+            .bd-host {
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                margin-top: 22px;
+                padding-top: 20px;
+                border-top: 1px solid #eef1f5;
+            }
+            .bd-host-avatar {
+                width: 42px;
+                height: 42px;
+                border-radius: 50%;
+                object-fit: cover;
+                flex-shrink: 0;
+                background: #e6ebf1;
+            }
+            .bd-host-info {
+                flex: 1 1 auto;
+                min-width: 0;
+            }
+            .bd-host-info h4 {
+                margin: 0 0 2px;
+                font-size: 14.5px;
+                font-weight: 700;
+                color: var(--rh-ink);
+            }
+            .bd-host-info p {
+                margin: 0;
+                font-size: 12.5px;
+                color: var(--rh-muted);
+            }
+
+            /* =========================================================
+                                                                                           BUTTONS — shared shapes
+                                                                                    ========================================================== */
+            .bd-btn-dark,
+            .bd-btn-amber,
+            .bd-btn-red {
+                display: inline-block;
+                font-size: 12px;
+                font-weight: 800;
+                letter-spacing: 0.8px;
+                text-transform: uppercase;
+                text-decoration: none;
+                border-radius: 10px;
+                padding: 13px 24px;
+                cursor: pointer;
+                font-family: inherit;
+                line-height: 1;
+                transition:
+                    background 0.15s ease,
+                    color 0.15s ease;
+            }
+            .bd-btn-dark {
+                background: #1e2a38;
+                border: 1.5px solid #1e2a38;
+                color: #ffffff;
+            }
+            .bd-btn-dark:hover {
+                background: #2a3a4d;
+            }
+            .bd-btn-amber {
+                background: #ffffff;
+                border: 1.5px solid var(--rh-accent);
+                color: #e09612;
+            }
+            .bd-btn-amber:hover {
+                background: #fff8ec;
+            }
+            .bd-btn-red {
+                background: #ffffff;
+                border: 1.5px solid #e35d5d;
+                color: #c0392b;
+            }
+            .bd-btn-red:hover {
+                background: #fdf1f0;
+            }
+
+            /* =========================================================
+                                                                                           CARD 2 — PAYMENT SUMMARY
+                                                                                    ========================================================== */
+            main.up-dashboard .bd-paycard {
+                padding: 24px 26px;
+            }
+
+            .bd-pay-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 8px;
+            }
+            .bd-pay-header h3 {
+                margin: 0;
+                font-size: 17px;
+                font-weight: 800;
+                color: var(--rh-ink);
+            }
+            .bd-pay-history {
+                font-size: 12.5px;
+                font-weight: 800;
+                color: #e09612;
+                text-decoration: none;
+                white-space: nowrap;
+            }
+            .bd-pay-history:hover {
+                text-decoration: underline;
+            }
+
+            .bd-row {
+                display: flex;
+                align-items: baseline;
+                justify-content: space-between;
+                gap: 12px;
+                margin-top: 14px;
+            }
+            .bd-row-label {
+                font-size: 14px;
+                font-weight: 600;
+                color: var(--rh-ink);
+            }
+            .bd-row-muted {
+                font-weight: 500;
+                color: var(--rh-muted);
+            }
+            .bd-row-value {
+                font-size: 15px;
+                font-weight: 800;
+                color: var(--rh-ink);
+                white-space: nowrap;
+            }
+            .bd-row-medium {
+                font-size: 14.5px;
+                font-weight: 600;
+            }
+
+            .bd-divider-dotted {
+                border-top: 1.5px dotted #dfe3ea;
+                margin: 16px 0 2px;
+            }
+
+            /* progress bar */
+            .bd-progress {
+                margin-top: 16px;
+            }
+            .bd-progress-track {
+                height: 8px;
+                border-radius: 999px;
+                background: #e9e9ee;
+                overflow: hidden;
+            }
+            .bd-progress-fill {
+                height: 100%;
+                border-radius: 999px;
+                background: linear-gradient(90deg, #f6b94d, #ef9d0e);
+            }
+            .bd-progress-caption {
+                margin: 7px 0 0;
+                font-size: 12px;
+                color: var(--rh-muted);
+            }
+
+            /* remaining balance — the big amber figure */
+            .bd-remaining-value {
+                font-size: 20px;
+                font-weight: 800;
+                color: #dd8f00;
+                white-space: nowrap;
+            }
+
+            /* refunded to wallet — green row on cancelled/rejected */
+            .bd-refund-amount {
+                color: #1e7a3d;
+            }
+
+            /* action buttons */
+            .bd-actions {
+                display: flex;
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 12px;
+                margin-top: 24px;
+            }
+
+            /* cancel zone — below the second dotted rule */
+            .bd-cancel-zone {
+                margin-top: 18px;
+            }
+            .bd-cancel-zone form {
+                margin: 0;
+                display: inline-block;
+            }
+
+            /* CANCEL MY BOOKING -- header row (right of BACK TO MY
+               BOOKINGS): the form wraps the red button, the amber
+               chip beside it carries the standing warning. Dark-mode
+               chip included; the button itself reuses .bd-btn-red
+               (light + dark styles above). */
+            .bd-actions form {
+                margin: 0;
+                display: inline-block;
+            }
+            .bd-cancel-warning {
+                font-size: 11.5px;
+                font-weight: 700;
+                color: #b06d00;
+                background: #fff6e9;
+                border: 1px dashed #f0c987;
+                border-radius: 999px;
+                padding: 4px 12px;
+            }
+            html.dark .bd-cancel-warning {
+                color: #e5a94e;
+                background: rgba(229, 169, 78, 0.10);
+                border-color: rgba(229, 169, 78, 0.35);
+            }
+
+            /* =========================================================
+                                                                                           RESPONSIVE
+                                                                                    ========================================================== */
+            @media (max-width: 860px) {
+                .up-dashboard {
+                    flex-direction: column;
+                }
+            }
+            @media (max-width: 760px) {
+                .bd-boxes {
+                    grid-template-columns: repeat(2, 1fr);
+                }
+                .bd-header {
+                    flex-direction: column;
+                }
+                .bd-cover {
+                    width: 100%;
+                    height: 170px;
+                }
+            }
+            @media (max-width: 480px) {
+                .bd-boxes {
+                    grid-template-columns: 1fr;
+                }
+                .bd-btn-dark,
+                .bd-btn-amber,
+                .bd-btn-red {
+                    width: 100%;
+                    text-align: center;
+                }
+            }
+
+            /* =========================================================
+                                                                                           DARK MODE — same mechanism as
+                                                                                           the bookings / payments pages
+                                                                                    ========================================================== */
+            html.dark main.up-dashboard .bd-overview,
+            html.dark main.up-dashboard .bd-paycard {
+                border-color: rgba(255, 255, 255, 0.08);
+            }
+            html.dark .bd-banner {
+                background: rgba(237, 164, 35, 0.1);
+                border-color: rgba(237, 164, 35, 0.35);
+            }
+            html.dark .bd-banner p {
+                color: #f0c368;
+            }
+            html.dark .bd-banner svg {
+                color: #f0c368;
+            }
+            html.dark .bd-head-info h1,
+            html.dark .bd-row-label,
+            html.dark .bd-row-value,
+            html.dark .bd-pay-header h3,
+            html.dark .bd-host-info h4,
+            html.dark .bd-pay-label {
+                color: #e8eef5;
+            }
+            html.dark .bd-location,
+            html.dark .bd-host-info p,
+            html.dark .bd-progress-caption,
+            html.dark .bd-row-muted {
+                color: #a9b8c8;
+            }
+            html.dark .bd-cover {
+                background: linear-gradient(135deg, #26333f, #1c2a38);
+                color: #5f7488;
+            }
+            html.dark .bd-box {
+                background: #1a222b;
+                border-color: rgba(255, 255, 255, 0.08);
+            }
+            html.dark .bd-box-label {
+                color: #8fa1b3;
+            }
+            html.dark .bd-box-value {
+                color: #e8eef5;
+            }
+            html.dark .bd-host {
+                border-top-color: rgba(255, 255, 255, 0.08);
+            }
+            html.dark .bd-divider-dotted {
+                border-top-color: rgba(255, 255, 255, 0.14);
+            }
+            html.dark .bd-progress-track {
+                background: rgba(255, 255, 255, 0.1);
+            }
+            html.dark .bd-btn-amber,
+            html.dark .bd-btn-red {
+                background: rgba(255, 255, 255, 0.04);
+            }
+
+            /* =========== wishlist heart — top-right of the cover ===========
+                                                               glass circle · red fill + pulsing glow when saved (.is-active)
+                                                               · one-shot pop on every click (.is-popping) */
+            .bd-heart-btn {
+                position: absolute;
+                top: 8px;
+                right: 8px;
+                z-index: 3;
+                width: 32px;
+                height: 32px;
+                border: 0;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                background: rgba(17, 24, 39, 0.45);
+                -webkit-backdrop-filter: blur(6px);
+                backdrop-filter: blur(6px);
+                color: #ffffff;
+                box-shadow: 0 2px 8px rgba(28, 42, 56, 0.28);
+                transition:
+                    transform 0.18s ease,
+                    background 0.2s ease;
+            }
+            .bd-heart-btn svg {
+                width: 17px;
+                height: 17px;
+            }
+            .bd-heart-btn:hover {
+                transform: scale(1.12);
+            }
+            .bd-heart-btn:active {
+                transform: scale(0.9);
+            }
+
+            /* GLowing (saved) state — red fill + pulsing glow ring.
+                                                               fill: currentColor overrides lucide's fill="none" so the
+                                                               heart paints solid white on the red circle. */
+            .bd-heart-btn.is-active {
+                background: #e5484d;
+                animation: bd-heart-glow 1.6s ease-in-out infinite;
+            }
+            .bd-heart-btn.is-active svg {
+                fill: currentColor;
+            }
+
+            @keyframes bd-heart-glow {
+                0%,
+                100% {
+                    box-shadow:
+                        0 0 0 0 rgba(229, 72, 77, 0.3),
+                        0 0 10px 2px rgba(229, 72, 77, 0.45);
+                }
+                50% {
+                    box-shadow:
+                        0 0 0 5px rgba(229, 72, 77, 0.12),
+                        0 0 22px 6px rgba(229, 72, 77, 0.65);
+                }
+            }
+
+            /* one-shot pop on every click (the svg animates so the
+                                                               glow loop on the button never restarts) */
+            .bd-heart-btn.is-popping svg {
+                animation: bd-heart-pop 0.38s cubic-bezier(0.2, 1.6, 0.4, 1);
+            }
+            @keyframes bd-heart-pop {
+                0% {
+                    transform: scale(0.4);
+                }
+                55% {
+                    transform: scale(1.4);
+                }
+                100% {
+                    transform: scale(1);
+                }
+            }
+
+            html.dark .bd-heart-btn {
+                background: rgba(10, 15, 22, 0.55);
+            }
+            html.dark .bd-heart-btn.is-active {
+                background: #e5484d;
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .bd-heart-btn,
+                .bd-heart-btn svg {
+                    transition: none;
+                    animation: none;
+                }
+                .bd-heart-btn.is-active {
+                    box-shadow: 0 0 14px 3px rgba(229, 72, 77, 0.55);
+                }
+            }
+
+            /* =========== REVIEW STRIP — under the host row ===========
+                                                               amber "RATE YOUR STAY" button + hint, or the green
+                                                               done-row once the guest has rated the stay */
+            .bd-review-strip {
+                margin-top: 18px;
+                display: flex;
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 12px;
+            }
+            .bd-review-strip .bd-btn-amber svg {
+                width: 15px;
+                height: 15px;
+            }
+            .bd-review-hint {
+                font-size: 12.5px;
+                color: var(--rh-muted);
+            }
+            .bd-review-done {
+                display: flex;
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 10px;
+                width: 100%;
+                font-size: 13.5px;
+                color: #1e7a3d;
+                background: rgba(30, 122, 61, 0.08);
+                border: 1px solid rgba(30, 122, 61, 0.25);
+                border-radius: 12px;
+                padding: 10px 14px;
+            }
+            .bd-review-done svg {
+                width: 17px;
+                height: 17px;
+                flex-shrink: 0;
+            }
+            .bd-review-done strong {
+                font-weight: 800;
+            }
+            .bd-review-done a {
+                margin-left: auto;
+                color: #1e7a3d;
+                font-weight: 800;
+                font-size: 11.5px;
+                letter-spacing: 0.6px;
+                text-decoration: none;
+                border-bottom: 1px solid rgba(30, 122, 61, 0.4);
+                padding-bottom: 1px;
+            }
+            .bd-review-done a:hover {
+                opacity: 0.75;
+            }
+
+            /* =========== REVIEW BOX — the pop-up overlay =========== */
+            .bd-review-overlay {
+                position: fixed;
+                inset: 0;
+                z-index: 2000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 24px;
+                background: rgba(15, 23, 42, 0.55);
+                -webkit-backdrop-filter: blur(4px);
+                backdrop-filter: blur(4px);
+                opacity: 0;
+                visibility: hidden;
+                transition:
+                    opacity 0.22s ease,
+                    visibility 0.22s ease;
+            }
+            .bd-review-overlay.is-open {
+                opacity: 1;
+                visibility: visible;
+            }
+            .bd-review-modal {
+                position: relative;
+                width: 100%;
+                max-width: 430px;
+                max-height: calc(100vh - 48px);
+                overflow-y: auto;
+                background: var(--rh-card);
+                border: 1px solid var(--rh-line);
+                border-radius: 18px;
+                box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+                padding: 26px 26px 24px;
+                transform: translateY(14px) scale(0.97);
+                transition: transform 0.26s cubic-bezier(0.2, 1.2, 0.4, 1);
+            }
+            .bd-review-overlay.is-open .bd-review-modal {
+                transform: translateY(0) scale(1);
+            }
+
+            /* X — upper side, the "don't want to rate" exit */
+            .bd-review-close {
+                position: absolute;
+                top: 14px;
+                right: 14px;
+                width: 32px;
+                height: 32px;
+                border: 0;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                background: transparent;
+                color: var(--rh-muted);
+                transition:
+                    background 0.18s ease,
+                    color 0.18s ease,
+                    transform 0.18s ease;
+            }
+            .bd-review-close svg {
+                width: 18px;
+                height: 18px;
+            }
+            .bd-review-close:hover {
+                background: rgba(28, 42, 56, 0.08);
+                color: var(--rh-ink);
+                transform: rotate(90deg);
+            }
+
+            .bd-review-kicker {
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 1.2px;
+                text-transform: uppercase;
+                color: var(--rh-muted);
+                margin: 0 0 6px;
+                padding-right: 40px;
+            }
+            .bd-review-title {
+                font-size: 21px;
+                font-weight: 800;
+                color: var(--rh-ink);
+                margin: 0 0 6px;
+            }
+            .bd-review-sub {
+                font-size: 13px;
+                line-height: 1.5;
+                color: var(--rh-muted);
+                margin: 0 0 16px;
+            }
+
+            /* upper — the 5 clickable stars */
+            .bd-review-stars {
+                display: flex;
+                justify-content: center;
+                gap: 10px;
+                margin: 4px 0 8px;
+            }
+            .bd-star {
+                width: 44px;
+                height: 44px;
+                border: 0;
+                padding: 0;
+                background: transparent;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 10px;
+                transition: transform 0.16s cubic-bezier(0.2, 1.4, 0.4, 1);
+            }
+            .bd-star svg {
+                width: 34px;
+                height: 34px;
+                fill: rgba(28, 42, 56, 0.1);
+                stroke: rgba(28, 42, 56, 0.3);
+                stroke-width: 1.6;
+                stroke-linejoin: round;
+                transition:
+                    fill 0.15s ease,
+                    stroke 0.15s ease;
+            }
+            .bd-star:hover {
+                transform: scale(1.18);
+            }
+            .bd-star:active {
+                transform: scale(0.92);
+            }
+            .bd-star.is-lit svg {
+                fill: #eda423;
+                stroke: #d98c12;
+            }
+            .bd-star:focus-visible {
+                outline: 2px solid #eda423;
+                outline-offset: 2px;
+            }
+            .bd-review-star-label {
+                text-align: center;
+                font-size: 12.5px;
+                font-weight: 700;
+                color: var(--rh-muted);
+                margin: 0 0 16px;
+                min-height: 16px;
+            }
+            .bd-review-star-label.has-value {
+                color: #d98c12;
+            }
+
+            /* lower — the comment */
+            .bd-review-comment {
+                width: 100%;
+                min-height: 96px;
+                resize: vertical;
+                border: 1.5px solid var(--rh-line);
+                border-radius: 12px;
+                background: #f8fafc;
+                padding: 12px 14px;
+                font: inherit;
+                font-size: 13.5px;
+                line-height: 1.5;
+                color: var(--rh-ink);
+                outline: none;
+                transition:
+                    border-color 0.18s ease,
+                    box-shadow 0.18s ease,
+                    background 0.18s ease;
+            }
+            .bd-review-comment:focus {
+                border-color: #eda423;
+                box-shadow: 0 0 0 3px rgba(237, 164, 35, 0.18);
+                background: #ffffff;
+            }
+
+            .bd-review-actions {
+                display: flex;
+                align-items: center;
+                justify-content: flex-end;
+                gap: 10px;
+                margin-top: 16px;
+            }
+            .bd-review-skip {
+                border: 0;
+                background: transparent;
+                font: inherit;
+                font-size: 12.5px;
+                font-weight: 700;
+                color: var(--rh-muted);
+                cursor: pointer;
+                padding: 9px 12px;
+                border-radius: 10px;
+                transition:
+                    background 0.18s ease,
+                    color 0.18s ease;
+            }
+            .bd-review-skip:hover {
+                background: rgba(28, 42, 56, 0.06);
+                color: var(--rh-ink);
+            }
+            .bd-review-submit {
+                border: 0;
+                cursor: pointer;
+                font: inherit;
+                font-size: 12px;
+                font-weight: 800;
+                letter-spacing: 0.8px;
+                text-transform: uppercase;
+                color: #ffffff;
+                background: var(--rh-ink);
+                padding: 12px 20px;
+                border-radius: 12px;
+                line-height: 1;
+                transition:
+                    opacity 0.18s ease,
+                    transform 0.18s ease;
+            }
+            .bd-review-submit:hover {
+                transform: translateY(-1px);
+            }
+            .bd-review-submit:disabled {
+                opacity: 0.45;
+                cursor: not-allowed;
+                transform: none;
+            }
+            .bd-review-error {
+                margin: 10px 0 0;
+                font-size: 12.5px;
+                color: #c0292e;
+                text-align: center;
+            }
+
+            /* thanks panel — swaps in after a successful submit */
+            .bd-review-thanks {
+                text-align: center;
+                padding: 18px 4px 6px;
+            }
+            .bd-review-thanks svg {
+                width: 46px;
+                height: 46px;
+                color: #1e7a3d;
+                margin-bottom: 10px;
+            }
+            .bd-review-thanks h4 {
+                font-size: 18px;
+                font-weight: 800;
+                color: var(--rh-ink);
+                margin: 0 0 6px;
+            }
+            .bd-review-thanks p {
+                font-size: 13px;
+                line-height: 1.55;
+                color: var(--rh-muted);
+                margin: 0;
+            }
+
+            html.dark .bd-review-overlay {
+                background: rgba(4, 8, 14, 0.66);
+            }
+            html.dark .bd-review-modal {
+                background: #1a222b;
+                border-color: rgba(255, 255, 255, 0.08);
+            }
+            html.dark .bd-review-title,
+            html.dark .bd-review-thanks h4 {
+                color: #e8eef5;
+            }
+            html.dark .bd-review-kicker,
+            html.dark .bd-review-sub,
+            html.dark .bd-review-star-label,
+            html.dark .bd-review-thanks p,
+            html.dark .bd-review-hint {
+                color: #a9b8c8;
+            }
+            html.dark .bd-review-star-label.has-value {
+                color: #f0c368;
+            }
+            html.dark .bd-star svg {
+                fill: rgba(255, 255, 255, 0.1);
+                stroke: rgba(255, 255, 255, 0.28);
+            }
+            html.dark .bd-star.is-lit svg {
+                fill: #eda423;
+                stroke: #f0c368;
+            }
+            html.dark .bd-review-comment {
+                background: #12181f;
+                border-color: rgba(255, 255, 255, 0.1);
+                color: #e8eef5;
+            }
+            html.dark .bd-review-comment:focus {
+                background: #12181f;
+            }
+            html.dark .bd-review-close {
+                color: #a9b8c8;
+            }
+            html.dark .bd-review-close:hover {
+                background: rgba(255, 255, 255, 0.08);
+                color: #e8eef5;
+            }
+            html.dark .bd-review-skip:hover {
+                background: rgba(255, 255, 255, 0.06);
+                color: #e8eef5;
+            }
+            html.dark .bd-review-submit {
+                background: #eda423;
+                color: #1c2a38;
+            }
+            html.dark .bd-review-done {
+                background: rgba(30, 122, 61, 0.14);
+                border-color: rgba(30, 122, 61, 0.4);
+                color: #6fd694;
+            }
+            html.dark .bd-review-done a {
+                color: #6fd694;
+                border-bottom-color: rgba(111, 214, 148, 0.4);
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .bd-review-overlay,
+                .bd-review-modal,
+                .bd-review-close,
+                .bd-star,
+                .bd-star svg {
+                    transition: none;
+                }
+            }
+
+            @media (max-width: 480px) {
+                .bd-review-stars {
+                    gap: 6px;
+                }
+                .bd-star {
+                    width: 40px;
+                    height: 40px;
+                }
+                .bd-star svg {
+                    width: 30px;
+                    height: 30px;
+                }
+                .bd-review-actions {
+                    flex-direction: column-reverse;
+                }
+                .bd-review-submit {
+                    width: 100%;
+                }
+            }
+
+            /* sidebar markup + styles live in templates/partials/sidebar.html.twig */
+        </style>
+    </head>
+    <body>
+
+        {{ include('partials/navbar.html.twig', {
+            is_logged_in: true,
+            is_host: is_host ?? false,
+            nav_avatar: nav_avatar ?? null,
+            notification_count: notification_count ?? 0,
+            current_page: 'bookings'
+        }) }}
+
+        <main class="up-dashboard">
+
+            <!-- ==================================================
+                 SIDEBAR — shared partial (templates/partials/sidebar.html.twig)
+                 highlight = active_sidebar key · collapse JS stays on this page
+            =================================================== -->
+            {% include 'partials/sidebar.html.twig' with { active_sidebar: 'bookings' } %}
+
+            <div class="up-content">
+
+                <!-- ==============================================
+                     CARD 1 — booking overview
+                =============================================== -->
+                <section class="up-card bd-overview up-reveal">
+
+                    {% if b.status == 'pending' %}
+                        <div class="bd-banner">
+                            <i data-lucide="hourglass"></i>
+                            <p>Application pending — {{ host_name }} has 24 hours to respond before it is auto-declined and the reserve is refunded in full.</p>
+                        </div>
+                    {% endif %}
+
+                    <div class="bd-header">
+                        <div class="bd-cover">
+                            {% if cover %}
+                                <img
+                                    src="{{ cover_url }}"
+                                    alt="{{ listing_title }}"
+                                    onerror="this.remove();"
+                                >
+                            {% endif %}
+                            <i data-lucide="home"></i>
+                            <button
+                                type="button"
+                                id="bdWishlistHeart"
+                                class="bd-heart-btn{{ wished ? ' is-active' : '' }}"
+                                data-listing-id="{{ b.listing_id }}"
+                                aria-pressed="{{ wished ? 'true' : 'false' }}"
+                                aria-label="{{ wished ? 'Remove from wishlist' : 'Save to wishlist' }}"
+                                title="{{ wished ? 'Remove from wishlist' : 'Save to wishlist' }}"
+                            >
+                                <i data-lucide="heart"></i>
+                            </button>
+                        </div>
+                        <div class="bd-head-info">
+                            <h1>{{ listing_title }}</h1>
+                            <p class="bd-location"><i data-lucide="map-pin"></i>{{ listing_location }}</p>
+                            <div class="bd-pills">
+                                <span class="up-status up-status-{{ b.status in ['pending', 'confirmed', 'completed', 'cancelled', 'rejected'] ? b.status : 'other' }}">{{ b.status|capitalize }}</span>
+                                {% if b.payment_label %}
+                                    <span class="bd-pay-label">{{ b.payment_label }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bd-boxes">
+                        <div class="bd-box">
+                            <span class="bd-box-label">Check-In</span>
+                            <span class="bd-box-value">{{ b.checkin_fmt }}</span>
+                        </div>
+                        <div class="bd-box">
+                            <span class="bd-box-label">Check-Out</span>
+                            <span class="bd-box-value">{{ b.checkout_fmt }}</span>
+                        </div>
+                        <div class="bd-box">
+                            <span class="bd-box-label">Guests</span>
+                            <span class="bd-box-value">{{ b.guests }}</span>
+                        </div>
+                        <div class="bd-box">
+                            <span class="bd-box-label">Booked On</span>
+                            <span class="bd-box-value">{{ b.booked_fmt }}</span>
+                        </div>
+                    </div>
+
+                    <div class="bd-host">
+                        <img
+                            class="bd-host-avatar"
+                            src="{{ host_avatar }}"
+                            alt="{{ host_name }}"
+                            onerror="this.onerror=null;this.src='/images/default-avatar.png';"
+                        >
+                        <div class="bd-host-info">
+                            <h4>{{ host_name }}</h4>
+                            <p>Your host for this stay</p>
+                        </div>
+                        <a class="bd-btn-amber" href="/messages">MESSAGE HOST</a>
+                    </div>
+
+                    {% if b.status in ['completed', 'cancelled'] and (show_review or already_reviewed) %}
+                        <div class="bd-review-strip" id="bdReviewStrip">
+                            {% if already_reviewed and my_review %}
+                                <div class="bd-review-done">
+                                    <i data-lucide="badge-check"></i>
+                                    <span>You rated this stay <strong>{{ my_review.rating }}/5</strong>{% if my_review.date %} · {{ my_review.date }}{% endif %}</span>
+                                    <a href="/reviews">VIEW MY REVIEWS</a>
+                                </div>
+                            {% elseif show_review %}
+                                <button type="button" class="bd-btn-amber" id="bdReviewOpen">
+                                    <i data-lucide="star"></i> RATE YOUR STAY
+                                </button>
+                                <span class="bd-review-hint">Your stars + words go on {{ host_name }}'s profile and your Reviews page.</span>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+
+                </section>
+
+                <!-- ==============================================
+                     CARD 2 — payment summary
+                =============================================== -->
+                <section class="up-card bd-paycard up-reveal">
+
+                    <div class="bd-pay-header">
+                        <h3>Payment Summary</h3>
+                        <a class="bd-pay-history" href="/payments">Payment History</a>
+                    </div>
+
+                    <div class="bd-row">
+                        <span class="bd-row-label">Booking Total</span>
+                        <span class="bd-row-value">₱ {{ b.total_fmt }}</span>
+                    </div>
+
+                    <div class="bd-divider-dotted"></div>
+
+                    <div class="bd-row">
+                        <span class="bd-row-label bd-row-muted">Amount Paid</span>
+                        <span class="bd-row-value bd-row-medium">₱ {{ b.paid_fmt }}</span>
+                    </div>
+
+                    <div class="bd-progress">
+                        <div class="bd-progress-track">
+                            <div class="bd-progress-fill" style="width: {{ b.pct }}%;"></div>
+                        </div>
+                        <p class="bd-progress-caption">{{ b.pct }}% of the booking is paid</p>
+                    </div>
+
+                    {% if b.show_refund %}
+                        <div class="bd-row">
+                            <span class="bd-row-label bd-row-muted">Refunded to Wallet</span>
+                            <span class="bd-row-value bd-refund-amount">₱ {{ b.refunded_fmt }}</span>
+                        </div>
+                    {% elseif b.pay_state != 'full' %}
+                        <div class="bd-row">
+                            <span class="bd-row-label">Remaining Balance</span>
+                            <span class="bd-remaining-value">₱ {{ b.left_fmt }}</span>
+                        </div>
+                    {% endif %}
+
+                    <div class="bd-actions">
+                        {% if b.show_pay %}
+                            <a class="bd-btn-dark" href="/listings/{{ b.listing_id }}/payment?pay_balance={{ b.id }}">PAY BALANCE ₱{{ b.left_fmt }}</a>
+                        {% endif %}
+                        <a class="bd-btn-amber" href="/bookings">BACK TO MY BOOKINGS</a>
+
+                        {% if b.show_cancel %}
+                            {% set cancel_confirm = b.status == 'confirmed'
+                                ? 'WARNING: Cancel this CONFIRMED booking? What you paid will be refunded to your wallet (2% platform fee) and the host will be notified. This cannot be undone.'
+                                : 'WARNING: Cancel this booking? Your paid reserve will be refunded to your wallet (2% platform fee) and the host will be notified. This cannot be undone.' %}
+                            <form
+                                class="bd-cancel-form"
+                                method="post"
+                                action="/booking/cancel-booking"
+                                onsubmit="return confirm('{{ cancel_confirm }}');"
+                            >
+                                <input type="hidden" name="booking_id" value="{{ b.id }}">
+                                <button type="submit" class="bd-btn-red">CANCEL MY BOOKING</button>
+                            </form>
+                            <span class="bd-cancel-warning">(!) Cannot be undone - 98% of what you paid goes back to your wallet</span>
+                        {% endif %}
+                    </div>
+
+                    {% if b.show_cancel %}
+                        <div class="bd-divider-dotted"></div>
+                        <div class="bd-cancel-zone">
+                            <form
+                                method="post"
+                                action="/booking/cancel-booking"
+                                onsubmit="return confirm('Cancel this booking? Your paid reserve will be refunded to your wallet.');"
+                            >
+                                <input type="hidden" name="booking_id" value="{{ b.id }}">
+                                <button type="submit" class="bd-btn-red">CANCEL BOOKING</button>
+                            </form>
+                        </div>
+                    {% endif %}
+
+                </section>
+
+            </div>
+        </main>
+
+        {{ include('partials/footer.html.twig') }}
+
+        <!-- ==============================================
+             REVIEW BOX — "rate your stay" overlay.
+             Auto-opens when review_open=1 (just cancelled via
+             ?review=1, or a completed stay not yet dismissed).
+             X / backdrop / ESC / "Not now" skip it (remembered via
+             POST /reviews/dismiss); the amber RATE YOUR STAY button
+             in Card 1 re-opens it any time. Submit POSTs
+             /reviews/submit and flips the strip to the done-row.
+        =============================================== -->
+        {% if show_review or already_reviewed %}
+            <div
+                class="bd-review-overlay"
+                id="bdReviewOverlay"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="bdReviewTitle"
+                data-booking-id="{{ b.id }}"
+                data-open="{{ review_open ? '1' : '0' }}"
+            >
+                <div class="bd-review-modal">
+                    <button type="button" class="bd-review-close" id="bdReviewClose" aria-label="Close — maybe later" title="Close">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                    </button>
+
+                    <div class="bd-review-form" id="bdReviewForm">
+                        <p class="bd-review-kicker">Booking #{{ b.id }}</p>
+                        <h3 class="bd-review-title" id="bdReviewTitle">Rate your stay</h3>
+                        <p class="bd-review-sub">How was “{{ listing_title }}”? Tap the stars — your rating and words land on {{ host_name }}'s profile and your Reviews page.</p>
+
+                        <div class="bd-review-stars" id="bdReviewStars">
+                            {% for i in 1..5 %}
+                                <button type="button" class="bd-star" data-value="{{ i }}" aria-label="Rate {{ i }} star{{ i > 1 ? 's' : '' }}" title="{{ i }} star{{ i > 1 ? 's' : '' }}">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                                </button>
+                            {% endfor %}
+                        </div>
+                        <p class="bd-review-star-label" id="bdReviewStarLabel">Tap a star to rate</p>
+
+                        <textarea class="bd-review-comment" id="bdReviewComment" maxlength="1000"
+                              placeholder="Tell others about your stay — what made it great, what could be better (optional)"></textarea>
+
+                        <div class="bd-review-actions">
+                            <button type="button" class="bd-review-skip" id="bdReviewSkip">Not now</button>
+                            <button type="button" class="bd-review-submit" id="bdReviewSubmit" disabled>Submit review</button>
+                        </div>
+                        <p class="bd-review-error" id="bdReviewError" hidden></p>
+                    </div>
+
+                    <div class="bd-review-thanks" id="bdReviewThanks" hidden>
+                        <i data-lucide="check-circle"></i>
+                        <h4>Thanks for the review!</h4>
+                        <p id="bdReviewThanksMsg">Your stars are now on the host's profile and your My Reviews page.</p>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- Lucide — guarded loader, same key as navbar (never double-runs) -->
+        <script>
+            (function () {
+                "use strict";
+                function renderRhIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
+                }
+                if (!window.__rhNavbarLucide) {
+                    window.__rhNavbarLucide = true;
+                    var s = document.createElement("script");
+                    s.src = "https://unpkg.com/lucide@latest/dist/umd/lucide.min.js";
+                    s.addEventListener("load", renderRhIcons);
+                    document.head.appendChild(s);
+                }
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", renderRhIcons);
+                } else {
+                    renderRhIcons();
+                }
+                window.addEventListener("load", renderRhIcons);
+            })();
+        </script>
+
+        <!-- Sidebar collapse — same behavior + localStorage key as legacy -->
+        <script>
+            (function () {
+                var sidebar = document.getElementById("upSidebar");
+                var toggle = document.getElementById("upSidebarToggle");
+                if (!sidebar || !toggle) {
+                    return;
+                }
+
+                var STORAGE_KEY = "roomhive_sidebar_collapsed";
+                var links = sidebar.querySelectorAll(".up-side-link");
+
+                function updateTitles(collapsed) {
+                    links.forEach(function (link) {
+                        var label = link.querySelector(".up-side-label");
+                        if (collapsed) {
+                            link.setAttribute("title", label ? label.textContent : "");
+                        } else {
+                            link.removeAttribute("title");
+                        }
+                    });
+                }
+
+                function applyState(collapsed) {
+                    sidebar.classList.toggle("collapsed", collapsed);
+                    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                    toggle.setAttribute(
+                        "aria-label",
+                        collapsed ? "Expand sidebar" : "Collapse sidebar",
+                    );
+                    updateTitles(collapsed);
+                }
+
+                var savedCollapsed = false;
+                try {
+                    savedCollapsed = localStorage.getItem(STORAGE_KEY) === "1";
+                } catch (e) {}
+                applyState(savedCollapsed);
+
+                toggle.addEventListener("click", function () {
+                    var nowCollapsed = !sidebar.classList.contains("collapsed");
+                    applyState(nowCollapsed);
+                    try {
+                        localStorage.setItem(STORAGE_KEY, nowCollapsed ? "1" : "0");
+                    } catch (e) {}
+                });
+            })();
+        </script>
+
+        <!-- Reveal — the REAL legacy mechanism: myaccount.css waits for .in-view.
+     Plus a 1.5s failsafe so the page can never render blank. -->
+        <script>
+            (function () {
+                "use strict";
+
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                var revealEls = Array.prototype.slice.call(
+                    document.querySelectorAll(".up-reveal"),
+                );
+
+                function showAll() {
+                    revealEls.forEach(function (el) {
+                        el.classList.add("in-view");
+                    });
+                }
+
+                if (reduced || !("IntersectionObserver" in window)) {
+                    showAll();
+                } else {
+                    var io = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) {
+                                    return;
+                                }
+                                var el = entry.target;
+                                io.unobserve(el);
+                                el.classList.add("in-view");
+                                window.setTimeout(function () {
+                                    el.style.setProperty("--i", "0");
+                                }, 1200);
+                            });
+                        },
+                        {
+                            threshold: 0.12,
+                            rootMargin: "0px 0px -40px 0px",
+                        },
+                    );
+                    revealEls.forEach(function (el) {
+                        io.observe(el);
+                    });
+
+                    /* failsafe — force-reveal anything still hidden after 1.5s */
+                    setTimeout(showAll, 1500);
+                }
+            })();
+        </script>
+
+        <!-- Wishlist heart — glow = saved, un-glow = removed.
+             Same /wishlist/toggle endpoint the My Wishlist page uses;
+             accepts both response shapes ({ok, added} / {ok, saved}).
+             Optimistic UI: glow flips instantly, then snaps to the
+             server's answer (reverts if the server says not-ok). -->
+        <script>
+            (function () {
+                "use strict";
+
+                var heart = document.getElementById("bdWishlistHeart");
+                if (!heart) {
+                    return;
+                }
+
+                var listingId = heart.getAttribute("data-listing-id");
+                if (!listingId || listingId === "0") {
+                    return;
+                }
+
+                var busy = false;
+                var popTimer = null;
+
+                function setGlow(on) {
+                    heart.classList.toggle("is-active", !!on);
+                    heart.setAttribute("aria-pressed", on ? "true" : "false");
+                    heart.setAttribute(
+                        "aria-label",
+                        on ? "Remove from wishlist" : "Save to wishlist",
+                    );
+                    heart.title = on ? "Remove from wishlist" : "Save to wishlist";
+                }
+
+                function pop() {
+                    heart.classList.remove("is-popping");
+                    void heart.offsetWidth; /* restart the pop animation */
+                    heart.classList.add("is-popping");
+                    if (popTimer) {
+                        window.clearTimeout(popTimer);
+                    }
+                    popTimer = window.setTimeout(function () {
+                        heart.classList.remove("is-popping");
+                    }, 450);
+                }
+
+                heart.addEventListener("click", function () {
+                    if (busy) {
+                        return;
+                    }
+                    busy = true;
+
+                    var wasOn = heart.classList.contains("is-active");
+
+                    /* optimistic glow first — the click must feel instant */
+                    setGlow(!wasOn);
+                    pop();
+
+                    fetch("/wishlist/toggle", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/x-www-form-urlencoded",
+                        },
+                        body: "listing_id=" + encodeURIComponent(listingId),
+                    })
+                        .then(function (r) {
+                            return r.json();
+                        })
+                        .then(function (d) {
+                            if (!d || !d.ok) {
+                                /* login expired / bad request — fall back
+                                                                                   to the pre-click state */
+                                setGlow(wasOn);
+                                return;
+                            }
+                            /* both controller shapes: {ok, added} and {ok, saved} */
+                            var on = d.added !== undefined ? !!d.added : !!d.saved;
+                            setGlow(on);
+                        })
+                        .catch(function () {
+                            /* network error / endpoint missing — keep the
+                                                                               visual toggle so the page still behaves */
+                        })
+                        .then(function () {
+                            busy = false;
+                        });
+                });
+            })();
+        </script>
+
+        <!-- Review box — 5 clickable stars (upper) + comment (lower).
+             X / backdrop / ESC / "Not now" skip it (fire-and-forget
+             POST /reviews/dismiss so a completed stay is never nagged
+             twice). Submit POSTs /reviews/submit; success swaps in the
+             thanks panel, then the strip flips to the green done-row. -->
+        <script>
+            (function () {
+                "use strict";
+
+                var overlay = document.getElementById("bdReviewOverlay");
+                if (!overlay) {
+                    return;
+                }
+
+                var bookingId = overlay.getAttribute("data-booking-id") || "0";
+                if (!bookingId || bookingId === "0") {
+                    return;
+                }
+                var autoOpen = overlay.getAttribute("data-open") === "1";
+
+                var form = document.getElementById("bdReviewForm");
+                var starsBox = document.getElementById("bdReviewStars");
+                var starLabel = document.getElementById("bdReviewStarLabel");
+                var commentEl = document.getElementById("bdReviewComment");
+                var submitBtn = document.getElementById("bdReviewSubmit");
+                var skipBtn = document.getElementById("bdReviewSkip");
+                var closeBtn = document.getElementById("bdReviewClose");
+                var errorEl = document.getElementById("bdReviewError");
+                var thanksEl = document.getElementById("bdReviewThanks");
+                var thanksMsg = document.getElementById("bdReviewThanksMsg");
+                var strip = document.getElementById("bdReviewStrip");
+
+                var LABELS = ["", "Terrible", "Poor", "Okay", "Good", "Excellent"];
+                var selected = 0;
+                var submitted = false;
+                var busy = false;
+
+                function renderIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
+                }
+
+                function paintStars(count) {
+                    starsBox.querySelectorAll(".bd-star").forEach(function (st) {
+                        var v = parseInt(st.getAttribute("data-value"), 10);
+                        st.classList.toggle("is-lit", v <= count);
+                    });
+                }
+
+                function setLabel(n) {
+                    if (n > 0) {
+                        starLabel.textContent =
+                            n + " star" + (n > 1 ? "s" : "") + " — " + LABELS[n];
+                        starLabel.classList.add("has-value");
+                    } else {
+                        starLabel.textContent = "Tap a star to rate";
+                        starLabel.classList.remove("has-value");
+                    }
+                }
+
+                starsBox.querySelectorAll(".bd-star").forEach(function (st) {
+                    var v = parseInt(st.getAttribute("data-value"), 10);
+
+                    st.addEventListener("mouseenter", function () {
+                        paintStars(v);
+                        setLabel(v);
+                    });
+                    st.addEventListener("mouseleave", function () {
+                        paintStars(selected);
+                        setLabel(selected);
+                    });
+                    st.addEventListener("click", function () {
+                        selected = v;
+                        paintStars(selected);
+                        setLabel(selected);
+                        submitBtn.disabled = false;
+                    });
+                });
+
+                function openBox() {
+                    overlay.classList.add("is-open");
+                    document.body.style.overflow = "hidden";
+                }
+
+                function closeBox(remember) {
+                    overlay.classList.remove("is-open");
+                    document.body.style.overflow = "";
+
+                    /* X / Not now → remember the skip server-side so a
+                                                                       completed stay never auto-pops twice (fire and
+                                                                       forget — the page keeps working either way). */
+                    if (remember && !submitted) {
+                        try {
+                            fetch("/reviews/dismiss", {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/x-www-form-urlencoded",
+                                },
+                                body: "booking_id=" + encodeURIComponent(bookingId),
+                            }).catch(function () {});
+                        } catch (e) {}
+                    }
+                }
+
+                overlay.addEventListener("click", function (ev) {
+                    if (ev.target === overlay) {
+                        closeBox(true);
+                    }
+                });
+                document.addEventListener("keydown", function (ev) {
+                    if (ev.key === "Escape" && overlay.classList.contains("is-open")) {
+                        closeBox(true);
+                    }
+                });
+                closeBtn.addEventListener("click", function () {
+                    closeBox(true);
+                });
+                skipBtn.addEventListener("click", function () {
+                    closeBox(true);
+                });
+
+                /* the amber strip button re-opens the box any time */
+                var stripBtn = document.getElementById("bdReviewOpen");
+                if (stripBtn) {
+                    stripBtn.addEventListener("click", function () {
+                        submitted = false; /* a fresh attempt …   */
+                        form.hidden = false; /* …shows the form     */
+                        thanksEl.hidden = true;
+                        errorEl.hidden = true;
+                        openBox();
+                    });
+                }
+
+                submitBtn.addEventListener("click", function () {
+                    if (busy || selected < 1) {
+                        return;
+                    }
+                    busy = true;
+                    errorEl.hidden = true;
+                    submitBtn.textContent = "SUBMITTING\u2026";
+
+                    var body =
+                        "booking_id=" +
+                        encodeURIComponent(bookingId) +
+                        "&rating=" +
+                        encodeURIComponent(selected) +
+                        "&comment=" +
+                        encodeURIComponent(commentEl.value);
+
+                    fetch("/reviews/submit", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/x-www-form-urlencoded",
+                        },
+                        body: body,
+                    })
+                        .then(function (r) {
+                            return r.json();
+                        })
+                        .then(function (d) {
+                            if (!d || !d.success) {
+                                errorEl.textContent =
+                                    (d && d.message) ||
+                                    "Could not save your review. Please try again.";
+                                errorEl.hidden = false;
+                                submitBtn.textContent = "SUBMIT REVIEW";
+                                busy = false;
+                                return;
+                            }
+
+                            submitted = true;
+
+                            /* thanks panel */
+                            thanksMsg.textContent =
+                                d.message ||
+                                "Your stars are now on the host's profile and your My Reviews page.";
+                            form.hidden = true;
+                            thanksEl.hidden = false;
+                            renderIcons();
+
+                            /* the strip flips to the green done-row */
+                            if (strip) {
+                                strip.innerHTML =
+                                    '<div class="bd-review-done">' +
+                                    '<i data-lucide="badge-check"></i>' +
+                                    "<span>You rated this stay <strong>" +
+                                    selected +
+                                    "/5</strong></span>" +
+                                    '<a href="/reviews">VIEW MY REVIEWS</a>' +
+                                    "</div>";
+                                renderIcons();
+                            }
+
+                            window.setTimeout(function () {
+                                closeBox(false);
+                            }, 2000);
+                            busy = false;
+                        })
+                        .catch(function () {
+                            errorEl.textContent = "Network error — please try again.";
+                            errorEl.hidden = false;
+                            submitBtn.textContent = "SUBMIT REVIEW";
+                            busy = false;
+                        });
+                });
+
+                if (autoOpen) {
+                    /* let the page reveal play first, then pop the box */
+                    window.setTimeout(openBox, 450);
+                }
+            })();
+        </script>
+
+    </body>
+</html>

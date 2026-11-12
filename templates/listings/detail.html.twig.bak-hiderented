@@ -1,0 +1,1109 @@
+{# =========================================================
+   ROOMHIVE — LISTING DETAIL (matched to the approved design)
+   templates/listings/detail.html.twig
+
+   CSS: public/assets/listing-detail.css (REWRITE — load with
+   ?v=3 so browsers drop the old cached file):
+
+       <link rel="stylesheet" href="{{ asset('assets/listing-detail.css') }}?v=3">
+
+   === WHAT CHANGED VS THE PREVIOUS VERSION (design shot) ===
+   1. HEAD: Fraunces added to the Google Fonts link (section
+      headings / listing title are serif in the design).
+   2. Application-status pill MOVED OUT of the booking card —
+      it now renders in the LEFT column, right under the
+      location/reviews subline.
+   3. Amenities: no card, no "What this place offers" heading —
+      a flat gold-icon strip between two hairlines.
+   4. House Rules MOVED from the sidebar to the LEFT column,
+      directly under About (flat heading + text).
+   5. Host: heading sits above a white card; card gains a
+      "View Host Profile" outline button and a "No reviews yet"
+      fallback line + response-time line.
+   6. Booking card: 3 summary lines (Monthly price / Rental
+      duration / Total rent); duration picker shows the number over the unit
+      word (JS splits the label into #rd-dur-num / #rd-dur-word);
+      charge note text matches the shot; "Capacity:" note
+      removed from the card (capacity lives in Space Details).
+   7. Space Details: heading is "Space details" with a gold bar
+      to its right; rows show pluralized Bedroom/Bathroom,
+      "sqm", "No" parking.
+   8. Map note reads "Exact location shown on this map".
+   9. The old CSS bound the sidebar styles to .rd-sidebar while
+      this markup uses .rd-side — the new CSS targets BOTH, so
+      no rename was needed here.
+   10. "View Host Profile" now opens the host's PUBLIC profile
+      — route app_host_public_profile → GET /listings/host/{id}
+      (HostPublicProfileController renders listings/
+      host_public_profile.html.twig) — instead of the old
+      listings-grid placeholder. ListingsController already
+      passes host.id, so no controller change was needed.
+   11. BUGFIX — move-in date was being silently dropped. The
+      #rd-movein input had id but no name, so the form
+      (method=GET → /listings/{id}/payment) never carried
+      ?checkin_date; PaymentController read empty, and
+      ProcessPaymentController's `$checkin === ''` guard
+      redirected back to app_listing_detail?incompletedates=1,
+      showing "Please choose your move-in date before
+      continuing" even though the user HAD picked a date. Fix:
+      added name="checkin_date" to the #rd-movein input —
+      flatpickr's onChange already kept its .value in sync, so
+      no JS change is needed.
+   12. WISHLIST HEART — the corner heart on the gallery photo and
+       the topbar Save button are ONE wishlist toggle now: click
+       either → red fill + pulsing glow (= saved, POSTs listing_id
+       to the same /wishlist/toggle endpoint the My Wishlist page
+       uses — {ok, added} and {ok, saved} response shapes both
+       accepted) · click again → glow off (= removed). Initial
+       state comes from the `wished` variable ListingsController
+       feeds (SELECT on the legacy `wishlist` table). The old Save
+       button only flipped a CSS class locally — nothing was ever
+       saved; both controls persist for real now and stay in sync.
+       Heart styles are page-local (the <style> block below) —
+       listing-detail.css is untouched.
+   13. ENQUIRY DATE GUARD — the Send Enquiry button could still
+       be clicked with an empty Move-in date: the empty
+       checkin_date travelled to the payment step and came back
+       as the "Please choose your move-in date" redirect. The
+       booking form now refuses to submit until a date is picked
+       (long-term stays need one too — only the END date stays
+       open). An empty submit is prevented, the date field
+       flashes red + shakes, an inline message appears under it
+       and the flatpickr calendar auto-opens; everything clears
+       the moment a date is chosen. Error styles are page-local
+       (the <style> block below) — listing-detail.css is
+       untouched.
+   14. VERIFICATION GATE — an unverified account can no longer
+       send enquiries at all. "Verified" follows the legacy
+       is_user_verified() rule: at least one 'verified' row in
+       user_id_documents (Profile Settings promotes a pending ID
+       upload to verified once the profile is complete). In the
+       booking card the "Send Enquiry" submit button is REPLACED
+       by a "Verify to Send Enquiry" button that goes to Profile
+       Settings, with a lock note under it explaining why; a JS
+       guard kills the only leftover submit path (Enter-key
+       implicit submission) and shakes the verify nudge instead.
+       Server side: PaymentController::choose bounces unverified
+       renters (non-hosts, new-enquiry mode) back here with
+       ?needverify=1 — the notice at the top of this page already
+       renders it — and ProcessPaymentController does the same on
+       the POST, so the UI lock cannot be walked around. Paying
+       the REMAINING balance of an existing booking stays open,
+       and hosts are exempt. Lock styles are page-local (the
+       <style> block below) — listing-detail.css is untouched.
+========================================================= #}
+
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>RoomHive - {{ listing.title }}</title>
+
+        <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/listing-detail.css') }}?v=3">
+
+        <style>
+            /* ============ wishlist heart — corner of the gallery
+                                                               photo · red fill + pulsing glow when saved (.is-active)
+                                                               · one-shot pop on every click (.is-popping).
+                                                               Page-local on purpose: listing-detail.css stays as-is. */
+            .rd-heart-btn {
+                position: absolute;
+                top: 14px;
+                right: 14px;
+                z-index: 4;
+                width: 40px;
+                height: 40px;
+                border: 0;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                background: rgba(17, 24, 39, 0.45);
+                -webkit-backdrop-filter: blur(6px);
+                backdrop-filter: blur(6px);
+                color: #ffffff;
+                box-shadow: 0 2px 10px rgba(28, 42, 56, 0.3);
+                transition:
+                    transform 0.18s ease,
+                    background 0.2s ease;
+            }
+            .rd-heart-btn svg {
+                width: 20px;
+                height: 20px;
+            }
+            .rd-heart-btn:hover {
+                transform: scale(1.1);
+            }
+            .rd-heart-btn:active {
+                transform: scale(0.9);
+            }
+
+            /* GLowing (saved) state — fill: currentColor overrides
+                                                               lucide's fill="none" so the heart paints solid white. */
+            .rd-heart-btn.is-active {
+                background: #e5484d;
+                animation: rd-heart-glow 1.6s ease-in-out infinite;
+            }
+            .rd-heart-btn.is-active svg {
+                fill: currentColor;
+            }
+
+            @keyframes rd-heart-glow {
+                0%,
+                100% {
+                    box-shadow:
+                        0 0 0 0 rgba(229, 72, 77, 0.3),
+                        0 0 10px 2px rgba(229, 72, 77, 0.45);
+                }
+                50% {
+                    box-shadow:
+                        0 0 0 6px rgba(229, 72, 77, 0.12),
+                        0 0 26px 8px rgba(229, 72, 77, 0.65);
+                }
+            }
+
+            /* one-shot pop on every click (the svg animates so the
+                                                               glow loop on the button never restarts) */
+            .rd-heart-btn.is-popping svg {
+                animation: rd-heart-pop 0.38s cubic-bezier(0.2, 1.6, 0.4, 1);
+            }
+            @keyframes rd-heart-pop {
+                0% {
+                    transform: scale(0.4);
+                }
+                55% {
+                    transform: scale(1.35);
+                }
+                100% {
+                    transform: scale(1);
+                }
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .rd-heart-btn,
+                .rd-heart-btn svg {
+                    transition: none;
+                    animation: none;
+                }
+                .rd-heart-btn.is-active {
+                    box-shadow: 0 0 16px 4px rgba(229, 72, 77, 0.55);
+                }
+            }
+
+            /* ============ ENQUIRY DATE GUARD — the Send Enquiry
+                                                               form refuses to submit until a move-in date is
+                                                               picked. Error styles are page-local on purpose so
+                                                               listing-detail.css stays untouched: the date input
+                                                               flashes red + shakes, an inline message shows under
+                                                               it, and both clear the moment a date is chosen. */
+            .rd-movein-input.rd-date-invalid {
+                border-color: #e5484d;
+                background: #fff5f5;
+            }
+            .rd-movein-input.rd-date-shake {
+                animation: rd-date-shake 0.4s ease;
+            }
+            @keyframes rd-date-shake {
+                0%,
+                100% {
+                    transform: translateX(0);
+                }
+                25% {
+                    transform: translateX(-5px);
+                }
+                75% {
+                    transform: translateX(5px);
+                }
+            }
+            .rd-date-error {
+                display: flex;
+                align-items: flex-start;
+                gap: 8px;
+                margin: 8px 0 0;
+                color: #c5343a;
+                font-size: 13px;
+                font-weight: 600;
+                line-height: 1.45;
+            }
+            .rd-date-error svg {
+                width: 16px;
+                height: 16px;
+                flex: 0 0 auto;
+                margin-top: 1px;
+            }
+            .rd-date-error[hidden] {
+                display: none;
+            }
+
+            /* ============ VERIFICATION LOCK — when the account
+                                                               is unverified the Send Enquiry CTA is replaced
+                                                               by a "Verify to Send Enquiry" link with a lock
+                                                               note under it, and the verify nudge can be
+                                                               shaken by the JS guard. Page-local on purpose:
+                                                               listing-detail.css stays untouched. */
+            .rd-verify-lock-note {
+                display: flex;
+                align-items: flex-start;
+                gap: 8px;
+                margin: 10px 0 0;
+                color: #6b7280;
+                font-size: 13px;
+                font-weight: 500;
+                line-height: 1.5;
+            }
+            .rd-verify-lock-note svg {
+                width: 15px;
+                height: 15px;
+                flex: 0 0 auto;
+                margin-top: 2px;
+            }
+            .rd-verify-lock-note a {
+                color: #8a5a10;
+                font-weight: 800;
+                text-decoration: none;
+            }
+            .rd-verify-lock-note a:hover {
+                text-decoration: underline;
+            }
+            .rd-verify-nudge.rd-verify-shake {
+                animation: rd-date-shake 0.4s ease;
+            }
+        </style>
+
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+        <script>
+            document.documentElement.classList.add("js");
+        </script>
+    </head>
+
+    <body>
+
+        <main class="listing-detail-page">
+
+            <div class="rd-topbar">
+                <a href="{{ path('app_listings') }}" class="rd-back-link">
+                    <i data-lucide="arrow-left" aria-hidden="true"></i> Back to Listings
+                </a>
+                <div class="rd-topbar-actions">
+                    <button
+                        type="button"
+                        class="rd-action-btn{{ wished ? ' active' : '' }}"
+                        id="rd-save-btn"
+                    >
+                        <i data-lucide="heart" aria-hidden="true"></i>
+                        <span class="rd-save-label">{{ wished ? 'Saved' : 'Save' }}</span>
+                    </button>
+                    <button type="button" class="rd-action-btn" id="rd-share-btn">
+                        <i data-lucide="share-2" aria-hidden="true"></i>
+                        <span class="rd-share-label">Share</span>
+                    </button>
+                </div>
+            </div>
+
+            {# ---------- REDIRECT NOTICES ---------- #}
+            {% if flags.needverify %}
+                <div class="rd-notice">
+                    <i data-lucide="lock" aria-hidden="true"></i>
+                    <span>Your enquiry wasn't sent — verify your identity in your
+                        <a href="{{ path('app_profile_edit') }}#verify-card" style="font-weight:800; color:#8a5a10; text-decoration:none;">Edit Profile</a> page first.
+                    </span>
+                </div>
+            {% elseif flags.unavailable %}
+                <div class="rd-notice">
+                    <i data-lucide="triangle-alert" aria-hidden="true"></i>
+                    <span>Sorry, this space was just booked by someone else. Browse other available spaces below.</span>
+                </div>
+            {% elseif flags.ownbooking %}
+                <div class="rd-notice">
+                    <i data-lucide="info" aria-hidden="true"></i>
+                    <span>You can't book your own listing.</span>
+                </div>
+            {% elseif flags.alreadylisted %}
+                <div class="rd-notice rd-notice-success">
+                    <i data-lucide="circle-check" aria-hidden="true"></i>
+                    <span>This space is already listed. It's live and visible to renters.</span>
+                </div>
+            {% elseif flags.incompletedates %}
+                <div class="rd-notice">
+                    <i data-lucide="triangle-alert" aria-hidden="true"></i>
+                    <span>Please choose your move-in date before continuing.</span>
+                </div>
+            {% elseif flags.oneactive %}
+                <div class="rd-notice">
+                    <i data-lucide="info" aria-hidden="true"></i>
+                    <span>Your enquiry wasn't sent: you already have an active booking request. You can only have one at a time; wait for the host's decision or cancel it from
+                        <a href="{{ path('app_payments') }}" style="font-weight:800; color:#8a5a10; text-decoration:none;">My Bookings</a> first.
+                    </span>
+                </div>
+            {% endif %}
+
+            <div class="rd-layout">
+
+                {# ================= LEFT COLUMN ================= #}
+                <div class="rd-main">
+
+                    {# ---------- GALLERY ---------- #}
+                    <div class="rd-gallery rd-reveal" style="--d: .1s;">
+                        <div class="rd-gallery-main">
+                            <img src="{{ asset(listing.gallery[0]) }}" alt="{{ listing.title }}" id="rd-gallery-image">
+                            {% if listing.gallery|length > 1 %}
+                                <button type="button" class="rd-gallery-arrow rd-gallery-prev" id="rd-gallery-prev" aria-label="Previous image">
+                                    <i data-lucide="chevron-left" aria-hidden="true"></i>
+                                </button>
+                                <button type="button" class="rd-gallery-arrow rd-gallery-next" id="rd-gallery-next" aria-label="Next image">
+                                    <i data-lucide="chevron-right" aria-hidden="true"></i>
+                                </button>
+                            {% endif %}
+                            <span class="rd-gallery-count" id="rd-gallery-count">1 / {{ listing.gallery|length }}</span>
+                            <button
+                                type="button"
+                                id="rd-heart-btn"
+                                class="rd-heart-btn{{ wished ? ' is-active' : '' }}"
+                                aria-pressed="{{ wished ? 'true' : 'false' }}"
+                                aria-label="{{ wished ? 'Remove from wishlist' : 'Save to wishlist' }}"
+                                title="{{ wished ? 'Remove from wishlist' : 'Save to wishlist' }}"
+                            >
+                                <i data-lucide="heart" aria-hidden="true"></i>
+                            </button>
+                        </div>
+
+                        {% if listing.gallery|length > 1 %}
+                            <div class="rd-gallery-thumbs-wrap">
+                                <button type="button" class="rd-thumbs-arrow rd-thumbs-prev" id="rd-thumbs-prev" aria-label="Scroll thumbnails left">
+                                    <i data-lucide="chevron-left" aria-hidden="true"></i>
+                                </button>
+                                <div class="rd-gallery-thumbs" id="rd-gallery-thumbs">
+                                    {% for image in listing.gallery %}
+                                        <img
+                                            src="{{ asset(image) }}"
+                                            alt="Thumbnail {{ loop.index }}"
+                                            class="rd-thumb {{ loop.first ? 'active' : '' }}"
+                                            data-index="{{ loop.index0 }}"
+                                        >
+                                    {% endfor %}
+                                </div>
+                                <button type="button" class="rd-thumbs-arrow rd-thumbs-next" id="rd-thumbs-next" aria-label="Scroll thumbnails right">
+                                    <i data-lucide="chevron-right" aria-hidden="true"></i>
+                                </button>
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    {# ---------- TITLE / RATING ---------- #}
+                    <h1 class="rd-title rd-reveal" style="--d: .15s;">{{ listing.title }}</h1>
+
+                    <div class="rd-subline rd-reveal" style="--d: .18s;">
+                        <span class="rd-location">
+                            <i data-lucide="map-pin" aria-hidden="true"></i>
+                            {{ listing.location_full }}
+                        </span>
+                        {% if listing.reviews > 0 %}
+                            <span class="rd-rating">
+                                <i data-lucide="star" class="rd-star-icon" aria-hidden="true"></i>
+                                {{ listing.rating|number_format(1) }} ({{ listing.reviews }} reviews)
+                            </span>
+                        {% else %}
+                            <span class="rd-rating">No reviews yet</span>
+                        {% endif %}
+                        {% if listing.is_new %}
+                            <span class="rd-badge rd-badge-new">New</span>
+                        {% endif %}
+                    </div>
+
+                    {# ---------- APPLICATION STATUS (left column, under the subline) ---------- #}
+                    {% if my_application_status %}
+                        <span class="rd-application-status rd-application-status-{{ my_application_status }} rd-reveal" style="--d: .2s;">
+                            Application {{ my_application_status|title }}
+                        </span>
+                    {% endif %}
+
+                    {# ---------- AMENITIES (flat strip — no card, no heading) ---------- #}
+                    {% if listing.amenities|length > 0 or listing.has_parking %}
+                        <div class="rd-amenities rd-reveal" style="--d: .26s;">
+                            <div class="rd-amenity-grid">
+                                {% for key in listing.amenities %}
+                                    <div class="rd-amenity">
+                                        <i data-lucide="{{ amenity_icons[key] ?? 'circle-check' }}" aria-hidden="true"></i>
+                                        <span>{{ amenity_options[key] ?? key|replace({'-': ' '})|title }}</span>
+                                    </div>
+                                {% endfor %}
+                                {% if listing.has_parking and 'parking' not in listing.amenities %}
+                                    <div class="rd-amenity">
+                                        <i data-lucide="square-parking" aria-hidden="true"></i>
+                                        <span>Parking</span>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    {# ---------- ABOUT ---------- #}
+                    <div class="rd-section rd-about rd-reveal" style="--d: .3s;">
+                        <h2 class="rd-section-title">About this space</h2>
+                        {% if listing.description %}
+                            <p class="rd-about-text" id="rd-about-text">{{ listing.description }}</p>
+                            {% if listing.description|length > 220 %}
+                                <button type="button" class="rd-show-more" id="rd-show-more">
+                                    Show more <i data-lucide="chevron-down" class="rd-show-more-icon" aria-hidden="true"></i>
+                                </button>
+                            {% endif %}
+                        {% else %}
+                            <p class="rd-about-text">The host hasn't added a description yet — check the details and photos below.</p>
+                        {% endif %}
+                    </div>
+
+                    {# ---------- HOUSE RULES (left column, under About) ---------- #}
+                    {% if listing.house_rules %}
+                        <div class="rd-section rd-rules rd-reveal" style="--d: .32s;">
+                            <h2 class="rd-section-title">House Rules</h2>
+                            <p class="rd-rules-text">{{ listing.house_rules }}</p>
+                        </div>
+                    {% endif %}
+
+                    {# ---------- HOST ---------- #}
+                    <div class="rd-section rd-host rd-reveal" style="--d: .34s;">
+                        <h2 class="rd-section-title">Meet your host</h2>
+                        <div class="rd-host-card">
+                            <div class="rd-host-row">
+                                <img class="rd-host-avatar" src="{{ asset(host.avatar) }}" alt="{{ host.name }}">
+                                <div class="rd-host-info">
+                                    <strong>{{ host.name }}</strong>
+                                    {% if host.reviews > 0 %}
+                                        <span class="rd-rating">
+                                            <i data-lucide="star" class="rd-star-icon" aria-hidden="true"></i>
+                                            {{ host.rating|number_format(1) }} ({{ host.reviews }} reviews)
+                                        </span>
+                                    {% else %}
+                                        <span>No reviews yet</span>
+                                    {% endif %}
+                                    <span>Member since {{ host.member_since }}</span>
+                                    <span>Response time: within a day</span>
+                                </div>
+                            </div>
+                            <a href="{{ path('app_host_public_profile', { id: host.id }) }}" class="rd-host-profile-btn">View Host Profile</a>
+                        </div>
+                    </div>
+
+                    {# ---------- MAP / WHERE YOU'LL BE ---------- #}
+                    <div class="rd-section rd-location-card rd-reveal" style="--d: .38s;">
+                        <h2 class="rd-section-title">Where you'll be</h2>
+                        <p class="rd-where-address">{{ listing.location_full }}</p>
+                        <div class="rd-map-embed" id="rd-map"></div>
+                        {% if has_pin %}
+                            <p class="rd-map-exact-note">
+                                <i data-lucide="circle-check" aria-hidden="true"></i> Exact location shown on this map
+                            </p>
+                        {% endif %}
+                        <a class="rd-btn rd-btn-outline" href="{{ maps_url }}" target="_blank" rel="noopener">
+                            Open in Google Maps
+                        </a>
+                    </div>
+
+                </div>
+
+                {# ================= SIDEBAR ================= #}
+                <aside class="rd-side">
+
+                    {# ---------- BOOKING CARD ---------- #}
+                    <div class="rd-booking-card rd-card rd-reveal" style="--d: .22s;">
+
+                        <div class="rd-price-row">
+                            <i data-lucide="philippine-peso" class="rd-peso-icon" aria-hidden="true"></i>
+                            <span class="rd-price"><span class="rd-peso" id="rd-price-display">{{ listing.price|number_format(0) }}</span></span>
+                            <span class="rd-per">/ month</span>
+                        </div>
+
+                        {% if not is_bookable %}
+                            <div class="rd-unavailable-note">
+                                <i data-lucide="circle-x" aria-hidden="true"></i>
+                                <span>
+                                    {% if is_long_term_occupied %}
+                                        This space is currently occupied on a long-term stay and isn't accepting new bookings.
+                                    {% else %}
+                                        This space isn't available for booking right now.
+                                    {% endif %}
+                                </span>
+                            </div>
+                        {% endif %}
+
+                        {% if show_verify_nudge %}
+                            <div class="rd-verify-nudge">
+                                <i data-lucide="shield-alert" aria-hidden="true"></i>
+                                <span>
+                                    Verify your identity to send enquiries —
+                                    <a href="{{ path('app_profile_edit') }}#verify-card">verify now</a>.
+                                </span>
+                            </div>
+                        {% endif %}
+
+                        {% if is_own_listing %}
+                            <div class="rd-unavailable-note">
+                                <i data-lucide="info" aria-hidden="true"></i>
+                                <span>This is your listing — you can't book your own space.</span>
+                            </div>
+                        {% elseif is_bookable and is_logged_in %}
+
+                            <form
+                                class="rd-booking-form"
+                                id="rd-booking-form"
+                                method="GET"
+                                action="{{ path('app_listing_payment', { id: listing.id }) }}"
+                                data-verify-required="{{ show_verify_nudge ? '1' : '0' }}"
+                            >
+
+                                <input type="hidden" name="listing_id" value="{{ listing.id }}">
+                                <input type="hidden" name="guests" value="{{ guests_value }}">
+                                <input type="hidden" name="checkout_date" id="rd-checkout-hidden" value="">
+                                <input type="hidden" name="months" id="rd-months-hidden" value="{{ listing.duration_months }}">
+                                <input type="hidden" name="long_term" id="rd-longterm-hidden" value="0">
+
+                                {# ---- SUMMARY LINES ---- #}
+                                <div class="rd-price-rows">
+                                    <div class="rd-price-line">
+                                        <span>Monthly price</span>
+                                        <strong>&#8369; <span id="rd-row-monthly">{{ listing.price|number_format(2, '.', ',') }}</span></strong>
+                                    </div>
+                                    <div class="rd-price-line">
+                                        <span>Rental duration</span>
+                                        <strong id="rd-row-dur">{{ listing.duration_label }}</strong>
+                                    </div>
+                                    <div class="rd-price-line rd-line-total">
+                                        <span>Total rent (<span id="rd-row-duration">{{ listing.duration_label }}</span>)</span>
+                                        <strong>&#8369; <span id="rd-row-total">{{ listing.total_rent|number_format(2, '.', ',') }}</span></strong>
+                                    </div>
+                                    <div class="rd-price-line">
+                                        <span>Due today</span>
+                                        <strong>&#8369; <span id="rd-row-due">{{ listing.total_rent|number_format(2, '.', ',') }}</span></strong>
+                                    </div>
+                                </div>
+
+                                <label class="rd-field-label" for="rd-movein">
+                                    <i data-lucide="calendar" aria-hidden="true"></i> Move-in date
+                                </label>
+                                <input
+                                    type="text"
+                                    class="rd-movein-input"
+                                    id="rd-movein"
+                                    name="checkin_date"
+                                    placeholder="Select your move-in date"
+                                    aria-describedby="rd-date-error"
+                                    aria-required="true"
+                                    readonly
+                                >
+
+                                <p class="rd-date-error" id="rd-date-error" hidden>
+                                    <i data-lucide="triangle-alert" aria-hidden="true"></i>
+                                    <span>Please choose your move-in date before sending your enquiry.</span>
+                                </p>
+
+                                <div id="rd-duration-wrap">
+                                    <label class="rd-field-label">
+                                        <i data-lucide="calendar-range" aria-hidden="true"></i> Rental duration
+                                    </label>
+                                    <div class="rd-duration-picker">
+                                        <button type="button" class="rd-dur-btn rd-dur-minus" id="rd-dur-minus" aria-label="Shorter duration">&minus;</button>
+                                        <div class="rd-dur-value">
+                                            <strong id="rd-dur-num">{{ listing.duration_months }}</strong>
+                                            <span id="rd-dur-word">{{ listing.duration_months == 1 ? 'Month' : 'Months' }}</span>
+                                        </div>
+                                        <button type="button" class="rd-dur-btn rd-dur-plus" id="rd-dur-plus" aria-label="Longer duration">+</button>
+                                    </div>
+                                </div>
+
+                                <div class="rd-long-term">
+                                    <label class="rd-long-term-label">
+                                        <input type="checkbox" id="rd-long-term">
+                                        <i data-lucide="infinity" aria-hidden="true"></i>
+                                        <span>Long term stay (open-ended, month-to-month)</span>
+                                    </label>
+                                </div>
+
+                                {% if show_verify_nudge %}
+                                    {# VERIFICATION LOCK — no submit button is
+                                       rendered at all while the account is
+                                       unverified: this link replaces the CTA and
+                                       takes the renter to Profile Settings, and
+                                       the JS guard below kills the Enter-key
+                                       submit path. The server gates (needverify)
+                                       back the page up. #}
+                                    <a
+                                        href="{{ path('app_profile_edit') }}#verify-card"
+                                        class="rd-btn rd-btn-primary rd-enquiry-locked"
+                                        id="rd-enquiry-locked-btn"
+                                        style="margin-top:16px;"
+                                    >
+                                        <i data-lucide="shield-alert" aria-hidden="true"></i>
+                                        Verify to Send Enquiry
+                                    </a>
+
+                                    <p class="rd-verify-lock-note">
+                                        <i data-lucide="lock" aria-hidden="true"></i>
+                                        <span>
+                                            Sending enquiries needs a verified account.
+                                            Verify your identity on the
+                                            <a href="{{ path('app_profile_edit') }}#verify-card">Edit Profile page</a>,
+                                            then come back and book this space.
+                                        </span>
+                                    </p>
+                                {% else %}
+                                    <button type="submit" class="rd-btn rd-btn-primary" id="rd-enquiry-btn">
+                                        <i data-lucide="send" aria-hidden="true"></i> Send Enquiry
+                                    </button>
+
+                                    <p class="rd-charge-note">
+                                        <i data-lucide="lock" aria-hidden="true"></i>
+                                        <span>You won't be charged yet — pay the full amount on the next page to confirm your booking.</span>
+                                    </p>
+                                {% endif %}
+                            </form>
+
+                        {% elseif is_bookable and not is_logged_in %}
+                            <a href="{{ path('app_login') }}" class="rd-btn rd-btn-primary" style="margin-top:16px;">
+                                <i data-lucide="log-in" aria-hidden="true"></i> Log in to book
+                            </a>
+                        {% endif %}
+                    </div>
+
+                    {# ---------- SPACE DETAILS ---------- #}
+                    <div class="rd-details-card rd-card rd-reveal" style="--d: .26s;">
+                        <h3><i data-lucide="info" aria-hidden="true"></i> Space details</h3>
+
+                        {% if listing.category_label ?? true %}
+                            <div class="rd-detail-row">
+                                <i data-lucide="home" aria-hidden="true"></i>
+                                <span>Space type</span>
+                                <strong>{{ (listing.category_label ?? 'entire-house')|replace({'-': ' '}) }}</strong>
+                            </div>
+                        {% endif %}
+                        <div class="rd-detail-row">
+                            <i data-lucide="bed-double" aria-hidden="true"></i>
+                            <span>Bedrooms</span>
+                            <strong>{{ listing.bedrooms }} Bedroom{{ listing.bedrooms == 1 ? '' : 's' }}</strong>
+                        </div>
+                        <div class="rd-detail-row">
+                            <i data-lucide="bath" aria-hidden="true"></i>
+                            <span>Bathrooms</span>
+                            <strong>{{ listing.bathrooms }} Bathroom{{ listing.bathrooms == 1 ? '' : 's' }}</strong>
+                        </div>
+                        <div class="rd-detail-row">
+                            <i data-lucide="ruler" aria-hidden="true"></i>
+                            <span>Size</span>
+                            <strong>{{ listing.size_sqm ? listing.size_sqm|number_format(0) ~ ' sqm' : '—' }}</strong>
+                        </div>
+                        <div class="rd-detail-row">
+                            <i data-lucide="building-2" aria-hidden="true"></i>
+                            <span>Floor</span>
+                            <strong>{{ listing.floor ?: '—' }}</strong>
+                        </div>
+                        <div class="rd-detail-row">
+                            <i data-lucide="car-front" aria-hidden="true"></i>
+                            <span>Parking</span>
+                            <strong>{{ listing.has_parking ? listing.parking : 'No' }}</strong>
+                        </div>
+                        <div class="rd-detail-row">
+                            <i data-lucide="users" aria-hidden="true"></i>
+                            <span>Capacity</span>
+                            <strong>{{ listing.capacity_label }}</strong>
+                        </div>
+                    </div>
+
+                </aside>
+
+            </div>
+
+        </main>
+
+        {% include 'partials/footer.html.twig' ignore missing %}
+
+        {# ---------- PAGE DATA FOR JS ---------- #}
+        <script type="application/json" id="rd-data">
+        {{ {
+            gallery:     listing.gallery,
+            basePrice:   listing.price,
+            unavailable: unavailable_ranges,
+        }|json_encode(
+            constant('JSON_UNESCAPED_UNICODE')
+            b-or constant('JSON_HEX_TAG')
+            b-or constant('JSON_HEX_AMP')
+            b-or constant('JSON_HEX_APOS')
+            b-or constant('JSON_HEX_QUOT')
+        )|raw }}
+    </script>
+
+        <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+        <script>
+        (function () {
+            "use strict";
+
+            var DATA = JSON.parse(document.getElementById("rd-data").textContent);
+            var BASE_PRICE = Number(DATA.basePrice) || 0;
+            var MONTHS_MIN = 1, MONTHS_MAX = 12;
+            var duration = {{ listing.duration_months }};
+            var longTerm = false;
+
+            function icons() {
+                if (window.lucide && typeof lucide.createIcons === "function") {
+                    lucide.createIcons();
+                }
+            }
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", icons);
+            } else {
+                icons();
+            }
+
+            function peso(n) {
+                return Number(n).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            }
+
+            /* ============ GALLERY ============ */
+            var gIndex = 0;
+            var gImg = document.getElementById("rd-gallery-image");
+            var gCount = document.getElementById("rd-gallery-count");
+
+            function showGallery(i) {
+                if (!DATA.gallery.length) return;
+                gIndex = (i + DATA.gallery.length) % DATA.gallery.length;
+                gImg.src = DATA.gallery[gIndex];
+                if (gCount) gCount.textContent = (gIndex + 1) + " / " + DATA.gallery.length;
+
+                document.querySelectorAll(".rd-thumb").forEach(function (t, idx) {
+                    t.classList.toggle("active", idx === gIndex);
+                });
+            }
+
+            var prev = document.getElementById("rd-gallery-prev");
+            var next = document.getElementById("rd-gallery-next");
+            if (prev) prev.addEventListener("click", function () { showGallery(gIndex - 1); });
+            if (next) next.addEventListener("click", function () { showGallery(gIndex + 1); });
+
+            var thumbsWrap = document.getElementById("rd-gallery-thumbs");
+            if (thumbsWrap) {
+                thumbsWrap.addEventListener("click", function (e) {
+                    var t = e.target.closest ? e.target.closest(".rd-thumb") : null;
+                    if (t) showGallery(parseInt(t.dataset.index, 10) || 0);
+                });
+            }
+
+            /* ============ PRICING / DURATION ============ */
+            function computeCheckout(moveIn, months) {
+                if (!moveIn) return "";
+                var d = new Date(moveIn + "T00:00:00");
+                d.setMonth(d.getMonth() + months);
+                d.setDate(d.getDate() - 1);
+                return d.toISOString().slice(0, 10);
+            }
+
+            function updatePricing() {
+                var durNum = document.getElementById("rd-dur-num");
+                var durWord = document.getElementById("rd-dur-word");
+                var rowDuration = document.getElementById("rd-row-duration");
+                var rowDur = document.getElementById("rd-row-dur");
+                var rowMonthly = document.getElementById("rd-row-monthly");
+                var rowTotal = document.getElementById("rd-row-total");
+                var rowDue = document.getElementById("rd-row-due");
+                var monthsHidden = document.getElementById("rd-months-hidden");
+                var longHidden = document.getElementById("rd-longterm-hidden");
+                var checkoutHidden = document.getElementById("rd-checkout-hidden");
+
+                var total = longTerm ? BASE_PRICE : BASE_PRICE * duration;
+
+                var label = longTerm ? "Long Term" : (duration === 1 ? "1 Month" : duration + " Months");
+                var num = longTerm ? "\u221E" : String(duration);
+                var word = longTerm ? "Long Term" : (duration === 1 ? "Month" : "Months");
+
+                if (durNum) durNum.textContent = num;
+                if (durWord) durWord.textContent = word;
+                if (rowDuration) rowDuration.textContent = label;
+                if (rowDur) rowDur.textContent = label;
+                if (rowMonthly) rowMonthly.textContent = peso(BASE_PRICE);
+                if (rowTotal) rowTotal.textContent = peso(total);
+                if (rowDue) rowDue.textContent = peso(total);
+                if (monthsHidden) monthsHidden.value = String(longTerm ? 1 : duration);
+                if (longHidden) longHidden.value = longTerm ? "1" : "0";
+
+                var moveIn = document.getElementById("rd-movein");
+                if (checkoutHidden) {
+                    checkoutHidden.value = (longTerm || !moveIn) ? "" : computeCheckout(moveIn.value, duration);
+                }
+            }
+
+            var minus = document.getElementById("rd-dur-minus");
+            var plus = document.getElementById("rd-dur-plus");
+            if (minus) minus.addEventListener("click", function () {
+                if (duration > MONTHS_MIN) { duration--; updatePricing(); }
+            });
+            if (plus) plus.addEventListener("click", function () {
+                if (duration < MONTHS_MAX) { duration++; updatePricing(); }
+            });
+
+            var ltCheckbox = document.getElementById("rd-long-term");
+            var durationWrap = document.getElementById("rd-duration-wrap");
+            if (ltCheckbox) {
+                ltCheckbox.addEventListener("change", function () {
+                    longTerm = ltCheckbox.checked;
+                    if (durationWrap) {
+                        durationWrap.classList.toggle("rd-date-hidden", longTerm);
+                        durationWrap.style.display = ""; /* CSS owns the hidden state */
+                    }
+                    updatePricing();
+                });
+            }
+
+            /* ============ MOVE-IN CALENDAR (flatpickr) ============ */
+            var movein = document.getElementById("rd-movein");
+            var fpCalendar = null;
+            if (movein && window.flatpickr) {
+
+                /* Booked ranges -> disabled dates. A range with no
+                   end (long-term stay) blocks from its start onward. */
+                var disabled = DATA.unavailable.map(function (r) {
+                    if (r.start && r.end) return { from: r.start, to: r.end };
+                    if (r.start) return { from: r.start, to: "9999-12-31" };
+                    return null;
+                }).filter(Boolean);
+
+                fpCalendar = flatpickr(movein, {
+                    minDate: "today",
+                    dateFormat: "Y-m-d",
+                    disable: disabled,
+                    onChange: function () { clearDateError(); updatePricing(); }
+                });
+            }
+
+            /* ============ ENQUIRY DATE GUARD — the Send Enquiry
+               form refuses to submit until a move-in date is
+               picked (long-term stays need one too — only the END
+               date stays open). Without this the empty
+               checkin_date travelled to the payment step and came
+               back as the "Please choose your move-in date"
+               redirect. On an empty submit: submission is
+               prevented, the field flashes red + shakes, the
+               inline message shows and the calendar auto-opens.
+               Everything clears the moment a date is chosen. */
+            var bookingForm = document.getElementById("rd-booking-form");
+            var dateError = document.getElementById("rd-date-error");
+
+            function showDateError() {
+                if (movein) {
+                    movein.classList.add("rd-date-invalid");
+                    movein.setAttribute("aria-invalid", "true");
+                    movein.classList.remove("rd-date-shake");
+                    void movein.offsetWidth; /* restart the shake */
+                    movein.classList.add("rd-date-shake");
+                }
+                if (dateError) {
+                    dateError.hidden = false;
+                }
+                if (fpCalendar && typeof fpCalendar.open === "function") {
+                    fpCalendar.open();
+                }
+            }
+
+            function clearDateError() {
+                if (movein) {
+                    movein.classList.remove("rd-date-invalid", "rd-date-shake");
+                    movein.removeAttribute("aria-invalid");
+                }
+                if (dateError) {
+                    dateError.hidden = true;
+                }
+            }
+
+            if (bookingForm) {
+                bookingForm.addEventListener("submit", function (e) {
+                    var mv = document.getElementById("rd-movein");
+                    if (mv && !mv.value) {
+                        e.preventDefault();
+                        showDateError();
+                    }
+                });
+            }
+
+            /* ============ VERIFICATION GUARD — an unverified
+               account cannot send enquiries. When the controller
+               flags the viewer unverified, the submit button is
+               already REPLACED by a "Verify to Send Enquiry" link
+               (Profile Settings) in the markup above; this listener
+               kills the one leftover path -- implicit submission
+               via the Enter key -- and shakes the verify nudge so
+               the reason is on screen. The server gates bounce any
+               crafted request back with ?needverify=1. */
+            if (bookingForm && bookingForm.getAttribute("data-verify-required") === "1") {
+                bookingForm.addEventListener("submit", function (e) {
+                    e.preventDefault();
+                    var nudge = document.querySelector(".rd-verify-nudge");
+                    if (nudge) {
+                        nudge.classList.remove("rd-verify-shake");
+                        void nudge.offsetWidth; /* restart the shake */
+                        nudge.classList.add("rd-verify-shake");
+                        nudge.scrollIntoView({ behavior: "smooth", block: "center" });
+                    }
+                });
+            }
+
+            updatePricing();
+
+            /* ============ SHOW MORE (about) ============ */
+            var showMore = document.getElementById("rd-show-more");
+            var aboutText = document.getElementById("rd-about-text");
+            if (showMore && aboutText) {
+                showMore.addEventListener("click", function () {
+                    var expanded = aboutText.classList.toggle("expanded");
+                    showMore.innerHTML = expanded
+                        ? 'Show less <i data-lucide="chevron-up" class="rd-show-more-icon" aria-hidden="true"></i>'
+                        : 'Show more <i data-lucide="chevron-down" class="rd-show-more-icon" aria-hidden="true"></i>';
+                    icons();
+                });
+            }
+
+            /* ============ SAVE / WISHLIST HEART — one toggle, two
+               controls. The corner heart (#rd-heart-btn) and the
+               topbar Save button (#rd-save-btn) flip the SAME
+               wishlist entry through the same /wishlist/toggle
+               endpoint the My Wishlist page uses. Glow (red fill +
+               halo) = saved, plain = not saved. Initial state comes
+               from the `wished` variable the controller feeds.
+               Optimistic UI: the glow flips instantly on click, then
+               snaps to the server's answer (or reverts if not ok). */
+            var heartBtn  = document.getElementById("rd-heart-btn");
+            var saveBtn   = document.getElementById("rd-save-btn");
+            var saveLabel = saveBtn ? saveBtn.querySelector(".rd-save-label") : null;
+            var wishBusy  = false;
+
+            function setWishUI(on) {
+                if (heartBtn) {
+                    heartBtn.classList.toggle("is-active", !!on);
+                    heartBtn.setAttribute("aria-pressed", on ? "true" : "false");
+                    heartBtn.setAttribute(
+                        "aria-label",
+                        on ? "Remove from wishlist" : "Save to wishlist"
+                    );
+                    heartBtn.title = on ? "Remove from wishlist" : "Save to wishlist";
+                }
+                if (saveBtn) {
+                    saveBtn.classList.toggle("active", !!on);
+                    if (saveLabel) {
+                        saveLabel.textContent = on ? "Saved" : "Save";
+                    }
+                }
+            }
+
+            function heartPop() {
+                if (!heartBtn) {
+                    return;
+                }
+                heartBtn.classList.remove("is-popping");
+                void heartBtn.offsetWidth; /* restart the pop animation */
+                heartBtn.classList.add("is-popping");
+                setTimeout(function () {
+                    heartBtn.classList.remove("is-popping");
+                }, 450);
+            }
+
+            function toggleWishlist() {
+                if (wishBusy) {
+                    return;
+                }
+                wishBusy = true;
+
+                var wasOn = heartBtn
+                    ? heartBtn.classList.contains("is-active")
+                    : (saveBtn ? saveBtn.classList.contains("active") : false);
+
+                /* optimistic glow first — the click must feel instant */
+                setWishUI(!wasOn);
+                heartPop();
+
+                fetch("/wishlist/toggle", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    body: "listing_id=" + encodeURIComponent("{{ listing.id }}"),
+                })
+                    .then(function (r) {
+                        return r.json();
+                    })
+                    .then(function (d) {
+                        if (!d || !d.ok) {
+                            /* guest (not logged in) / bad request — fall
+                               back to the pre-click state */
+                            setWishUI(wasOn);
+                            return;
+                        }
+                        /* both controller shapes: {ok, added} and {ok, saved} */
+                        var on = d.added !== undefined ? !!d.added : !!d.saved;
+                        setWishUI(on);
+                    })
+                    .catch(function () {
+                        /* network error — keep the visual toggle */
+                    })
+                    .then(function () {
+                        wishBusy = false;
+                    });
+            }
+
+            if (heartBtn) {
+                heartBtn.addEventListener("click", toggleWishlist);
+            }
+            if (saveBtn) {
+                saveBtn.addEventListener("click", toggleWishlist);
+            }
+
+            /* ============ SHARE ============ */
+            var shareBtn = document.getElementById("rd-share-btn");
+            if (shareBtn) {
+                shareBtn.addEventListener("click", function () {
+                    var url = window.location.href;
+                    if (navigator.share) {
+                        navigator.share({ title: document.title, url: url }).catch(function () {});
+                    } else if (navigator.clipboard) {
+                        navigator.clipboard.writeText(url);
+                        var label = shareBtn.querySelector(".rd-share-label");
+                        if (label) {
+                            var old = label.textContent;
+                            label.textContent = "Copied!";
+                            setTimeout(function () { label.textContent = old; }, 1500);
+                        }
+                    }
+                });
+            }
+
+            /* ============ MAP (Leaflet, no API key) ============ */
+            var mapEl = document.getElementById("rd-map");
+            {% if has_pin %}
+            if (mapEl && window.L) {
+                var map = L.map(mapEl).setView([{{ maps_query }}], 15);
+                L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                    attribution: "&copy; OpenStreetMap contributors"
+                }).addTo(map);
+                L.circleMarker([{{ maps_query }}], {
+                    radius: 10,
+                    color: "#eda423",
+                    fillColor: "#f6c04e",
+                    fillOpacity: 0.85
+                }).addTo(map);
+            }
+            {% else %}
+            if (mapEl) {
+                mapEl.innerHTML =
+                    '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#5d6875;font-size:13px;">Approximate area — see address above</div>';
+            }
+            {% endif %}
+        })();
+    </script>
+
+    </body>
+
+</html>

@@ -1,0 +1,456 @@
+/* =========================================================
+   ROOMHIVE — PROCESS PAYMENT PAGE STYLES (process-payment.css)
+   Ported 1:1 from the inline <style> block of legacy
+   booking/process-payment.php. Loaded AFTER assets/style.css and
+   assets/myaccount.css so the cascade order matches the legacy
+   page exactly (same selectors, same winners).
+
+   Deploy:  public/assets/process-payment.css
+   Link:    <link rel="stylesheet" href="{{ asset('assets/process-payment.css') }}?v=1">
+            (bump ?v= on future edits to bust browser caches)
+
+   Scope: the pp-* mock payment screens rendered by
+   ProcessPaymentController + payment/process.html.twig
+   (wallet / gcash / maya / card screens — pp-nav, pp-steps,
+   pp-card, pp-amount-box, pp-balance-box, pp-field, pp-btn-*).
+   Everything below is the legacy block verbatim.
+   ========================================================= */
+
+:root {
+    --pp-ink: #14142B;
+    --pp-soft: #8B93A6;
+    --pp-line: #EEF1F6;
+    --pp-honey: #F5A623;
+    --pp-honey-light: #FFB94E;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: #F7F8FA;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: var(--pp-ink);
+}
+
+.pp-nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: #fff;
+    border-bottom: 1px solid var(--pp-line);
+}
+
+.pp-nav-inner {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.pp-brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    text-decoration: none;
+}
+
+.pp-brand-logo {
+    height: 30px;
+    width: auto;
+    max-width: 130px;
+    object-fit: contain;
+    display: block;
+}
+
+.pp-secure-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #1E7A3D;
+    background: #EAF9F0;
+    border: 1px solid #C9EDD7;
+    padding: 5px 11px;
+    border-radius: 999px;
+}
+
+.pp-page {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 24px 20px 60px;
+}
+
+.pp-back-link {
+    display: inline-block;
+    margin-bottom: 16px;
+    color: #5B6172;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 13px;
+    transition: color .15s;
+}
+
+.pp-back-link:hover {
+    color: var(--pp-honey);
+}
+
+.pp-balance-heading {
+    text-align: center;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--pp-ink);
+    margin: 0 0 20px;
+}
+
+.pp-steps {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 26px;
+}
+
+.pp-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    width: 70px;
+}
+
+.pp-step-circle {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--pp-line);
+    color: var(--pp-soft);
+    font-weight: 700;
+    font-size: 12.5px;
+    transition: all .2s;
+}
+
+.pp-step-circle svg {
+    width: 14px;
+    height: 14px;
+}
+
+.pp-step-label {
+    font-size: 11px;
+    color: var(--pp-soft);
+    font-weight: 600;
+}
+
+.pp-step-done .pp-step-circle {
+    background: #E7F7EC;
+    color: #2FA84F;
+}
+
+.pp-step-done .pp-step-label {
+    color: #2FA84F;
+}
+
+.pp-step-active .pp-step-circle {
+    background: linear-gradient(135deg, var(--pp-honey-light), var(--pp-honey));
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(245, 166, 35, .45);
+}
+
+.pp-step-active .pp-step-label {
+    color: var(--pp-ink);
+    font-weight: 700;
+}
+
+.pp-step-line {
+    width: 44px;
+    height: 2.5px;
+    background: var(--pp-line);
+    border-radius: 99px;
+    margin-bottom: 18px;
+}
+
+.pp-step-line-done {
+    background: #A8DFBC;
+}
+
+.pp-card {
+    background: #fff;
+    border: 1px solid var(--pp-line);
+    border-radius: 18px;
+    padding: 24px;
+    box-shadow: 0 2px 12px rgba(20, 20, 43, 0.05);
+}
+
+.pp-summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #F6F7FB;
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 18px;
+}
+
+.pp-summary-photo {
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: #F0EEE6;
+}
+
+.pp-summary-title {
+    margin: 0;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--pp-ink);
+    line-height: 1.3;
+}
+
+.pp-summary-meta {
+    margin: 3px 0 0;
+    font-size: 12px;
+    color: var(--pp-soft);
+    line-height: 1.4;
+}
+
+.pp-errors {
+    background: #FDECEC;
+    border: 1px solid #F5B5B5;
+    color: #A3282E;
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    font-size: 13px;
+}
+
+.pp-errors ul {
+    margin: 0;
+    padding-left: 18px;
+}
+
+.pp-errors a {
+    color: #A3282E;
+    font-weight: 700;
+}
+
+.pp-brand-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.pp-brand-icon {
+    width: 44px;
+    height: 44px;
+    object-fit: contain;
+}
+
+/* Wallet brand icon — inline SVG in the same 44px box */
+.pp-brand-icon-wallet {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: #FFF1D6;
+    color: #C77800;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.pp-brand-icon-wallet svg {
+    width: 24px;
+    height: 24px;
+}
+
+.pp-brand-row h1 {
+    margin: 0;
+    font-size: 18px;
+    color: var(--pp-ink);
+    letter-spacing: -0.2px;
+}
+
+.pp-subtext {
+    margin: 2px 0 0;
+    font-size: 12.5px;
+    color: var(--pp-soft);
+}
+
+.pp-amount-box {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 20px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.pp-amount-box strong {
+    font-size: 19px;
+    letter-spacing: -0.3px;
+}
+
+.pp-amount-gcash {
+    background: #E7F0FF;
+    color: #0B57D0;
+}
+
+.pp-amount-maya {
+    background: #E6F6EC;
+    color: #1E7A3D;
+}
+
+.pp-amount-card {
+    background: #F0F1F6;
+    color: var(--pp-ink);
+}
+
+.pp-amount-wallet {
+    background: #FFF6E9;
+    color: #C77800;
+}
+
+.pp-amount-owner {
+    background: #FFF6E9;
+    color: #C77800;
+    border: 1px dashed #F5C77E;
+}
+
+/* Wallet balance breakdown box */
+.pp-balance-box {
+    border: 1px dashed #F5C77E;
+    background: #FFFBF3;
+    border-radius: 12px;
+    padding: 12px 14px;
+}
+
+.pp-balance-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: #5B6172;
+    margin-bottom: 6px;
+}
+
+.pp-balance-row:last-child {
+    margin-bottom: 0;
+}
+
+.pp-balance-row strong {
+    color: var(--pp-ink);
+}
+
+.pp-balance-after strong {
+    color: #C77800;
+}
+
+.pp-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.pp-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12.5px;
+    color: #555;
+    font-weight: 600;
+}
+
+.pp-field input {
+    padding: 12px 14px;
+    border: 1px solid #DADEE6;
+    border-radius: 10px;
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color .15s, box-shadow .15s;
+}
+
+.pp-field input:focus {
+    outline: none;
+    border-color: var(--pp-honey);
+    box-shadow: 0 0 0 3px rgba(245, 166, 35, 0.18);
+}
+
+.pp-field-row {
+    display: flex;
+    gap: 12px;
+}
+
+.pp-field-row .pp-field {
+    flex: 1;
+}
+
+.pp-hint {
+    margin: -4px 0 0;
+    font-size: 11.5px;
+    color: var(--pp-soft);
+}
+
+.pp-btn-confirm {
+    display: block;
+    width: 100%;
+    padding: 14px;
+    border-radius: 12px;
+    border: none;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 800;
+    cursor: pointer;
+    font-family: inherit;
+    box-shadow: 0 6px 16px rgba(20, 20, 43, 0.14);
+    transition: transform .12s, box-shadow .12s, filter .12s;
+}
+
+.pp-btn-confirm:hover:not(:disabled) {
+    filter: brightness(1.05);
+    transform: translateY(-1px);
+}
+
+.pp-btn-confirm:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.pp-btn-confirm:disabled {
+    opacity: 0.7;
+    cursor: default;
+    transform: none;
+}
+
+.pp-btn-gcash {
+    background: #0B57D0;
+}
+
+.pp-btn-maya {
+    background: #1E7A3D;
+}
+
+.pp-btn-card {
+    background: #14142B;
+}
+
+.pp-btn-wallet {
+    background: linear-gradient(135deg, var(--pp-honey-light), var(--pp-honey));
+}
+
+.pp-secure-note {
+    margin: 18px 0 0;
+    text-align: center;
+    font-size: 11.5px;
+    color: var(--pp-soft);
+}

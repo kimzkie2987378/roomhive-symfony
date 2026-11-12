@@ -1,0 +1,3812 @@
+{# =========================================================
+   RoomHive — Become a Host · Step 2 (Add Your Space)
+   templates/host/host_step2.html.twig
+
+   Second host-flow page (cont-33). Same family as Step 1
+   (becomeahost.html.twig) — NOT an account-area page:
+
+     - Shell: legacy rh-step2 page style — own --hive-* tokens
+       (paper bg #faf6ee), honeycomb ::before texture, glow
+       blobs, 4-step tracker with track + progress bar.
+       Everything is scoped under .rh-step2; the body carries
+       the class. CSS carried over 1:1 (img rules included —
+       they go inert once no <img> remains, per the legacy
+       comment).
+     - Navbar: shared partials/navbar.html.twig with
+       current_page 'becomeahost' (legacy $currentPage pointed
+       at becomeahost.php, so BECOME A HOST highlights on both
+       steps). Dual-contract ?? guards on is_host / nav_avatar /
+       notification_count (cont-29 wishlist precedent). The
+       legacy file also included notification_dropdown.php
+       separately; the navbar partial owns the dropdown now.
+     - Footer: shared partials/footer.html.twig after </main>
+       (legacy includes/footer.php).
+     - Lucide: guarded loader (window.__rhNavbarLucide — never
+       double-runs with the navbar's) replaces the plain CDN
+       tag; window.hs2RefreshIcons is kept as a thin alias so
+       any page reference keeps working (the legacy page
+       defined hs2RefreshIcons() next to the CDN tag).
+     - Leaflet: kept as plain page CDN tags (leaflet@1.9.4
+       stylesheet + script) — the navbar never loads Leaflet,
+       so the guarded-loader rule doesn't apply here. Same for
+       the OpenStreetMap tiles + Nominatim reverse geocoding.
+     - Form: SELF-POSTS via action="" (HTML spec: submit to the
+       current URL) — the cont-32 fix pattern from Step 1. NO
+       path() call anywhere on this page (route-name-agnostic),
+       so "route does not exist" can never happen. The
+       controller route must accept BOTH GET and POST on the
+       same URL (methods: ['GET','POST']). The hidden
+       csrf_token (csrf_host_step2) is the Symfony CSRF
+       addition; the rest of the markup is 1:1.
+     - RH2 state: the legacy page echoed json_encode(...,
+       $rh2JsonFlags) straight into the script. The Twig port
+       keeps the same flags (15 = JSON_HEX_TAG|JSON_HEX_AMP|
+       JSON_HEX_APOS|JSON_HEX_QUOT) + adds |raw — under
+       autoescape:on the structural quotes would otherwise be
+       HTML-escaped (&quot;) and kill every script on the page;
+       |raw is a no-op if autoescaping is off, and the HEX
+       flags make </script> breakout impossible either way.
+
+   Template-local static config (same pattern as Step 1's
+   host_steps — keeps the controller focused on form
+   handling; the option loops + the RH2 JSON read these):
+     host_steps          4 rows (step 2 icon is 'house' — the
+                         current Lucide name, per the legacy
+                         comment), current_step = 2
+     listing_categories  5 categories (label => value)
+     property_types      6 property types
+     capacity_options    9 guest options (1..6, 8, 10, 10+)
+     parking_options     Yes / No
+     amenity_options     6 amenities with Lucide icons
+     step_progress_percent  computed: (step-1)/(total-1)*100,
+                         clamped 0..100 — feeds the stepper bar
+                         width (33.33% at step 2 of 4)
+
+   Controller contract (HostStep2Controller — user's job; the
+   pasted PHP's top section, for reference):
+     GET:  auth (login redirect), step-1 check (restore the
+           approved host_applications row into the session, or
+           redirect back to step 1), avatar fetch, render.
+     POST: CSRF check + validate (title / category /
+           property_type / location / exact_address / map pin
+           lat in [-90,90] + lng in [-180,180] / price > 0 /
+           capacity / bedrooms / bathrooms / size_sqm / floor /
+           parking / description), then INSERT INTO listings
+           (…, latitude, longitude, amenities = JSON array,
+           status 'draft') and redirect to step 3. On failure:
+           re-render with the vars below.
+     Render vars:
+       user             { id, name, email, avatar_path, is_host }
+       errors           string[]
+       old              submitted values for re-sticking
+                        (title, category, property_type,
+                        province + city — with a legacy fallback
+                        that splits `location` on its comma when
+                        only that key exists — exact_address,
+                        latitude, longitude, price, capacity,
+                        bedrooms, bathrooms, size_sqm, floor,
+                        parking, description, house_rules +
+                        amenities ARRAY for the chips)
+       rh2_initial      {lat: float|null, lng: float|null} —
+                        map-pin restore on failed POST (legacy:
+                        json_encode((float)$_POST[...]) or null)
+       notif_count      int (navbar badge; 0 placeholder)
+       csrf_host_step2  string
+
+   Google Places Autocomplete (cont-36):
+       google_maps_api_key  string  Google Maps JS API key with
+                                   Places API enabled. Pass '' to
+                                   disable the feature (graceful
+                                   degradation — the location
+                                   field then works as a plain
+                                   text input). Get a key:
+                                     1. console.cloud.google.com
+                                     2. enable Maps JavaScript API
+                                        + Places API (New)
+                                     3. create an API key
+                                     4. add to .env.local as
+                                        GOOGLE_MAPS_API_KEY=...
+                                     5. in HostStep2Controller:
+                                        'google_maps_api_key' =>
+                                          $_ENV['GOOGLE_MAPS_API_KEY']
+                                          ?? '',
+     The autocomplete restricts to Philippines
+     (componentRestrictions country: 'ph') and accepts both
+     geocoded addresses and establishment/POI matches —
+     so typing "Dumaguete" returns city, airport, market,
+     etc. On place_changed it: (1) fills #location with
+     formatted_address, (2) calls the existing setPin()
+     via a window.rhStep2PlaceSelected() bridge, which
+     drops a Leaflet marker at the place's lat/lng AND
+     updates the hidden #latitude / #longitude inputs.
+     The Leaflet click/drag/GPS flows still work — Places
+     is additive, not a replacement.
+
+   LOCATION — TWO-BOX SPLIT (cont-48; supersedes cont-37/47):
+     The single `location` field is now Province (UPPER box)
+     + City / Municipality (LOWER box), same as Step 1's
+     cont-43. Each box has its own touch-to-open dropdown
+     (shared picker factory): province = all 83 PH provinces;
+     city pool = the picked province's cities, else all 166.
+     Picking a province pans/drops the Leaflet pin via the
+     same window.rhStep2PlaceSelected() bridge Places uses.
+     While either dropdown is open, body.rh-province-active
+     hides Google's .pac-container (released only when BOTH
+     lists are closed). The STACKING LIFT (cont-44 cure)
+     raises the open list's wrapper + group to z-index 5000.
+     DUAL-COMPAT POST (Step 1's cont-45 pattern): the visible
+     form posts `province` + `city`, AND a hidden
+     `location` input (#rhLocationField) is composed by JS as
+     "City, Province" on every keystroke + at submit — so a
+     controller still validating/saving the legacy single
+     `location` key keeps working with NO controller change;
+     controllers reading province + city ignore it. Re-stick:
+     the box values fall back to splitting `old.location` on
+     its comma when only the legacy key exists.
+========================================================= #}
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+
+        <meta charset="UTF-8">
+
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0"
+        >
+
+        <title>
+            RoomHive - Add Your Space
+        </title>
+
+        <!-- POPPINS FONT -->
+        <link
+            href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
+            rel="stylesheet"
+        >
+
+        <!-- MAIN CSS -->
+        <link
+            rel="stylesheet"
+            href="{{ asset('assets/style.css') }}"
+        >
+
+        <!-- FREE MAP — Leaflet + OpenStreetMap (no API key).
+         Plain page CDN tags: the navbar never loads Leaflet,
+         so the guarded-loader rule doesn't apply. -->
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+        <!-- Enables JS-gated entrance animations -->
+        <script>
+            document.documentElement.classList.add("js");
+        </script>
+
+        <style>
+            :root {
+                --hive-ink: #1c2a38;
+                --hive-ink-soft: #5d6875;
+                --hive-paper: #faf6ee;
+                --hive-surface: #ffffff;
+                --hive-line: #e8e1cf;
+                --hive-honey: #eda423;
+                --hive-honey-dark: #d99218;
+                --hive-honey-light: #f6c04e;
+                --hive-moss: #2f9e5b;
+                --hive-danger: #a1332e;
+                --hive-radius: 16px;
+                --hive-shadow: 0 18px 40px -22px rgba(28, 42, 56, 0.35);
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .hive-blob,
+                .hive-pulse-dot::after,
+                .hive-shimmer,
+                .rh-step2 .next-button::after {
+                    animation: none !important;
+                    opacity: 1 !important;
+                    transform: none !important;
+                }
+
+                .js .rh-step2 .host-header,
+                .js .rh-step2 .host-form-card,
+                .js .rh-step2 .form-errors {
+                    animation: none !important;
+                    opacity: 1 !important;
+                    transform: none !important;
+                }
+            }
+
+            body.rh-step2 {
+                background: var(--hive-paper);
+                font-family: "Poppins", sans-serif;
+                color: var(--hive-ink);
+                overflow-y: auto;
+                height: auto;
+                min-height: 100vh;
+            }
+
+            .rh-step2 main.host-page,
+            main.host-page {
+                position: relative;
+
+                max-width: 1160px;
+                margin: 0 auto;
+                padding: 56px 24px 96px;
+            }
+
+            /* ---------- honeycomb texture + glow blobs ---------- */
+
+            .rh-step2 main.host-page::before {
+                content: "";
+
+                position: absolute;
+                inset: 0;
+
+                background-image: url("data:image/svg+xml,%3Csvg width='28' height='49' viewBox='0 0 28 49' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23eda423' fill-opacity='0.07' fill-rule='nonzero'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/svg%3E");
+                background-size: 28px 49px;
+
+                -webkit-mask-image: linear-gradient(
+                    180deg,
+                    rgba(0, 0, 0, 0.9),
+                    transparent 50%
+                );
+                mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), transparent 50%);
+
+                pointer-events: none;
+
+                z-index: 0;
+            }
+
+            .rh-step2 main.host-page > * {
+                position: relative;
+
+                z-index: 1;
+            }
+
+            .hive-blob {
+                position: absolute;
+
+                border-radius: 50%;
+                filter: blur(70px);
+
+                pointer-events: none;
+
+                z-index: 0;
+            }
+
+            .hive-blob-1 {
+                width: 360px;
+                height: 360px;
+
+                top: -150px;
+                right: -130px;
+
+                background: radial-gradient(
+                    circle at 30% 30%,
+                    rgba(246, 196, 78, 0.8),
+                    rgba(237, 164, 35, 0.22) 60%,
+                    transparent 75%
+                );
+
+                animation: hiveDrift 14s ease-in-out infinite alternate;
+            }
+
+            .hive-blob-2 {
+                width: 260px;
+                height: 260px;
+
+                top: 420px;
+                left: -150px;
+
+                background: radial-gradient(
+                    circle at 60% 40%,
+                    rgba(246, 196, 78, 0.6),
+                    rgba(237, 164, 35, 0.18) 60%,
+                    transparent 75%
+                );
+
+                animation: hiveDrift 18s ease-in-out infinite alternate-reverse;
+            }
+
+            @keyframes hiveDrift {
+                from {
+                    transform: translate(0, 0) scale(1);
+                }
+
+                to {
+                    transform: translate(30px, -24px) scale(1.08);
+                }
+            }
+
+            /* ---------- entrance reveal ---------- */
+
+            @keyframes hiveRise {
+                from {
+                    opacity: 0;
+                    transform: translateY(16px);
+                }
+
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+
+            .js .rh-step2 .host-header,
+            .js .rh-step2 .host-form-card {
+                animation: hiveRise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+            }
+
+            .js .rh-step2 .host-form-card {
+                animation-delay: 0.1s;
+            }
+
+            /* ---------- hero badge + shimmer ---------- */
+
+            .rh-step2 .hero-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+
+                padding: 8px 16px;
+
+                background: #ffffff;
+
+                border: 1px solid rgba(237, 164, 35, 0.35);
+                border-radius: 999px;
+
+                box-shadow: 0 4px 14px rgba(237, 164, 35, 0.12);
+
+                color: #b07708;
+
+                font-size: 11.5px;
+                font-weight: 700;
+                letter-spacing: 0.8px;
+                text-transform: uppercase;
+            }
+
+            .hive-pulse-dot {
+                position: relative;
+
+                width: 8px;
+                height: 8px;
+
+                background: var(--hive-honey);
+                border-radius: 50%;
+            }
+
+            .hive-pulse-dot::after {
+                content: "";
+
+                position: absolute;
+                inset: 0;
+
+                background: var(--hive-honey);
+                border-radius: 50%;
+
+                animation: hivePing 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+            }
+
+            @keyframes hivePing {
+                0% {
+                    transform: scale(1);
+                    opacity: 0.7;
+                }
+
+                80%,
+                100% {
+                    transform: scale(2.6);
+                    opacity: 0;
+                }
+            }
+
+            .hive-shimmer {
+                background: linear-gradient(92deg, #eda423 0%, #f6c04e 45%, #eda423 90%);
+                background-size: 200% auto;
+
+                -webkit-background-clip: text;
+                background-clip: text;
+                -webkit-text-fill-color: transparent;
+                color: transparent;
+
+                animation: hiveShimmer 3.5s linear infinite;
+            }
+
+            @keyframes hiveShimmer {
+                to {
+                    background-position: 200% center;
+                }
+            }
+
+            /* ---------- HEADER ---------- */
+
+            .rh-step2 .host-header {
+                max-width: 860px;
+                margin: 0 auto 48px;
+                text-align: center;
+            }
+
+            .rh-step2 .host-eyebrow {
+                display: block;
+
+                margin-top: 18px;
+
+                font-size: 13px;
+                font-weight: 600;
+                letter-spacing: 0.01em;
+                color: var(--hive-honey-dark);
+                text-transform: uppercase;
+            }
+
+            .rh-step2 .host-header h1 {
+                font-size: clamp(28px, 4vw, 36px);
+                line-height: 1.2;
+                font-weight: 800;
+                letter-spacing: -0.6px;
+                margin: 10px 0 0;
+                color: var(--hive-ink);
+            }
+
+            /* ---------- STEPPER ---------- */
+
+            .rh-step2 .host-steps {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 0;
+                margin-top: 40px;
+                position: relative;
+            }
+
+            .rh-step2 .host-steps-track {
+                position: absolute;
+                top: 26px;
+                left: 12.5%;
+                right: 12.5%;
+                height: 2px;
+                background: var(--hive-line);
+                z-index: 1;
+            }
+
+            .rh-step2 .host-steps-progress {
+                position: absolute;
+                top: 26px;
+                left: 12.5%;
+                height: 2px;
+                background: linear-gradient(90deg, #f6b93b, var(--hive-honey));
+                z-index: 1;
+                transition: width 0.3s ease;
+            }
+
+            .rh-step2 .host-step {
+                position: relative;
+                z-index: 2;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+                padding: 0 10px;
+            }
+
+            .rh-step2 .step-circle {
+                position: relative;
+                width: 52px;
+                height: 52px;
+                border-radius: 50%;
+                background: var(--hive-surface);
+                border: 2px solid var(--hive-line);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+                transition:
+                    border-color 0.2s ease,
+                    background 0.2s ease;
+            }
+
+            .rh-step2 .step-circle img {
+                width: 22px;
+                height: 22px;
+                object-fit: contain;
+                object-position: center;
+                display: block;
+                opacity: 0.55;
+                filter: grayscale(1);
+                transition:
+                    opacity 0.2s ease,
+                    filter 0.2s ease;
+            }
+
+            .rh-step2 .host-step.active .step-circle {
+                border-color: var(--hive-honey);
+                background: #fdf4e3;
+                box-shadow: 0 0 0 4px rgba(237, 164, 35, 0.18);
+            }
+
+            .rh-step2 .host-step.active .step-circle img {
+                opacity: 1;
+                filter: none;
+            }
+
+            .rh-step2 .host-step.completed .step-circle {
+                border-color: var(--hive-moss);
+                background: var(--hive-moss);
+            }
+
+            .rh-step2 .host-step.completed .step-circle img {
+                opacity: 1;
+                filter: brightness(0) invert(1);
+            }
+
+            .rh-step2 .step-number {
+                position: absolute;
+                top: -4px;
+                right: -4px;
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                background: var(--hive-ink);
+                color: #fff;
+                font-size: 11px;
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 3;
+                border: 2px solid var(--hive-paper);
+                box-sizing: border-box;
+            }
+
+            .rh-step2 .host-step.active .step-number {
+                background: var(--hive-honey-dark);
+            }
+
+            .rh-step2 .host-step.completed .step-number {
+                background: var(--hive-moss);
+            }
+
+            .rh-step2 .host-step h3 {
+                margin: 14px 0 2px;
+                font-size: 14px;
+                font-weight: 600;
+                color: var(--hive-ink);
+            }
+
+            .rh-step2 .host-step p {
+                margin: 0 auto;
+                max-width: 150px;
+                font-size: 12.5px;
+                color: var(--hive-ink-soft);
+                line-height: 1.4;
+            }
+
+            .rh-step2 .host-step:not(.active) h3 {
+                color: var(--hive-ink-soft);
+            }
+
+            /* ---------- ERRORS ---------- */
+
+            .rh-step2 .form-errors {
+                max-width: 860px;
+                margin: 0 auto 24px;
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                background: #fdf1f0;
+                border: 1px solid #f3c9c7;
+                border-radius: 14px;
+                padding: 16px 18px;
+                animation: hiveRise 0.35s ease both;
+            }
+
+            .rh-step2 .form-errors::before {
+                content: "We need a couple of fixes before continuing";
+                font-weight: 600;
+                color: #e0524d;
+                margin-bottom: 2px;
+            }
+
+            .rh-step2 .form-errors p {
+                margin: 0;
+                padding-left: 20px;
+                position: relative;
+                font-size: 14px;
+                color: #7a2f2c;
+            }
+
+            .rh-step2 .form-errors p::before {
+                content: "!";
+                position: absolute;
+                left: 0;
+                top: 1px;
+                width: 14px;
+                height: 14px;
+                border-radius: 50%;
+                background: #e0524d;
+                color: #fff;
+                font-size: 10px;
+                line-height: 14px;
+                text-align: center;
+                font-weight: 700;
+            }
+
+            /* ---------- TWO-COLUMN LAYOUT ---------- */
+
+            .rh-step2 .host-layout {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) 300px;
+                gap: 32px;
+                align-items: flex-start;
+            }
+
+            .rh-step2 .listing-preview-rail {
+                position: relative;
+            }
+
+            @media (max-width: 900px) {
+                .rh-step2 .host-layout {
+                    grid-template-columns: 1fr;
+                }
+
+                .rh-step2 .listing-preview-rail {
+                    order: -1;
+                }
+            }
+
+            /* ---------- FORM CARD ---------- */
+
+            .rh-step2 .host-form-card {
+                background: var(--hive-surface);
+                border-radius: var(--hive-radius);
+                border: 1px solid var(--hive-line);
+                box-shadow: var(--hive-shadow);
+                padding: 40px;
+            }
+
+            .rh-step2 .form-heading h2 {
+                position: relative;
+
+                display: inline-block;
+
+                font-size: 19px;
+                font-weight: 700;
+                margin: 0 0 4px;
+                color: var(--hive-ink);
+            }
+
+            .rh-step2 .form-heading h2::after {
+                content: "";
+
+                position: absolute;
+
+                width: 38px;
+                height: 3px;
+
+                left: 0;
+                bottom: -8px;
+
+                background: linear-gradient(90deg, #f6b93b, var(--hive-honey));
+
+                border-radius: 2px;
+            }
+
+            .rh-step2 .form-heading p {
+                margin: 18px 0 24px;
+                font-size: 14px;
+                color: var(--hive-ink-soft);
+            }
+
+            .rh-step2 .form-section-divider {
+                height: 1px;
+                background: var(--hive-line);
+                margin: 36px 0 28px;
+            }
+
+            .rh-step2 .input-group {
+                display: flex;
+                flex-direction: column;
+                margin-bottom: 22px;
+            }
+
+            .rh-step2 .form-grid {
+                display: grid;
+                gap: 20px;
+                margin-bottom: 22px;
+            }
+
+            .rh-step2 .form-grid .input-group {
+                margin-bottom: 0;
+            }
+
+            .rh-step2 .form-grid.two-columns {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .rh-step2 .form-grid.three-columns {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+
+            @media (max-width: 640px) {
+                .rh-step2 .form-grid.two-columns,
+                .rh-step2 .form-grid.three-columns {
+                    grid-template-columns: 1fr;
+                }
+            }
+
+            .rh-step2 label {
+                font-size: 13.5px;
+                font-weight: 600;
+                color: var(--hive-ink);
+                margin-bottom: 8px;
+            }
+
+            .rh-step2 input[type="text"],
+            .rh-step2 input[type="number"],
+            .rh-step2 select,
+            .rh-step2 textarea {
+                font-family: "Poppins", sans-serif;
+                font-size: 14.5px;
+                color: var(--hive-ink);
+                background: #fbfcfd;
+                border: 1.5px solid #e3e7ec;
+                border-radius: 10px;
+                padding: 12px 14px;
+                width: 100%;
+                box-sizing: border-box;
+                transition:
+                    border-color 0.15s ease,
+                    box-shadow 0.15s ease,
+                    background 0.15s ease;
+            }
+
+            .rh-step2 textarea {
+                min-height: 110px;
+                resize: vertical;
+                line-height: 1.55;
+            }
+
+            .rh-step2 input:focus,
+            .rh-step2 select:focus,
+            .rh-step2 textarea:focus {
+                outline: none;
+                border-color: var(--hive-honey);
+                background: var(--hive-surface);
+                box-shadow: 0 0 0 3px rgba(237, 164, 35, 0.22);
+            }
+
+            .rh-step2 input::placeholder,
+            .rh-step2 textarea::placeholder {
+                color: #a5adb8;
+            }
+
+            .rh-step2 select {
+                appearance: none;
+                -webkit-appearance: none;
+                background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' stroke='%231c2a38' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+                background-repeat: no-repeat;
+                background-position: right 14px center;
+                padding-right: 36px;
+            }
+
+            .rh-step2 .input-with-icon {
+                position: relative;
+            }
+
+            .rh-step2 .input-with-icon input {
+                padding-right: 38px;
+            }
+
+            .rh-step2 .input-with-icon span {
+                position: absolute;
+                right: 14px;
+                top: 50%;
+                transform: translateY(-50%);
+                color: var(--hive-honey-dark);
+                font-size: 14px;
+            }
+
+            .rh-step2 .price-input-group,
+            .rh-step2 .icon-input-group {
+                position: relative;
+                display: flex;
+                align-items: center;
+            }
+
+            .rh-step2 .price-icon {
+                position: absolute;
+                left: 14px;
+                font-size: 14.5px;
+                color: var(--hive-honey-dark);
+                font-weight: 700;
+                pointer-events: none;
+            }
+
+            .rh-step2 .price-input-group input {
+                padding-left: 32px;
+            }
+
+            .rh-step2 .icon-input-icon {
+                position: absolute;
+                left: 12px;
+                width: 18px;
+                height: 18px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                pointer-events: none;
+                opacity: 0.55;
+            }
+
+            .rh-step2 .icon-input-icon img {
+                width: 16px;
+                height: 16px;
+                object-fit: contain;
+            }
+
+            .rh-step2 .icon-input-group input,
+            .rh-step2 .icon-input-group select {
+                padding-left: 38px;
+            }
+
+            .rh-step2 .icon-input-suffix {
+                position: absolute;
+                right: 14px;
+                font-size: 13px;
+                color: var(--hive-ink-soft);
+                pointer-events: none;
+            }
+
+            /* =====================================================
+                                               MAP PIN — STYLES
+                                            ====================================================== */
+
+            .rh-step2 .map-hint {
+                margin: -2px 0 12px;
+                font-size: 12.5px;
+                color: var(--hive-ink-soft);
+                line-height: 1.5;
+            }
+
+            .rh-step2 .map-toolbar {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                flex-wrap: wrap;
+                margin-bottom: 10px;
+            }
+
+            .rh-step2 .map-locate-btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+
+                font-family: "Poppins", sans-serif;
+                font-size: 12.5px;
+                font-weight: 700;
+                color: #b07708;
+                background: #fdf4e3;
+                border: 1.5px solid rgba(237, 164, 35, 0.5);
+                border-radius: 8px;
+                padding: 8px 14px;
+                cursor: pointer;
+                transition:
+                    background 0.15s ease,
+                    transform 0.15s ease;
+            }
+
+            .rh-step2 .map-locate-btn:hover {
+                background: #f9e8c8;
+                transform: translateY(-1px);
+            }
+
+            .rh-step2 .map-locate-btn:disabled {
+                opacity: 0.6;
+                cursor: not-allowed;
+            }
+
+            .rh-step2 .pin-status {
+                font-size: 12.5px;
+                font-weight: 600;
+                color: var(--hive-ink-soft);
+            }
+
+            .rh-step2 .pin-status.has-pin {
+                color: var(--hive-moss);
+            }
+
+            .rh-step2 .location-map {
+                width: 100%;
+                height: 340px;
+                border-radius: 12px;
+                border: 1.5px solid #e3e7ec;
+                background: #eef1f4;
+                z-index: 1;
+            }
+
+            .rh-step2 .pin-address-preview {
+                margin-top: 10px;
+                font-size: 12.5px;
+                font-weight: 500;
+                color: var(--hive-moss);
+            }
+
+            /* Leaflet emoji pin */
+            .rh-pin-icon {
+                background: transparent;
+                border: none;
+            }
+
+            .rh-pin {
+                font-size: 30px;
+                line-height: 1;
+                filter: drop-shadow(0 3px 3px rgba(0, 0, 0, 0.35));
+            }
+
+            /* ---------- AMENITY CHIPS ---------- */
+
+            .rh-step2 .amenities-grid {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+
+            .rh-step2 .amenity-checkbox {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 10px 16px;
+                border-radius: 999px;
+                border: 1.5px solid var(--hive-line);
+                background: #fbfcfd;
+                cursor: pointer;
+                font-size: 13.5px;
+                font-weight: 500;
+                color: var(--hive-ink-soft);
+                transition:
+                    border-color 0.15s ease,
+                    background 0.15s ease,
+                    color 0.15s ease,
+                    transform 0.15s ease;
+                margin: 0;
+            }
+
+            .rh-step2 .amenity-checkbox:hover {
+                transform: translateY(-2px);
+
+                border-color: var(--hive-honey);
+            }
+
+            .rh-step2 .amenity-checkbox input {
+                position: absolute;
+                opacity: 0;
+                width: 1px;
+                height: 1px;
+            }
+
+            .rh-step2 .amenity-checkbox-icon {
+                display: inline-flex;
+            }
+
+            .rh-step2 .amenity-checkbox-icon img {
+                width: 16px;
+                height: 16px;
+                object-fit: contain;
+                opacity: 0.7;
+            }
+
+            .rh-step2 .amenity-checkbox:has(input:checked) {
+                background: #fdf4e3;
+                border-color: var(--hive-honey);
+                color: var(--hive-ink);
+            }
+
+            .rh-step2 .amenity-checkbox:has(input:checked) .amenity-checkbox-icon img {
+                opacity: 1;
+            }
+
+            .rh-step2 .amenity-checkbox:has(input:focus-visible) {
+                box-shadow: 0 0 0 3px rgba(237, 164, 35, 0.3);
+            }
+
+            /* ---------- ACTIONS ---------- */
+
+            .rh-step2 .form-actions {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-top: 36px;
+                padding-top: 24px;
+                border-top: 1px solid var(--hive-line);
+            }
+
+            .rh-step2 .back-button {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+
+                min-width: 120px;
+                height: 46px;
+
+                padding: 0 24px;
+
+                border: 1.5px solid #dfe4ea;
+                border-radius: 10px;
+
+                background: #ffffff;
+
+                color: var(--hive-ink);
+
+                font-family: "Poppins", sans-serif;
+                font-size: 13px;
+                font-weight: 700;
+
+                text-decoration: none;
+
+                transition:
+                    border-color 0.2s ease,
+                    color 0.2s ease,
+                    transform 0.2s ease,
+                    box-shadow 0.2s ease;
+            }
+
+            .rh-step2 .back-button:hover {
+                border-color: var(--hive-honey);
+
+                color: #b07708;
+
+                transform: translateX(-2px);
+
+                box-shadow: 0 8px 18px rgba(28, 42, 56, 0.08);
+            }
+
+            .rh-step2 .next-button {
+                position: relative;
+                overflow: hidden;
+
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+
+                font-family: "Poppins", sans-serif;
+                font-size: 14px;
+                font-weight: 700;
+                color: var(--hive-ink);
+                background: linear-gradient(
+                    135deg,
+                    var(--hive-honey-light),
+                    var(--hive-honey)
+                );
+                border: none;
+                border-radius: 10px;
+                padding: 13px 32px;
+                cursor: pointer;
+
+                box-shadow: 0 8px 20px rgba(237, 164, 35, 0.35);
+
+                transition:
+                    transform 0.2s ease,
+                    box-shadow 0.2s ease;
+            }
+
+            .rh-step2 .next-button:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 12px 26px rgba(237, 164, 35, 0.45);
+            }
+
+            .rh-step2 .next-button:active {
+                transform: translateY(0) scale(0.98);
+            }
+
+            .rh-step2 .next-button::after {
+                content: "";
+
+                position: absolute;
+                top: 0;
+                left: -80%;
+
+                width: 50%;
+                height: 100%;
+
+                background: linear-gradient(
+                    100deg,
+                    transparent,
+                    rgba(255, 255, 255, 0.55),
+                    transparent
+                );
+
+                transform: skewX(-20deg);
+
+                animation: hiveSweep 3.6s ease-in-out infinite;
+
+                pointer-events: none;
+            }
+
+            @keyframes hiveSweep {
+                0% {
+                    left: -80%;
+                }
+
+                45%,
+                100% {
+                    left: 130%;
+                }
+            }
+
+            .rh-step2 .next-button:focus-visible,
+            .rh-step2 .back-button:focus-visible {
+                outline: 3px solid rgba(237, 164, 35, 0.5);
+                outline-offset: 2px;
+            }
+
+            /* ---------- LIVE LISTING PREVIEW ---------- */
+
+            .rh-step2 .listing-preview {
+                width: 100%;
+                box-sizing: border-box;
+                background: var(--hive-surface);
+                border: 1px solid var(--hive-line);
+                border-radius: var(--hive-radius);
+                overflow: hidden;
+                box-shadow: var(--hive-shadow);
+
+                transition:
+                    box-shadow 0.25s ease,
+                    border-color 0.25s ease;
+            }
+
+            .rh-step2 .listing-preview:hover {
+                border-color: rgba(237, 164, 35, 0.4);
+
+                box-shadow: 0 14px 30px rgba(237, 164, 35, 0.18);
+            }
+
+            .rh-step2 .listing-preview.is-pinned {
+                position: fixed;
+                top: 90px;
+                z-index: 50;
+            }
+
+            .rh-step2 .listing-preview-label {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+
+                font-size: 12px;
+                font-weight: 600;
+                color: var(--hive-honey-dark);
+                padding: 16px 18px 0;
+            }
+
+            .rh-step2 .listing-preview-label::before {
+                content: "";
+
+                width: 6px;
+                height: 6px;
+
+                background: var(--hive-honey);
+                border-radius: 50%;
+            }
+
+            .rh-step2 .listing-preview-photo {
+                margin: 12px 18px 0;
+                height: 110px;
+                border-radius: 10px;
+                background:
+                    linear-gradient(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0)),
+                    linear-gradient(135deg, #fdf4e3, #f1e6c8);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: var(--hive-honey-dark);
+                font-size: 12.5px;
+                font-weight: 500;
+            }
+
+            .rh-step2 .listing-preview-body {
+                padding: 16px 18px 20px;
+            }
+
+            .rh-step2 .listing-preview-title {
+                font-size: 15.5px;
+                font-weight: 700;
+                color: var(--hive-ink);
+                margin: 0 0 4px;
+                line-height: 1.35;
+            }
+
+            .rh-step2 .listing-preview-meta {
+                font-size: 12.5px;
+                color: var(--hive-ink-soft);
+                margin: 0 0 12px;
+            }
+
+            .rh-step2 .listing-preview-tags {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                margin-bottom: 14px;
+            }
+
+            .rh-step2 .listing-preview-tag {
+                font-size: 11px;
+                font-weight: 500;
+                padding: 4px 9px;
+                border-radius: 999px;
+                background: var(--hive-paper);
+                color: var(--hive-ink-soft);
+            }
+
+            .rh-step2 .listing-preview-price {
+                font-size: 17px;
+                font-weight: 700;
+                color: var(--hive-moss);
+            }
+
+            .rh-step2 .listing-preview-price span {
+                font-size: 12px;
+                font-weight: 500;
+                color: var(--hive-ink-soft);
+            }
+
+            /* =====================================================
+                                               LUCIDE ICONS (lucide.dev)
+                                               Lucide copies the placeholder's classes onto the
+                                               generated <svg>. The img rules above are kept but
+                                               go inert once no <img> remains.
+                                            ====================================================== */
+            svg.lucide {
+                display: inline-block;
+                vertical-align: -0.18em;
+                flex-shrink: 0;
+            }
+
+            /* Stepper circles — replaces .step-circle img states */
+            .rh-step2 .step-circle svg {
+                width: 22px;
+                height: 22px;
+                display: block;
+                opacity: 0.55;
+                color: var(--hive-ink);
+                transition:
+                    opacity 0.2s ease,
+                    color 0.2s ease;
+            }
+
+            .rh-step2 .host-step.active .step-circle svg {
+                opacity: 1;
+                color: var(--hive-honey-dark);
+            }
+
+            .rh-step2 .host-step.completed .step-circle svg {
+                opacity: 1;
+                color: #ffffff;
+            }
+
+            /* Amenity chips — replaces .amenity-checkbox-icon img */
+            .rh-step2 .amenity-checkbox-icon svg {
+                width: 16px;
+                height: 16px;
+                opacity: 0.7;
+            }
+
+            .rh-step2 .amenity-checkbox:has(input:checked) .amenity-checkbox-icon svg {
+                opacity: 1;
+            }
+
+            /* Input left-icon (was .icon-input-icon img) */
+            .rh-step2 .icon-input-icon svg {
+                width: 16px;
+                height: 16px;
+            }
+
+            /* Trailing input icon */
+            .rh-step2 .input-with-icon span {
+                display: inline-flex;
+            }
+
+            .rh-step2 .input-with-icon span svg {
+                width: 16px;
+                height: 16px;
+            }
+
+            /* Locate button + action buttons */
+            .rh-step2 .map-locate-btn svg {
+                width: 14px;
+                height: 14px;
+            }
+
+            .rh-step2 .back-button svg,
+            .rh-step2 .next-button svg {
+                width: 15px;
+                height: 15px;
+            }
+
+            /* =====================================================
+                                               GOOGLE PLACES AUTOCOMPLETE DROPDOWN (cont-36)
+                                               The dropdown is injected by Google as a sibling of the
+                                               #location input — it isn't scoped under .rh-step2, so
+                                               these rules target .pac-container directly. Honey-themed
+                                               polish only; Google's own logo / "Powered by Google"
+                                               badge remains in the dropdown's footer (terms-required).
+                                            ===================================================== */
+
+            .pac-container {
+                border-radius: 12px !important;
+                border: 1px solid var(--hive-line) !important;
+                box-shadow: 0 14px 28px -12px rgba(28, 29, 34, 0.3) !important;
+                font-family: "Poppins", sans-serif !important;
+                margin-top: 4px;
+                overflow: hidden;
+            }
+
+            .pac-item {
+                padding: 9px 14px !important;
+                font-size: 13px !important;
+                color: var(--hive-ink) !important;
+                border-top: 1px solid var(--hive-line) !important;
+                cursor: pointer;
+            }
+
+            .pac-item:first-child {
+                border-top: none !important;
+            }
+
+            .pac-item:hover,
+            .pac-item-selected {
+                background-color: var(--hive-cream) !important;
+            }
+
+            .pac-item-query {
+                color: var(--hive-ink) !important;
+                font-weight: 600;
+            }
+
+            /* hide Google's default icon to keep the dropdown visually clean */
+            .pac-icon {
+                display: none;
+            }
+
+            /* "Powered by Google" footer — keep Google's logo visible */
+            .pac-logo {
+                background-color: var(--hive-cream) !important;
+                padding: 6px 0 !important;
+                text-align: right;
+            }
+
+            .pac-logo::after {
+                content: "";
+                display: inline-block;
+            }
+
+            /* =====================================================
+                                               PH PROVINCE DROPDOWN (cont-37, touch-to-open cont-47)
+                                               Custom dropdown that appears under #location when the
+                                               user types — or, since cont-47, the moment the field
+                                               is touched/clicked/tabbed into (full list, then
+                                               typing narrows). Matches the reference UI: orange
+                                               map-pin icon + province name + "Province" pill tag.
+                                               Pure JS, no API key, no external requests. When this
+                                               dropdown is open, body.rh-province-active hides
+                                               Google's .pac-container so the two never overlap.
+
+                                               NOTE (cont-38 fix): the original used .input-with-icon
+                                               as the anchor wrapper. style.css may have rules on
+                                               .input-with-icon > * that broke stacking (items
+                                               overlapped). Now uses higher-specificity selectors
+                                               (.rh-step2 .input-with-icon > .rh-province-dropdown)
+                                               and forces block layout on the list + flex item rows
+                                               so global page styles can never override the structure.
+                                            ===================================================== */
+
+            .rh-step2 .input-with-icon > .rh-province-dropdown {
+                position: absolute;
+                top: 100%;
+                left: 0;
+                right: 0;
+                max-height: 320px;
+                overflow-y: auto;
+                background: #ffffff;
+                border: 1px solid var(--hive-line);
+                border-radius: 12px;
+                box-shadow: 0 14px 28px -12px rgba(28, 29, 34, 0.3);
+                margin-top: 4px;
+                z-index: 1000;
+                display: none;
+                font-family: "Poppins", sans-serif;
+                box-sizing: border-box;
+            }
+
+            .rh-step2 .input-with-icon > .rh-province-dropdown.is-open {
+                display: block;
+            }
+
+            /* =====================================================
+                                               STACKING LIFT (cont-47) — same cure as Step 1's
+                                               rh-dd-host lift (cont-44). While the dropdown is open,
+                                               the location .input-group is raised to z-index 5000 so
+                                               LATER sibling groups (Exact Address, map pin) that the
+                                               global stylesheet may place in their own stacking
+                                               contexts can never paint over the open list. Without
+                                               this, items in the dropdown's lower half hit-test to
+                                               the sibling group underneath and clicks die.
+                                            ===================================================== */
+
+            .rh-step2 .input-group.rh-dd-host-group {
+                position: relative;
+                z-index: 5000;
+            }
+
+            /* cont-48: wrapper-level lift (same as Step 1's recipe) —
+                                               the .input-with-icon that hosts an open dropdown is
+                                               raised too, so the list can never be undercut by any
+                                               positioning the global stylesheet does on it. */
+
+            .rh-step2 .input-with-icon.rh-dd-host {
+                position: relative;
+                z-index: 5000;
+            }
+
+            /* cont-48: city items carry a muted "— Province" suffix
+                                               inside the name span (same look as Step 1's sub). Same
+                                               position/right/top/transform resets as the name span —
+                                               the global `.rh-step2 .input-with-icon span` trap
+                                               applies to this span too (cont-38 family). */
+
+            .rh-province-dropdown .rh-province-item .rh-province-sub {
+                font-size: 11.5px;
+                color: var(--hive-ink-soft);
+                font-weight: 400;
+                margin-left: 2px;
+                position: static;
+                right: auto;
+                top: auto;
+                transform: none;
+            }
+
+            .rh-province-dropdown .rh-province-header {
+                display: block;
+                padding: 8px 14px;
+                font-size: 10.5px;
+                font-weight: 700;
+                letter-spacing: 0.8px;
+                text-transform: uppercase;
+                color: var(--hive-ink-soft);
+                background: var(--hive-cream);
+                border-bottom: 1px solid var(--hive-line);
+                border-top-left-radius: 12px;
+                border-top-right-radius: 12px;
+                position: sticky;
+                top: 0;
+                z-index: 1;
+            }
+
+            /* Force block layout on the list so items stack vertically.
+                                               Without this, an inherited display:flex from .input-with-icon
+                                               children would put items in a horizontal row. */
+            .rh-province-dropdown .rh-province-list {
+                display: block;
+            }
+
+            .rh-province-dropdown .rh-province-item {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 9px 14px;
+                font-size: 13px;
+                color: #1c2a38;
+                border-top: 1px solid var(--hive-line);
+                cursor: pointer;
+                transition: background-color 0.15s ease;
+                box-sizing: border-box;
+                position: relative;
+                width: 100%;
+            }
+
+            .rh-province-dropdown .rh-province-item:first-of-type {
+                border-top: none;
+            }
+
+            .rh-province-dropdown .rh-province-item:hover,
+            .rh-province-dropdown .rh-province-item.is-highlighted {
+                background-color: var(--hive-cream);
+            }
+
+            /* Province NAME — explicit color so it never inherits an
+                                               orange/honey color from a parent rule. CRITICAL: must
+                                               also reset position/right/top/transform because the
+                                               page's global rule `.rh-step2 .input-with-icon span`
+                                               (specificity 0,0,2,1) — meant for the location input's
+                                               trailing map-pin icon — would otherwise absolute-position
+                                               EVERY <span> inside .input-with-icon, including these
+                                               dropdown spans, pinning them all to the right edge of
+                                               the input, causing them to overlap (the cont-38 bug).
+                                               We use 3-class selectors (0,0,3,0) which beat the
+                                               global 2-class+1-type (0,0,2,1). */
+            .rh-province-dropdown .rh-province-item .rh-province-name {
+                flex: 1 1 auto;
+                min-width: 0;
+                font-weight: 500;
+                color: #1c2a38;
+                font-size: 13px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                position: static;
+                right: auto;
+                top: auto;
+                transform: none;
+            }
+
+            .rh-province-dropdown .rh-province-item .rh-province-tag {
+                font-size: 10px;
+                font-weight: 600;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+                color: var(--hive-amber-dark);
+                background: rgba(236, 172, 58, 0.16);
+                padding: 3px 9px;
+                border-radius: 999px;
+                flex-shrink: 0;
+                display: inline-block;
+                position: static;
+                right: auto;
+                top: auto;
+                transform: none;
+            }
+
+            /* Same global rule would also hit .rh-province-icon (a
+                                               <span> child of .input-with-icon) — bump specificity here
+                                               too so it renders at the right size, not absolute-pinned. */
+            .rh-province-dropdown .rh-province-item .rh-province-icon {
+                color: var(--hive-honey);
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+                width: 18px;
+                height: 18px;
+                position: static;
+                right: auto;
+                top: auto;
+                transform: none;
+            }
+
+            .rh-province-dropdown .rh-province-item .rh-province-icon svg {
+                width: 16px;
+                height: 16px;
+                display: block;
+            }
+
+            /* When the custom province dropdown is open, hide Google's
+                                               dropdown so they never overlap. */
+            body.rh-province-active .pac-container {
+                display: none !important;
+            }
+        </style>
+
+    </head>
+    <body class="rh-step2">
+
+        {# =========================================================
+       NAVBAR — shared partial. current_page 'becomeahost' (the
+       legacy $currentPage pointed at becomeahost.php, so
+       BECOME A HOST highlights on both steps). The legacy file
+       also included notification_dropdown.php separately; the
+       navbar partial owns the dropdown now.
+    ========================================================= #}
+        {{ include('partials/navbar.html.twig', {
+        is_logged_in: true,
+        is_host: is_host ?? false,
+        nav_avatar: nav_avatar ?? user.avatar_path ?? null,
+        notification_count: notification_count ?? notif_count ?? 0,
+        current_page: 'becomeahost'
+    }) }}
+
+        <!-- =========================================================
+         MAIN HOST PAGE
+    ========================================================== -->
+        <main class="host-page">
+
+            <span class="hive-blob hive-blob-1" aria-hidden="true"></span>
+            <span class="hive-blob hive-blob-2" aria-hidden="true"></span>
+
+            <!-- =====================================================
+             HOST HEADER
+        ====================================================== -->
+            <section class="host-header">
+
+                <span class="hero-badge">
+
+                    <span class="hive-pulse-dot"></span>
+
+                    Add Your Space &middot; Step 2 of 4
+
+                </span>
+
+                <h1 style="margin-top:20px;">
+
+                    Tell us about
+
+                    <span class="hive-shimmer">your space</span>
+
+                </h1>
+
+                {# =================================================
+               TEMPLATE-LOCAL STATIC CONFIG — the option loops,
+               the stepper and the RH2 JSON state all read these
+               (same pattern as Step 1's host_steps). Step 2's
+               icon is 'house' — the current Lucide name, per
+               the legacy comment.
+            ================================================== #}
+                {% set host_steps = [
+                { number: 1, icon: 'user-plus',     alt: 'Create Account',  title: 'Create Account',  description: 'Sign up as a host in minutes' },
+                { number: 2, icon: 'house',         alt: 'Add Your Space',  title: 'Add Your Space',  description: 'Tell us about your property' },
+                { number: 3, icon: 'image-plus',    alt: 'Upload Photos',   title: 'Upload Photos',   description: 'Show your space to attract renters' },
+                { number: 4, icon: 'calendar-check', alt: 'Get Bookings',   title: 'Get Bookings',    description: 'Approve bookings and start earning' }
+            ] %}
+                {% set current_step = 2 %}
+
+                {% set total_steps = host_steps|length %}
+                {% set step_progress_percent = total_steps > 1
+                ? ((current_step - 1) / (total_steps - 1)) * 100
+                : 0 %}
+                {% set step_progress_percent = step_progress_percent < 0 ? 0 : (step_progress_percent > 100 ? 100 : step_progress_percent) %}
+
+                {# option maps — label => value, kept 1:1 with the
+               legacy $listingCategories / $propertyTypes /
+               $capacityOptions / $parkingOptions arrays #}
+                {% set listing_categories = {
+                'Shared Bedroom': 'shared-bedroom',
+                'Private Room': 'private-room',
+                'Entire House': 'entire-house',
+                'Boarding House': 'boarding-house',
+                'Studio Loft': 'studio-loft'
+            } %}
+                {% set property_types = {
+                'Apartment': 'apartment',
+                'Condominium': 'condominium',
+                'House': 'house',
+                'Townhouse': 'townhouse',
+                'Dormitory': 'dormitory',
+                'Boarding House': 'boarding-house'
+            } %}
+                {% set capacity_options = {
+                '1': '1 Guest',
+                '2': '2 Guests',
+                '3': '3 Guests',
+                '4': '4 Guests',
+                '5': '5 Guests',
+                '6': '6 Guests',
+                '8': '8 Guests',
+                '10': '10 Guests',
+                '10+': 'More than 10 Guests'
+            } %}
+                {% set parking_options = {
+                'Yes': 'Yes, parking available',
+                'No': 'No parking available'
+            } %}
+                {% set amenity_options = [
+                { key: 'wifi',             label: 'Wi-fi',           icon: 'wifi' },
+                { key: 'aircon',           label: 'Aircon',          icon: 'air-vent' },
+                { key: 'pet-friendly',     label: 'Pet Friendly',    icon: 'paw-print' },
+                { key: 'free-water',       label: 'Free Water',      icon: 'droplets' },
+                { key: 'free-electricity', label: 'Free Electricity', icon: 'zap' },
+                { key: 'security',         label: '24/7 Security',   icon: 'shield-check' }
+            ] %}
+
+                <div class="host-steps">
+
+                    <div class="host-steps-track"></div>
+
+                    <div
+                        class="host-steps-progress"
+                        style="width: {{ step_progress_percent }}%;"
+                    ></div>
+
+                    {% for step in host_steps %}
+
+                        <div class="host-step{{ step.number == current_step ? ' active' : '' }}{{ step.number < current_step ? ' completed' : '' }}">
+
+                            <div class="step-circle">
+
+                                <i
+                                    data-lucide="{{ step.icon }}"
+                                    role="img"
+                                    aria-label="{{ step.alt }}"
+                                ></i>
+
+                                <span class="step-number">
+
+                                    {{ step.number }}
+
+                                </span>
+
+                            </div>
+
+                            <h3>
+
+                                {{ step.title }}
+
+                            </h3>
+
+                            <p>
+
+                                {{ step.description }}
+
+                            </p>
+
+                        </div>
+
+                    {% endfor %}
+
+                </div>
+
+            </section>
+
+            <!-- =====================================================
+             ERROR MESSAGES
+        ====================================================== -->
+            {% if errors is not empty %}
+
+                <div class="form-errors" role="alert" aria-live="assertive">
+
+                    {% for error in errors %}
+
+                        <p>
+                            {{ error }}
+                        </p>
+
+                    {% endfor %}
+
+                </div>
+
+            {% endif %}
+
+            <!-- =====================================================
+             FORM + LIVE PREVIEW
+        ====================================================== -->
+            <div class="host-layout">
+
+                <!-- FORM CARD -->
+                <section class="host-form-card">
+
+                    {# SELF-POST (action="") — HTML spec: submit to the
+                   current URL, the 1:1 equivalent of the legacy form
+                   pointing back at host-step2.php. Route-name-
+                   agnostic (cont-32 fix); the controller route must
+                   accept GET + POST on the same URL. #}
+                    <form
+                        id="hostStep2Form"
+                        action=""
+                        method="POST"
+                    >
+
+                        {# Symfony CSRF — added in the port (legacy PHP
+                       had none). Controller validates via
+                       hash_equals against the session-stored token,
+                       same pattern as Step 1 / Messages / Help. #}
+                        <input type="hidden" name="csrf_token" value="{{ csrf_host_step2 ?? '' }}">
+
+                        <!-- =============================================
+                         BASIC INFORMATION
+                    ============================================== -->
+                        <div class="form-heading">
+
+                            <h2>
+
+                                Basic information
+
+                            </h2>
+
+                            <p>
+
+                                Let's start with the basics about your space.
+
+                            </p>
+
+                        </div>
+
+                        <!-- TITLE OF YOUR SPACE -->
+
+                        <div class="input-group full-width">
+
+                            <label for="title">
+
+                                Title of your space
+
+                            </label>
+
+                            <input
+                                type="text"
+                                id="title"
+                                name="title"
+                                placeholder="e.g. Cozy Studio Suite in Dumaguete City"
+                                value="{{ old.title|default('') }}"
+                                required
+                            >
+
+                        </div>
+
+                        <!-- CATEGORY / PROPERTY TYPE -->
+
+                        <div class="form-grid two-columns">
+
+                            <!-- CATEGORY -->
+
+                            <div class="input-group">
+
+                                <label for="category">
+
+                                    Category
+
+                                </label>
+
+                                <select
+                                    id="category"
+                                    name="category"
+                                    required
+                                >
+
+                                    <option
+                                        value=""
+                                        disabled
+                                        {{ old.category|default('') == '' ? 'selected' : '' }}
+                                    >
+
+                                        Select a category
+
+                                    </option>
+
+                                    {% for cat_label, cat_value in listing_categories %}
+
+                                        <option
+                                            value="{{ cat_value }}"
+                                            {{ old.category|default('') == cat_value ? 'selected' : '' }}
+                                        >
+
+                                            {{ cat_label }}
+
+                                        </option>
+
+                                    {% endfor %}
+
+                                </select>
+
+                            </div>
+
+                            <!-- PROPERTY TYPE -->
+
+                            <div class="input-group">
+
+                                <label for="property_type">
+
+                                    Property Type
+
+                                </label>
+
+                                <select
+                                    id="property_type"
+                                    name="property_type"
+                                    required
+                                >
+
+                                    <option
+                                        value=""
+                                        disabled
+                                        {{ old.property_type|default('') == '' ? 'selected' : '' }}
+                                    >
+
+                                        Select a property type
+
+                                    </option>
+
+                                    {% for pt_label, pt_value in property_types %}
+
+                                        <option
+                                            value="{{ pt_value }}"
+                                            {{ old.property_type|default('') == pt_value ? 'selected' : '' }}
+                                        >
+
+                                            {{ pt_label }}
+
+                                        </option>
+
+                                    {% endfor %}
+
+                                </select>
+
+                            </div>
+
+                        </div>
+
+                        <div class="form-section-divider"></div>
+
+                        <!-- =============================================
+                         LOCATION & MAP PIN
+                    ============================================== -->
+                        <div class="form-heading">
+
+                            <h2>
+
+                                Location
+
+                            </h2>
+
+                            <p>
+
+                                Where can renters find your space?
+
+                            </p>
+
+                        </div>
+
+                        <!-- =============================================
+                         LOCATION — PROVINCE / CITY (cont-48)
+                         Same two-box split as Step 1 (cont-43):
+                         Province is the UPPER box, City / Municipality
+                         the LOWER box. Each box gets its own
+                         touch-to-open suggestion dropdown (cont-47
+                         recipe): province = all 83 PH provinces,
+                         city = the pool narrowed by the picked
+                         province. Picking a province still pans/drops
+                         the Leaflet pin via the map bridge.
+                    ============================================== -->
+
+                        <div class="input-group" data-field="province">
+
+                            <label for="province">
+
+                                <i data-lucide="map-pin" aria-hidden="true"></i>
+
+                                Province
+
+                            </label>
+
+                            <div class="input-with-icon">
+
+                                <input
+                                    type="text"
+                                    id="province"
+                                    name="province"
+                                    placeholder="Select or type a province"
+                                    value="{{ old.province|default(old.location|default('')|split(',')|last|trim) }}"
+                                    required
+                                >
+
+                                <span aria-hidden="true">
+
+                                    <i data-lucide="map-pin"></i>
+
+                                </span>
+
+                            </div>
+
+                        </div>
+
+                        <!-- CITY / MUNICIPALITY (lower box) -->
+
+                        <div class="input-group" data-field="city">
+
+                            <label for="city">
+
+                                <i data-lucide="building-2" aria-hidden="true"></i>
+
+                                City / Municipality
+
+                            </label>
+
+                            <div class="input-with-icon">
+
+                                <input
+                                    type="text"
+                                    id="city"
+                                    name="city"
+                                    placeholder="e.g. Dumaguete City, Negros Oriental"
+                                    value="{{ old.city|default(old.location|default('')|split(',')|first|trim) }}"
+                                    required
+                                >
+
+                                <span aria-hidden="true">
+
+                                    <i data-lucide="building-2"></i>
+
+                                </span>
+
+                            </div>
+
+                        </div>
+
+                        <!-- =============================================
+                         HIDDEN location FIELD (cont-48, Step 1's
+                         cont-45 pattern) — the visible form now
+                         posts `province` + `city`, but the
+                         controller still validates/saves the legacy
+                         single `location` key. JS below keeps this
+                         hidden input composed as "City, Province"
+                         on every keystroke AND at submit time, so
+                         the controller's location check keeps
+                         passing with NO controller change.
+                         Controllers reading province + city
+                         directly simply ignore it — both work.
+                         Re-stick: the value echoes above split the
+                         legacy `old.location` on its comma when
+                         only that key exists (failed POST from an
+                         old controller re-fills both boxes).
+                    ============================================== -->
+
+                        <input
+                            type="hidden"
+                            name="location"
+                            id="rhLocationField"
+                            value="{{ old.location|default('') }}"
+                        >
+
+                        <!-- EXACT ADDRESS -->
+
+                        <div class="input-group">
+
+                            <label for="exact_address">
+
+                                Exact Address
+
+                            </label>
+
+                            <input
+                                type="text"
+                                id="exact_address"
+                                name="exact_address"
+                                placeholder="Street, Barangay, building details"
+                                value="{{ old.exact_address|default('') }}"
+                                required
+                            >
+
+                        </div>
+
+                        <!-- MAP PIN -->
+
+                        <div class="input-group">
+
+                            <label>
+
+                                Pin your space on the map
+
+                            </label>
+
+                            <p class="map-hint">
+
+                                Click the map to drop a pin at your space's exact
+                                position. Renters see this pin on your listing.
+
+                            </p>
+
+                            <div class="map-toolbar">
+
+                                <button
+                                    type="button"
+                                    class="map-locate-btn"
+                                    id="mapLocateBtn"
+                                >
+
+                                    <i data-lucide="crosshair" aria-hidden="true"></i>
+
+                                    Use my current location
+
+                                </button>
+
+                                <span class="pin-status" id="pinStatus">
+
+                                    No pin set — click the map
+
+                                </span>
+
+                            </div>
+
+                            <div
+                                class="location-map"
+                                id="locationMap"
+                            ></div>
+
+                            <input
+                                type="hidden"
+                                name="latitude"
+                                id="latitudeInput"
+                                value="{{ old.latitude|default('') }}"
+                            >
+
+                            <input
+                                type="hidden"
+                                name="longitude"
+                                id="longitudeInput"
+                                value="{{ old.longitude|default('') }}"
+                            >
+
+                            <p
+                                class="pin-address-preview"
+                                id="pinAddressPreview"
+                                {{ old.latitude|default('') == '' ? 'hidden' : '' }}
+                            >
+
+                                {{ old.latitude|default('') != '' ? 'Pin restored from your last attempt.' : '' }}
+
+                            </p>
+
+                        </div>
+
+                        <div class="form-section-divider"></div>
+
+                        <!-- =============================================
+                         SPACE DETAILS
+                    ============================================== -->
+                        <div class="form-heading">
+
+                            <h2>
+
+                                Space details
+
+                            </h2>
+
+                            <p>
+
+                                The specifics renters filter by.
+
+                            </p>
+
+                        </div>
+
+                        <!-- PRICE / CAPACITY -->
+
+                        <div class="form-grid two-columns">
+
+                            <!-- PRICE -->
+
+                            <div class="input-group">
+
+                                <label for="price">
+
+                                    Price per Month
+
+                                </label>
+
+                                <div class="price-input-group">
+
+                                    <span class="price-icon">₱</span>
+
+                                    <input
+                                        type="number"
+                                        id="price"
+                                        name="price"
+                                        placeholder="e.g. 8500"
+                                        min="1"
+                                        step="any"
+                                        value="{{ old.price|default('') }}"
+                                        required
+                                    >
+
+                                </div>
+
+                            </div>
+
+                            <!-- CAPACITY -->
+
+                            <div class="input-group">
+
+                                <label for="capacity">
+
+                                    Maximum Guests
+
+                                </label>
+
+                                <select
+                                    id="capacity"
+                                    name="capacity"
+                                    required
+                                >
+
+                                    <option
+                                        value=""
+                                        disabled
+                                        {{ old.capacity|default('') == '' ? 'selected' : '' }}
+                                    >
+
+                                        Select capacity
+
+                                    </option>
+
+                                    {% for cap_value, cap_label in capacity_options %}
+
+                                        <option
+                                            value="{{ cap_value }}"
+                                            {{ old.capacity|default('') == cap_value ? 'selected' : '' }}
+                                        >
+
+                                            {{ cap_label }}
+
+                                        </option>
+
+                                    {% endfor %}
+
+                                </select>
+
+                            </div>
+
+                        </div>
+
+                        <!-- BEDROOMS / BATHROOMS / SIZE -->
+
+                        <div class="form-grid three-columns">
+
+                            <!-- BEDROOMS -->
+
+                            <div class="input-group">
+
+                                <label for="bedrooms">
+
+                                    Bedrooms
+
+                                </label>
+
+                                <input
+                                    type="number"
+                                    id="bedrooms"
+                                    name="bedrooms"
+                                    placeholder="e.g. 1"
+                                    min="1"
+                                    value="{{ old.bedrooms|default('') }}"
+                                    required
+                                >
+
+                            </div>
+
+                            <!-- BATHROOMS -->
+
+                            <div class="input-group">
+
+                                <label for="bathrooms">
+
+                                    Bathrooms
+
+                                </label>
+
+                                <input
+                                    type="number"
+                                    id="bathrooms"
+                                    name="bathrooms"
+                                    placeholder="e.g. 1"
+                                    min="1"
+                                    value="{{ old.bathrooms|default('') }}"
+                                    required
+                                >
+
+                            </div>
+
+                            <!-- SIZE -->
+
+                            <div class="input-group">
+
+                                <label for="size_sqm">
+
+                                    Size
+
+                                </label>
+
+                                <div class="icon-input-group">
+
+                                    <input
+                                        type="number"
+                                        id="size_sqm"
+                                        name="size_sqm"
+                                        placeholder="e.g. 25"
+                                        min="1"
+                                        step="any"
+                                        value="{{ old.size_sqm|default('') }}"
+                                        required
+                                    >
+
+                                    <span class="icon-input-suffix">sqm</span>
+
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                        <!-- FLOOR / PARKING -->
+
+                        <div class="form-grid two-columns">
+
+                            <!-- FLOOR -->
+
+                            <div class="input-group">
+
+                                <label for="floor">
+
+                                    Floor
+
+                                </label>
+
+                                <div class="icon-input-group">
+
+                                    <span class="icon-input-icon" aria-hidden="true">
+
+                                        <i data-lucide="building-2"></i>
+
+                                    </span>
+
+                                    <input
+                                        type="text"
+                                        id="floor"
+                                        name="floor"
+                                        placeholder="e.g. 2nd floor / Ground"
+                                        value="{{ old.floor|default('') }}"
+                                        required
+                                    >
+
+                                </div>
+
+                            </div>
+
+                            <!-- PARKING -->
+
+                            <div class="input-group">
+
+                                <label for="parking">
+
+                                    Parking
+
+                                </label>
+
+                                <select
+                                    id="parking"
+                                    name="parking"
+                                    required
+                                >
+
+                                    <option
+                                        value=""
+                                        disabled
+                                        {{ old.parking|default('') == '' ? 'selected' : '' }}
+                                    >
+
+                                        Is parking available?
+
+                                    </option>
+
+                                    {% for pk_value, pk_label in parking_options %}
+
+                                        <option
+                                            value="{{ pk_value }}"
+                                            {{ old.parking|default('') == pk_value ? 'selected' : '' }}
+                                        >
+
+                                            {{ pk_label }}
+
+                                        </option>
+
+                                    {% endfor %}
+
+                                </select>
+
+                            </div>
+
+                        </div>
+
+                        <div class="form-section-divider"></div>
+
+                        <!-- =============================================
+                         DESCRIPTION & RULES
+                    ============================================== -->
+                        <div class="form-heading">
+
+                            <h2>
+
+                                Description
+
+                            </h2>
+
+                            <p>
+
+                                Tell renters what makes your space great.
+
+                            </p>
+
+                        </div>
+
+                        <!-- DESCRIPTION -->
+
+                        <div class="input-group">
+
+                            <label for="description">
+
+                                Describe your space
+
+                            </label>
+
+                            <textarea
+                            id="description"
+                            name="description"
+                            placeholder="Natural light, quiet street, near campus..."
+                            required>{{ old.description|default('') }}</textarea>
+
+                        </div>
+
+                        <!-- HOUSE RULES -->
+
+                        <div class="input-group">
+
+                            <label for="house_rules">
+
+                                House Rules <span style="font-weight:400; color:var(--hive-ink-soft);">(optional)</span>
+
+                            </label>
+
+                            <textarea
+                            id="house_rules"
+                            name="house_rules"
+                            placeholder="No smoking, quiet hours after 10pm...">{{ old.house_rules|default('') }}</textarea>
+
+                        </div>
+
+                        <div class="form-section-divider"></div>
+
+                        <!-- =============================================
+                         AMENITIES
+                    ============================================== -->
+                        <div class="input-group">
+
+                            <label>
+
+                                Amenities
+
+                            </label>
+
+                            <div class="amenities-grid">
+
+                                {% for am in amenity_options %}
+
+                                    <label class="amenity-checkbox">
+
+                                        <input
+                                            type="checkbox"
+                                            name="amenities[]"
+                                            value="{{ am.key }}"
+                                            data-label="{{ am.label }}"
+                                            {{ am.key in (old.amenities ?? []) ? 'checked' : '' }}
+                                        >
+
+                                        <span class="amenity-checkbox-icon" aria-hidden="true">
+
+                                            <i data-lucide="{{ am.icon }}"></i>
+
+                                        </span>
+
+                                        <span>
+
+                                            {{ am.label }}
+
+                                        </span>
+
+                                    </label>
+
+                                {% endfor %}
+
+                            </div>
+
+                        </div>
+
+                        <!-- =============================================
+                         ACTIONS
+                    ============================================== -->
+                        <div class="form-actions">
+
+                            {# Back link — goes to Step 1. Two details:
+                           (1) Path is /host/become-a-host (with hyphens)
+                           — matches the actual Symfony route. The old
+                           /host/becomeahost (no hyphens) 404'd.
+                           (2) ?edit=1 query param bypasses the resume
+                           check in HostApplicationController::apply()
+                           (cont-39) — without it, clicking Back would
+                           redirect the user right back to Step 2. #}
+                            <a
+                                href="/host/become-a-host?edit=1"
+                                class="back-button"
+                            >
+
+                                <i data-lucide="arrow-left" aria-hidden="true"></i>
+
+                                Back
+
+                            </a>
+
+                            <button
+                                type="submit"
+                                class="next-button"
+                            >
+
+                                Continue
+
+                                <i data-lucide="arrow-right" aria-hidden="true"></i>
+
+                            </button>
+
+                        </div>
+
+                    </form>
+
+                </section>
+
+                <!-- LIVE LISTING PREVIEW RAIL -->
+
+                <aside class="listing-preview-rail">
+
+                    <div class="listing-preview" id="listingPreview">
+
+                        <span class="listing-preview-label">
+
+                            LIVE PREVIEW
+
+                        </span>
+
+                        <div class="listing-preview-photo">
+
+                            Photos upload in Step 3
+
+                        </div>
+
+                        <div class="listing-preview-body">
+
+                            <h4
+                                class="listing-preview-title"
+                                id="previewTitle"
+                            >{{ old.title|default('Your space title') }}</h4>
+
+                            <p
+                                class="listing-preview-meta"
+                                id="previewMeta"
+                            >{{ old.location|default('Location appears here') }}</p>
+
+                            <div
+                                class="listing-preview-tags"
+                                id="previewTags"
+                            >
+
+                                {% for am in amenity_options %}
+
+                                    {% if am.key in (old.amenities ?? []) %}
+
+                                        <span class="listing-preview-tag">
+
+                                            {{ am.label }}
+
+                                        </span>
+
+                                    {% endif %}
+
+                                {% endfor %}
+
+                            </div>
+
+                            {# Server-rendered initial price (1:1 with the legacy
+                           "₱ " . number_format((float)$_POST["price"]) ternary).
+                           A numeric-string regex guards the number_format call
+                           against non-numeric junk on a failed POST; the JS
+                           syncPreviewPrice() overwrites this on load anyway. #}
+                            {% set old_price = old.price|default('') %}
+                            <p class="listing-preview-price">
+
+                                <span id="previewPrice">{{ old_price matches '/^-?\\d+(\\.\\d+)?$/' ? '₱ ' ~ old_price|number_format : '₱ 0' }}</span>
+
+                                <span> / month</span>
+
+                            </p>
+
+                        </div>
+
+                    </div>
+
+                </aside>
+
+            </div>
+
+        </main>
+
+        {# =========================================================
+       SHARED FOOTER (single source of truth — partials/footer.html.twig)
+    ========================================================= #}
+        {{ include('partials/footer.html.twig') }}
+
+        <!-- =========================================================
+         SCRIPTS
+    ========================================================== -->
+
+        <!-- Lucide icons — guarded loader (same key as navbar: never
+         double-runs). hs2RefreshIcons is kept as a thin alias so
+         any page reference keeps working. -->
+        <script>
+            (function () {
+                "use strict";
+
+                function renderRhIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
+                }
+
+                /* legacy alias — the page previously defined
+                                                   hs2RefreshIcons(); keep the same contract */
+                window.hs2RefreshIcons = renderRhIcons;
+
+                if (!window.__rhNavbarLucide) {
+                    window.__rhNavbarLucide = true;
+                    var s = document.createElement("script");
+                    s.src = "https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js";
+                    s.addEventListener("load", renderRhIcons);
+                    document.head.appendChild(s);
+                }
+
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", renderRhIcons);
+                } else {
+                    renderRhIcons();
+                }
+                window.addEventListener("load", renderRhIcons);
+            })();
+        </script>
+
+        <!-- Leaflet (free map) -->
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+        <script>
+        (function() {
+            "use strict";
+
+            /* =========================================================
+               PHP STATE — failed-POST restore + label maps.
+               Flags 15 = JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|
+               JSON_HEX_QUOT (the legacy $rh2JsonFlags) + |raw —
+               under autoescape:on the structural quotes would
+               otherwise become &quot; and kill every script on
+               the page; the HEX flags make the closing-script
+               sequence breakout impossible either way.
+               (NOTE: do NOT write the literal closing-tag sequence
+                inside a script body — the HTML parser closes the
+                script tag on sight, even inside JS comments.)
+            ========================================================= */
+            var RH2 = {
+                initial: {{ rh2_initial|default({'lat': null, 'lng': null})|json_encode(15)|raw }},
+                categories: {{ listing_categories|json_encode(15)|raw }},
+                propertyTypes: {{ property_types|json_encode(15)|raw }}
+            };
+
+            /* =========================================================
+               LIVE LISTING PREVIEW
+            ========================================================= */
+            var titleInput = document.getElementById('title');
+            var provinceIn = document.getElementById('province');
+            var cityIn = document.getElementById('city');
+            var categorySel = document.getElementById('category');
+            var propTypeSel = document.getElementById('property_type');
+            var priceInput = document.getElementById('price');
+
+            var previewTitle = document.getElementById('previewTitle');
+            var previewMeta = document.getElementById('previewMeta');
+            var previewTags = document.getElementById('previewTags');
+            var previewPrice = document.getElementById('previewPrice');
+
+            function labelByValue(map, value) {
+                if (!value) return '';
+                var keys = Object.keys(map);
+                for (var i = 0; i < keys.length; i++) {
+                    if (map[keys[i]] === value) return keys[i];
+                }
+                return '';
+            }
+
+            function syncPreviewMeta() {
+                if (!previewMeta) return;
+
+                /* cont-48: two-box location — preview shows
+                   "City, Province" composed from both boxes */
+                var locParts = [];
+                if (cityIn && cityIn.value.trim() !== '') {
+                    locParts.push(cityIn.value.trim());
+                }
+                if (provinceIn && provinceIn.value.trim() !== '') {
+                    locParts.push(provinceIn.value.trim());
+                }
+                var loc = locParts.length > 0 ?
+                    locParts.join(', ') :
+                    'Location appears here';
+
+                var cat = labelByValue(RH2.categories, categorySel && categorySel.value);
+                var pt = labelByValue(RH2.propertyTypes, propTypeSel && propTypeSel.value);
+
+                var bits = [loc];
+                if (cat) bits.push(cat);
+                if (pt) bits.push(pt);
+
+                previewMeta.textContent = bits.join(' · ');
+            }
+
+            function syncPreviewTags() {
+                if (!previewTags) return;
+
+                previewTags.innerHTML = '';
+
+                var boxes = document.querySelectorAll('.amenity-checkbox input[type="checkbox"]:checked');
+
+                Array.prototype.forEach.call(boxes, function(box) {
+                    var tag = document.createElement('span');
+                    tag.className = 'listing-preview-tag';
+                    tag.textContent = box.getAttribute('data-label') || box.value;
+                    previewTags.appendChild(tag);
+                });
+            }
+
+            function syncPreviewPrice() {
+                if (!previewPrice || !priceInput) return;
+
+                var v = parseFloat(priceInput.value);
+                previewPrice.textContent = (v > 0) ?
+                    '₱ ' + v.toLocaleString('en-US', {
+                        maximumFractionDigits: 2
+                    }) :
+                    '₱ 0';
+            }
+
+            if (titleInput && previewTitle) {
+                titleInput.addEventListener('input', function() {
+                    previewTitle.textContent = titleInput.value.trim() !== '' ?
+                        titleInput.value.trim() :
+                        'Your space title';
+                });
+            }
+
+            [provinceIn, cityIn, categorySel, propTypeSel].forEach(function(el) {
+                if (el) el.addEventListener('change', syncPreviewMeta);
+            });
+            if (provinceIn) provinceIn.addEventListener('input', syncPreviewMeta);
+            if (cityIn) cityIn.addEventListener('input', syncPreviewMeta);
+
+            Array.prototype.forEach.call(
+                document.querySelectorAll('.amenity-checkbox input[type="checkbox"]'),
+                function(box) {
+                    box.addEventListener('change', syncPreviewTags);
+                }
+            );
+
+            if (priceInput) priceInput.addEventListener('input', syncPreviewPrice);
+
+            /* initial sync (covers restored POST values) */
+            syncPreviewMeta();
+            syncPreviewTags();
+            syncPreviewPrice();
+
+            /* =========================================================
+               STICKY PREVIEW — .is-pinned at top:90px once scrolled.
+               Fixed positioning drops width, so it's applied inline.
+            ========================================================= */
+            var previewCard = document.getElementById('listingPreview');
+            var previewRail = document.querySelector('.listing-preview-rail');
+
+            if (previewCard && previewRail && window.innerWidth > 900) {
+
+                var railTop = previewRail.getBoundingClientRect().top + window.scrollY;
+                var cardWidth = previewCard.offsetWidth;
+
+                var onPreviewScroll = function() {
+                    var pinned = window.scrollY > (railTop - 100);
+
+                    previewCard.classList.toggle('is-pinned', pinned);
+                    previewCard.style.width = pinned ? cardWidth + 'px' : '';
+                };
+
+                window.addEventListener('scroll', onPreviewScroll, {
+                    passive: true
+                });
+
+                window.addEventListener('resize', function() {
+                    if (!previewCard.classList.contains('is-pinned')) {
+                        cardWidth = previewCard.offsetWidth;
+                        railTop = previewRail.getBoundingClientRect().top + window.scrollY;
+                    }
+                });
+            }
+
+            /* =========================================================
+               MAP PIN — Leaflet + OpenStreetMap
+               Click to pin, drag to adjust, "use my location",
+               reverse-geocode the address preview (Nominatim).
+            ========================================================= */
+            var mapEl = document.getElementById('locationMap');
+
+            if (mapEl && typeof L !== 'undefined') {
+
+                var map = L.map('locationMap').setView([9.3068, 123.3049], 12);
+
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19,
+                    attribution: '&copy; OpenStreetMap contributors'
+                }).addTo(map);
+
+                var pinStatus = document.getElementById('pinStatus');
+                var latInput = document.getElementById('latitudeInput');
+                var lngInput = document.getElementById('longitudeInput');
+                var addrPrev = document.getElementById('pinAddressPreview');
+                var locateBtn = document.getElementById('mapLocateBtn');
+
+                var marker = null;
+                var geocodeTimer = null;
+
+                function pinIcon() {
+                    return L.divIcon({
+                        className: 'rh-pin-icon',
+                        html: '<div class="rh-pin">📍</div>',
+                        iconSize: [30, 30],
+                        iconAnchor: [15, 30]
+                    });
+                }
+
+                function setPin(lat, lng, fromGps) {
+                    if (marker) {
+                        marker.setLatLng([lat, lng]);
+                    } else {
+                        marker = L.marker([lat, lng], {
+                            icon: pinIcon(),
+                            draggable: true
+                        }).addTo(map);
+
+                        marker.on('dragend', function() {
+                            var p = marker.getLatLng();
+                            commitPin(p.lat, p.lng, false);
+                        });
+                    }
+
+                    commitPin(lat, lng, fromGps);
+                }
+
+                function commitPin(lat, lng, fromGps) {
+                    if (latInput) latInput.value = lat.toFixed(6);
+                    if (lngInput) lngInput.value = lng.toFixed(6);
+
+                    if (pinStatus) {
+                        pinStatus.classList.add('has-pin');
+                        pinStatus.textContent = 'Pin set' +
+                            (fromGps ? ' (your location)' : '') +
+                            ' — drag or click to adjust';
+                    }
+
+                    if (addrPrev) {
+                        addrPrev.hidden = false;
+                        addrPrev.textContent = 'Looking up address…';
+                    }
+
+                    if (geocodeTimer) window.clearTimeout(geocodeTimer);
+                    geocodeTimer = window.setTimeout(function() {
+                        reverseGeocode(lat, lng);
+                    }, 500);
+                }
+
+                function reverseGeocode(lat, lng) {
+                    fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=' + lat + '&lon=' + lng)
+                        .then(function(res) {
+                            return res.json();
+                        })
+                        .then(function(data) {
+                            if (addrPrev) {
+                                addrPrev.textContent = data && data.display_name ?
+                                    data.display_name :
+                                    'Pin set at ' + lat.toFixed(5) + ', ' + lng.toFixed(5);
+                            }
+                        })
+                        .catch(function() {
+                            if (addrPrev) {
+                                addrPrev.textContent = 'Pin set at ' + lat.toFixed(5) + ', ' + lng.toFixed(5);
+                            }
+                        });
+                }
+
+                map.on('click', function(e) {
+                    setPin(e.latlng.lat, e.latlng.lng, false);
+                });
+
+                if (RH2.initial.lat !== null && RH2.initial.lng !== null) {
+                    setPin(RH2.initial.lat, RH2.initial.lng, false);
+                    map.setView([RH2.initial.lat, RH2.initial.lng], 16);
+                }
+
+                if (locateBtn) {
+                    locateBtn.addEventListener('click', function() {
+
+                        if (!navigator.geolocation) {
+                            if (pinStatus) pinStatus.textContent = 'Geolocation not supported — click the map instead';
+                            return;
+                        }
+
+                        locateBtn.disabled = true;
+                        if (pinStatus) {
+                            pinStatus.classList.remove('has-pin');
+                            pinStatus.textContent = 'Finding your location…';
+                        }
+
+                        navigator.geolocation.getCurrentPosition(
+                            function(pos) {
+                                locateBtn.disabled = false;
+
+                                var lat = pos.coords.latitude;
+                                var lng = pos.coords.longitude;
+
+                                map.setView([lat, lng], 16);
+                                setPin(lat, lng, true);
+                            },
+                            function() {
+                                locateBtn.disabled = false;
+                                if (pinStatus) {
+                                    pinStatus.textContent = 'Could not get your location — click the map instead';
+                                }
+                            }, {
+                                enableHighAccuracy: true,
+                                timeout: 10000
+                            }
+                        );
+                    });
+                }
+
+                /* =========================================================
+                   PLACES AUTOCOMPLETE BRIDGE (cont-36)
+                   Exposes a single callback on window so the Google
+                   Places Autocomplete script (loaded separately,
+                   below) can drive the Leaflet pin without breaking
+                   this IIFE's scope. The bridge closes over `map`
+                   and `setPin`, both of which are guaranteed to be
+                   defined when the bridge fires (the outer if-block
+                   has already executed). Places loader checks
+                   `typeof window.rhStep2PlaceSelected` before
+                   calling — graceful no-op if the map block never
+                   ran (e.g. Leaflet CDN failed to load).
+                ========================================================= */
+                window.rhStep2PlaceSelected = function(lat, lng) {
+                    if (!map || typeof setPin !== 'function') return;
+                    map.setView([lat, lng], 16);
+                    setPin(lat, lng, false);
+                };
+
+                /* reveal animation can size the container late */
+                window.setTimeout(function() {
+                    map.invalidateSize();
+                }, 250);
+            }
+        })();
+    </script>
+
+        {# =========================================================
+       GOOGLE PLACES AUTOCOMPLETE (cont-36)
+       Loads the Maps JS API + Places library only when:
+         (1) an API key was passed from the controller, AND
+         (2) the #location input actually exists on the page.
+       Graceful degradation: no key OR no input → script exits
+       early, location field stays a plain text input.
+
+       On place_changed:
+         - fills #location with formatted_address (falls back to
+           place.name for POIs without a street address)
+         - calls window.rhStep2PlaceSelected(lat, lng) — the
+           bridge above — which drops the Leaflet marker at the
+           chosen place and writes the hidden lat/lng inputs.
+
+       Philippines-only via componentRestrictions country: 'ph'.
+       types: ['geocode', 'establishment'] lets the dropdown
+       return both addresses (city/province/street) AND named
+       POIs (airport, market, mall) — matches the user's
+       "Dumaguete City / Dumaguete Airport / Dumaguete Public
+       Market" examples.
+
+       Cost note: Autocomplete is billed per session (a session
+       = one user typing until they pick a result). Free tier
+       gives $200/mo credit ≈ 10k sessions. Set a daily quota
+       cap in Google Cloud Console to prevent runaway bills.
+    ========================================================= #}
+        <script>
+            (function () {
+                "use strict";
+
+                var API_KEY = "{{ google_maps_api_key|default('') }}";
+                /* cont-48: Places now targets the CITY box — typing
+                                                   "Dumaguete" still returns city / airport / market
+                                                   matches, and the picked value lands in the lower
+                                                   box (the hidden location composer syncs from it). */
+                var locInput = document.getElementById("city");
+
+                if (!API_KEY || !locInput) {
+                    /* no key, or no input on this page — leave the
+                                                       field as a plain text input (legacy behaviour) */
+                    return;
+                }
+
+                if (window.__rhGoogleMapsLoaded) return;
+                window.__rhGoogleMapsLoaded = true;
+
+                /* The Maps API needs a global callback to invoke when
+                                                   it finishes loading. We define it BEFORE injecting
+                                                   the <script> tag so the callback always exists when
+                                                   the API calls it (race-free). */
+                window.initRhPlacesAutocomplete = function () {
+                    if (!window.google || !google.maps || !google.maps.places) {
+                        return;
+                    }
+                    if (!locInput) return;
+
+                    try {
+                        var autocomplete = new google.maps.places.Autocomplete(locInput, {
+                            types: ["geocode", "establishment"],
+                            componentRestrictions: { country: "ph" },
+                            fields: ["formatted_address", "geometry", "name"],
+                        });
+
+                        autocomplete.addListener("place_changed", function () {
+                            var place = autocomplete.getPlace();
+                            if (!place || !place.geometry) return;
+
+                            var lat = place.geometry.location.lat();
+                            var lng = place.geometry.location.lng();
+
+                            /* Fill the visible #city input with the
+                                                               formatted_address Google returns; for POIs
+                                                               that have no formatted_address (some
+                                                               airports/markets), fall back to place.name.
+                                                               cont-45 lesson: programmatic value changes
+                                                               fire no events — dispatch `input` so the
+                                                               hidden location composer + the live
+                                                               listing preview stay in sync. */
+                            if (place.formatted_address) {
+                                locInput.value = place.formatted_address;
+                            } else if (place.name) {
+                                locInput.value = place.name;
+                            }
+                            locInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+                            /* Drive the Leaflet map + hidden lat/lng via
+                                                               the bridge the main IIFE exposed. */
+                            if (typeof window.rhStep2PlaceSelected === "function") {
+                                window.rhStep2PlaceSelected(lat, lng);
+                            }
+                        });
+                    } catch (err) {
+                        /* API key invalid, billing disabled, or similar —
+                                                           fail silently so the rest of the page still
+                                                           works. Check browser console for the actual
+                                                           Google error message. */
+                        if (window.console && console.warn) {
+                            console.warn("Places Autocomplete init failed:", err);
+                        }
+                    }
+                };
+
+                /* Inject the Maps JS script with `callback=` so it
+                                                   calls our initRhPlacesAutocomplete once loaded.
+                                                   async+defer so it doesn't block the page render. */
+                var s = document.createElement("script");
+                s.src =
+                    "https://maps.googleapis.com/maps/api/js?key=" +
+                    encodeURIComponent(API_KEY) +
+                    "&libraries=places&callback=initRhPlacesAutocomplete";
+                s.async = true;
+                s.defer = true;
+                document.head.appendChild(s);
+            })();
+        </script>
+
+        {# =========================================================
+       LOCATION PICKERS (cont-48 — Step 1's two-box dropdowns
+       ported; supersedes cont-37 + cont-47)
+       Province (upper box) and City / Municipality (lower box)
+       each get one dropdown built by a shared picker factory:
+         - touch-to-open: focusing/clicking/tabbing into a box
+           shows its FULL list immediately (83 provinces; the
+           city pool narrowed by the picked province), scrollable,
+           no typing needed — typing still narrows to the top 7.
+         - picking a province pans/drops the Leaflet pin via the
+           same window.rhStep2PlaceSelected() bridge Google
+           Places uses; picking a city fills the lower box.
+         - while either dropdown is open,
+           body.rh-province-active hides Google's .pac-container
+           so the two never overlap (released only when BOTH
+           lists are closed — dual-dropdown guard).
+         - keyboard: ArrowDown/Up navigate, Enter selects,
+           Escape closes. Outside click closes; the field's own
+           label is exempt (it focuses + opens).
+         - the STACKING LIFT raises the open list's
+           .input-with-icon + .input-group to z-index 5000 so
+           later sibling groups can never paint over it
+           (cont-44 cure, see CSS above).
+         - HIDDEN COMPOSER: keeps #rhLocationField composed as
+           "City, Province" (every keystroke + submit) so the
+           controller's legacy `location` check keeps passing.
+    ========================================================= #}
+        <script>
+            (function () {
+                "use strict";
+
+                var provInput = document.getElementById("province");
+                var cityInput = document.getElementById("city");
+                if (!provInput) return;
+
+                /* =====================================================
+                                                   ALL 81 PH PROVINCES + Metro Manila (NCR) — the
+                                                   cont-37 dataset, unchanged. Centroids are
+                                                   approximate (province seat coordinates).
+                                                   Source: PSGC + openstreetmap data.
+                                                ===================================================== */
+                var PROVINCES = [
+                    { name: "Abra", lat: 17.585, lng: 120.8067 },
+                    { name: "Agusan del Norte", lat: 8.745, lng: 125.5067 },
+                    { name: "Agusan del Sur", lat: 8.5333, lng: 125.8833 },
+                    { name: "Aklan", lat: 11.825, lng: 122.35 },
+                    { name: "Albay", lat: 13.1667, lng: 123.4667 },
+                    { name: "Antique", lat: 11.2333, lng: 121.9333 },
+                    { name: "Apayao", lat: 18.1667, lng: 121.3667 },
+                    { name: "Aurora", lat: 15.8833, lng: 121.55 },
+                    { name: "Basilan", lat: 6.5833, lng: 122.0 },
+                    { name: "Bataan", lat: 14.6833, lng: 120.5333 },
+                    { name: "Batanes", lat: 20.5833, lng: 121.9667 },
+                    { name: "Batangas", lat: 13.75, lng: 121.0 },
+                    { name: "Benguet", lat: 16.55, lng: 120.5833 },
+                    { name: "Biliran", lat: 11.5833, lng: 124.4833 },
+                    { name: "Bohol", lat: 9.85, lng: 124.15 },
+                    { name: "Bukidnon", lat: 7.8667, lng: 125.1167 },
+                    { name: "Bulacan", lat: 14.7833, lng: 120.9 },
+                    { name: "Cagayan", lat: 18.0, lng: 121.6667 },
+                    { name: "Camarines Norte", lat: 14.2833, lng: 122.65 },
+                    { name: "Camarines Sur", lat: 13.55, lng: 123.25 },
+                    { name: "Camiguin", lat: 9.1667, lng: 124.7167 },
+                    { name: "Capiz", lat: 11.5833, lng: 122.75 },
+                    { name: "Catanduanes", lat: 13.5833, lng: 124.1167 },
+                    { name: "Cavite", lat: 14.2833, lng: 120.8667 },
+                    { name: "Cebu", lat: 10.3167, lng: 123.8833 },
+                    { name: "Cotabato", lat: 7.2167, lng: 124.8333 },
+                    { name: "Davao de Oro", lat: 7.6667, lng: 125.6667 },
+                    { name: "Davao del Norte", lat: 7.5667, lng: 125.6333 },
+                    { name: "Davao del Sur", lat: 6.75, lng: 125.35 },
+                    { name: "Davao Occidental", lat: 6.0833, lng: 125.1667 },
+                    { name: "Davao Oriental", lat: 7.0667, lng: 126.4667 },
+                    { name: "Dinagat Islands", lat: 10.1333, lng: 125.6167 },
+                    { name: "Eastern Samar", lat: 11.4333, lng: 125.5 },
+                    { name: "Guimaras", lat: 10.5833, lng: 122.4833 },
+                    { name: "Ifugao", lat: 16.8333, lng: 121.1667 },
+                    { name: "Ilocos Norte", lat: 18.5, lng: 120.8167 },
+                    { name: "Ilocos Sur", lat: 17.2167, lng: 120.45 },
+                    { name: "Iloilo", lat: 10.8667, lng: 122.5667 },
+                    { name: "Isabela", lat: 17.0667, lng: 121.9167 },
+                    { name: "Kalinga", lat: 17.6667, lng: 121.4167 },
+                    { name: "Laguna", lat: 14.1833, lng: 121.35 },
+                    { name: "Lanao del Norte", lat: 7.8333, lng: 123.75 },
+                    { name: "Lanao del Sur", lat: 7.8333, lng: 124.4167 },
+                    { name: "La Union", lat: 16.6167, lng: 120.3167 },
+                    { name: "Leyte", lat: 11.1667, lng: 124.5 },
+                    { name: "Maguindanao del Norte", lat: 7.1667, lng: 124.25 },
+                    { name: "Maguindanao del Sur", lat: 7.0, lng: 124.0 },
+                    { name: "Marinduque", lat: 13.4667, lng: 121.8667 },
+                    { name: "Masbate", lat: 12.25, lng: 123.6833 },
+                    { name: "Metro Manila", lat: 14.5995, lng: 120.9842 },
+                    { name: "Misamis Occidental", lat: 8.3333, lng: 123.7333 },
+                    { name: "Misamis Oriental", lat: 8.5833, lng: 124.6667 },
+                    { name: "Mountain Province", lat: 16.9667, lng: 120.9667 },
+                    { name: "Negros Occidental", lat: 10.2667, lng: 123.0167 },
+                    { name: "Negros Oriental", lat: 9.9167, lng: 123.25 },
+                    { name: "Northern Samar", lat: 12.4167, lng: 124.8 },
+                    { name: "Nueva Ecija", lat: 15.5833, lng: 121.0 },
+                    { name: "Nueva Vizcaya", lat: 16.3833, lng: 121.1833 },
+                    { name: "Occidental Mindoro", lat: 13.0667, lng: 120.4667 },
+                    { name: "Oriental Mindoro", lat: 13.0, lng: 121.4167 },
+                    { name: "Palawan", lat: 9.5833, lng: 118.3333 },
+                    { name: "Pampanga", lat: 15.0667, lng: 120.6833 },
+                    { name: "Pangasinan", lat: 15.9167, lng: 120.3167 },
+                    { name: "Quezon", lat: 13.9333, lng: 121.95 },
+                    { name: "Quirino", lat: 16.2333, lng: 121.5833 },
+                    { name: "Rizal", lat: 14.5, lng: 121.1667 },
+                    { name: "Romblon", lat: 12.0833, lng: 122.25 },
+                    { name: "Samar", lat: 11.8333, lng: 124.9667 },
+                    { name: "Sarangani", lat: 5.9667, lng: 124.9833 },
+                    { name: "Siquijor", lat: 9.2, lng: 123.5833 },
+                    { name: "Sorsogon", lat: 12.9333, lng: 124.0 },
+                    { name: "South Cotabato", lat: 6.4167, lng: 124.75 },
+                    { name: "Southern Leyte", lat: 10.3333, lng: 125.1667 },
+                    { name: "Sultan Kudarat", lat: 6.6667, lng: 124.5 },
+                    { name: "Sulu", lat: 6.0, lng: 120.75 },
+                    { name: "Surigao del Norte", lat: 9.6667, lng: 125.4833 },
+                    { name: "Surigao del Sur", lat: 8.5833, lng: 126.1667 },
+                    { name: "Tarlac", lat: 15.4667, lng: 120.5833 },
+                    { name: "Tawi-Tawi", lat: 5.1667, lng: 119.9167 },
+                    { name: "Zambales", lat: 14.9667, lng: 119.9667 },
+                    { name: "Zamboanga del Norte", lat: 8.4167, lng: 123.4167 },
+                    { name: "Zamboanga del Sur", lat: 7.8333, lng: 123.0 },
+                    { name: "Zamboanga Sibugay", lat: 7.75, lng: 122.5833 },
+                ];
+
+                /* =====================================================
+                                                   PH CITIES / MUNICIPALITIES (cont-48 — ported 1:1
+                                                   from Step 1's two-box dataset). Each entry pairs a
+                                                   city/municipality with the province its dropdown
+                                                   pool narrows to.
+                                                ===================================================== */
+                var CITIES = [
+                    /* Metro Manila (NCR) */
+                    { name: "Caloocan City", province: "Metro Manila" },
+                    { name: "Las Piñas City", province: "Metro Manila" },
+                    { name: "Makati City", province: "Metro Manila" },
+                    { name: "Malabon City", province: "Metro Manila" },
+                    { name: "Mandaluyong City", province: "Metro Manila" },
+                    { name: "Manila", province: "Metro Manila" },
+                    { name: "Marikina City", province: "Metro Manila" },
+                    { name: "Muntinlupa City", province: "Metro Manila" },
+                    { name: "Navotas City", province: "Metro Manila" },
+                    { name: "Parañaque City", province: "Metro Manila" },
+                    { name: "Pasay City", province: "Metro Manila" },
+                    { name: "Pasig City", province: "Metro Manila" },
+                    { name: "Pateros", province: "Metro Manila" },
+                    { name: "Quezon City", province: "Metro Manila" },
+                    { name: "San Juan City", province: "Metro Manila" },
+                    { name: "Taguig City", province: "Metro Manila" },
+                    { name: "Valenzuela City", province: "Metro Manila" },
+                    /* CAR */
+                    { name: "Baguio City", province: "Benguet" },
+                    { name: "Tabuk City", province: "Kalinga" },
+                    { name: "Bangued", province: "Abra" },
+                    { name: "Bontoc", province: "Mountain Province" },
+                    { name: "Lagawe", province: "Ifugao" },
+                    { name: "Luna", province: "Apayao" },
+                    /* Region I */
+                    { name: "San Fernando City", province: "La Union" },
+                    { name: "Vigan City", province: "Ilocos Sur" },
+                    { name: "Candon City", province: "Ilocos Sur" },
+                    { name: "Laoag City", province: "Ilocos Norte" },
+                    { name: "Batac City", province: "Ilocos Norte" },
+                    { name: "Alaminos City", province: "Pangasinan" },
+                    { name: "Dagupan City", province: "Pangasinan" },
+                    { name: "San Carlos City", province: "Pangasinan" },
+                    { name: "Urdaneta City", province: "Pangasinan" },
+                    /* Region II */
+                    { name: "Tuguegarao City", province: "Cagayan" },
+                    { name: "Santiago City", province: "Isabela" },
+                    { name: "Cauayan City", province: "Isabela" },
+                    { name: "Ilagan City", province: "Isabela" },
+                    { name: "Bayombong", province: "Nueva Vizcaya" },
+                    { name: "Cabarroguis", province: "Quirino" },
+                    { name: "Basco", province: "Batanes" },
+                    /* Region III */
+                    { name: "Angeles City", province: "Pampanga" },
+                    { name: "Mabalacat City", province: "Pampanga" },
+                    { name: "Malolos City", province: "Bulacan" },
+                    { name: "Meycauayan City", province: "Bulacan" },
+                    { name: "San Jose del Monte City", province: "Bulacan" },
+                    { name: "Balanga City", province: "Bataan" },
+                    { name: "Tarlac City", province: "Tarlac" },
+                    { name: "Cabanatuan City", province: "Nueva Ecija" },
+                    { name: "Gapan City", province: "Nueva Ecija" },
+                    { name: "Science City of Muñoz", province: "Nueva Ecija" },
+                    { name: "San Jose City", province: "Nueva Ecija" },
+                    { name: "Palayan City", province: "Nueva Ecija" },
+                    { name: "Olongapo City", province: "Zambales" },
+                    /* Region IV-A */
+                    { name: "Antipolo City", province: "Rizal" },
+                    { name: "Tagaytay City", province: "Cavite" },
+                    { name: "Bacoor City", province: "Cavite" },
+                    { name: "Cavite City", province: "Cavite" },
+                    { name: "Dasmariñas City", province: "Cavite" },
+                    { name: "General Trias City", province: "Cavite" },
+                    { name: "Imus City", province: "Cavite" },
+                    { name: "Trece Martires City", province: "Cavite" },
+                    { name: "Batangas City", province: "Batangas" },
+                    { name: "Lipa City", province: "Batangas" },
+                    { name: "Tanauan City", province: "Batangas" },
+                    { name: "Santo Tomas City", province: "Batangas" },
+                    { name: "Calamba City", province: "Laguna" },
+                    { name: "San Pablo City", province: "Laguna" },
+                    { name: "Santa Rosa City", province: "Laguna" },
+                    { name: "Biñan City", province: "Laguna" },
+                    { name: "Cabuyao City", province: "Laguna" },
+                    { name: "San Pedro City", province: "Laguna" },
+                    { name: "Lucena City", province: "Quezon" },
+                    { name: "Tayabas City", province: "Quezon" },
+                    /* MIMAROPA */
+                    { name: "Calapan City", province: "Oriental Mindoro" },
+                    { name: "Puerto Princesa City", province: "Palawan" },
+                    { name: "Mamburao", province: "Occidental Mindoro" },
+                    { name: "Boac", province: "Marinduque" },
+                    { name: "Romblon", province: "Romblon" },
+                    { name: "Coron", province: "Palawan" },
+                    { name: "El Nido", province: "Palawan" },
+                    /* Region V */
+                    { name: "Legazpi City", province: "Albay" },
+                    { name: "Ligao City", province: "Albay" },
+                    { name: "Tabaco City", province: "Albay" },
+                    { name: "Iriga City", province: "Camarines Sur" },
+                    { name: "Sorsogon City", province: "Sorsogon" },
+                    { name: "Masbate City", province: "Masbate" },
+                    { name: "Daet", province: "Camarines Norte" },
+                    { name: "Virac", province: "Catanduanes" },
+                    { name: "Pili", province: "Camarines Sur" },
+                    /* Region VI */
+                    { name: "Iloilo City", province: "Iloilo" },
+                    { name: "Passi City", province: "Iloilo" },
+                    { name: "Roxas City", province: "Capiz" },
+                    { name: "Bacolod City", province: "Negros Occidental" },
+                    { name: "Bago City", province: "Negros Occidental" },
+                    { name: "Bais City", province: "Negros Oriental" },
+                    { name: "Bayawan City", province: "Negros Oriental" },
+                    { name: "Cadiz City", province: "Negros Occidental" },
+                    { name: "Canlaon City", province: "Negros Oriental" },
+                    { name: "Dumaguete City", province: "Negros Oriental" },
+                    { name: "Escalante City", province: "Negros Occidental" },
+                    { name: "Himamaylan City", province: "Negros Occidental" },
+                    { name: "Kabankalan City", province: "Negros Occidental" },
+                    { name: "Sagay City", province: "Negros Occidental" },
+                    { name: "Silay City", province: "Negros Occidental" },
+                    { name: "Sipalay City", province: "Negros Occidental" },
+                    { name: "Talisay City", province: "Negros Occidental" },
+                    { name: "Tanjay City", province: "Negros Oriental" },
+                    { name: "Victorias City", province: "Negros Occidental" },
+                    { name: "San Jose", province: "Antique" },
+                    { name: "Jordan", province: "Guimaras" },
+                    { name: "Kalibo", province: "Aklan" },
+                    /* Region VII */
+                    { name: "Cebu City", province: "Cebu" },
+                    { name: "Mandaue City", province: "Cebu" },
+                    { name: "Lapu-Lapu City", province: "Cebu" },
+                    { name: "Toledo City", province: "Cebu" },
+                    { name: "Bogo City", province: "Cebu" },
+                    { name: "Carcar City", province: "Cebu" },
+                    { name: "Danao City", province: "Cebu" },
+                    { name: "Tagbilaran City", province: "Bohol" },
+                    { name: "Siquijor", province: "Siquijor" },
+                    /* Region VIII */
+                    { name: "Tacloban City", province: "Leyte" },
+                    { name: "Baybay City", province: "Leyte" },
+                    { name: "Ormoc City", province: "Leyte" },
+                    { name: "Catbalogan City", province: "Samar" },
+                    { name: "Calbayog City", province: "Samar" },
+                    { name: "Borongan City", province: "Eastern Samar" },
+                    { name: "Maasin City", province: "Southern Leyte" },
+                    { name: "Catarman", province: "Northern Samar" },
+                    /* Region IX */
+                    { name: "Zamboanga City", province: "Zamboanga del Sur" },
+                    { name: "Dapitan City", province: "Zamboanga del Norte" },
+                    { name: "Dipolog City", province: "Zamboanga del Norte" },
+                    { name: "Isabela City", province: "Basilan" },
+                    { name: "Pagadian City", province: "Zamboanga del Sur" },
+                    { name: "Ipil", province: "Zamboanga Sibugay" },
+                    /* Region X */
+                    { name: "Cagayan de Oro City", province: "Misamis Oriental" },
+                    { name: "El Salvador City", province: "Misamis Oriental" },
+                    { name: "Gingoog City", province: "Misamis Oriental" },
+                    { name: "Iligan City", province: "Lanao del Norte" },
+                    { name: "Malaybalay City", province: "Bukidnon" },
+                    { name: "Valencia City", province: "Bukidnon" },
+                    { name: "Oroquieta City", province: "Misamis Occidental" },
+                    { name: "Ozamiz City", province: "Misamis Occidental" },
+                    { name: "Tangub City", province: "Misamis Occidental" },
+                    { name: "Mambajao", province: "Camiguin" },
+                    /* Region XI */
+                    { name: "Davao City", province: "Davao del Sur" },
+                    { name: "Tagum City", province: "Davao del Norte" },
+                    { name: "Panabo City", province: "Davao del Norte" },
+                    { name: "Samal City", province: "Davao del Norte" },
+                    { name: "Mati City", province: "Davao Oriental" },
+                    { name: "Digos City", province: "Davao del Sur" },
+                    { name: "Nabunturan", province: "Davao de Oro" },
+                    { name: "Malita", province: "Davao Occidental" },
+                    /* Region XII */
+                    { name: "General Santos City", province: "South Cotabato" },
+                    { name: "Koronadal City", province: "South Cotabato" },
+                    { name: "Kidapawan City", province: "Cotabato" },
+                    { name: "Tacurong City", province: "Sultan Kudarat" },
+                    { name: "Alabel", province: "Sarangani" },
+                    /* Caraga */
+                    { name: "Butuan City", province: "Agusan del Norte" },
+                    { name: "Cabadbaran City", province: "Agusan del Norte" },
+                    { name: "Bayugan City", province: "Agusan del Sur" },
+                    { name: "Surigao City", province: "Surigao del Norte" },
+                    { name: "Bislig City", province: "Surigao del Sur" },
+                    { name: "Tandag City", province: "Surigao del Sur" },
+                    /* BARMM */
+                    { name: "Marawi City", province: "Lanao del Sur" },
+                    { name: "Lamitan City", province: "Basilan" },
+                    { name: "Jolo", province: "Sulu" },
+                    { name: "Bongao", province: "Tawi-Tawi" },
+                ];
+
+                /* =====================================================
+                                                   SHARED PICKER FACTORY (cont-48 — Step 1's
+                                                   createRhDropdown ported over with all its fixes:
+                                                   cont-44 var-in-applyPick + stacking lift, cont-45
+                                                   input-dispatch on pick, cont-46 touch-to-open +
+                                                   stale-list focus + guarded blur, open-implies-focus)
+                                                   Creates one single-panel dropdown under the given
+                                                   input. opts:
+                                                     input        HTMLInputElement (required)
+                                                     headerLabel  string shown in the sticky header
+                                                     tag          pill text ("Province" / "City")
+                                                     findMatches  function(query) → [{ name, sub?, lat?, lng? }]
+                                                     allMatches   function() → full touch-to-open list
+                                                     applyPick    function(item) → sets input value
+                                                ===================================================== */
+                function createRhPicker(opts) {
+                    var input = opts.input;
+                    if (!input) return;
+
+                    var wrapper = input.closest(".input-with-icon") || input.parentElement;
+                    if (!wrapper) return;
+
+                    /* STACKING LIFT host: the .input-group around the
+                                                       input is raised (z-index 5000) while the dropdown
+                                                       is open — later sibling groups (Exact Address,
+                                                       map pin) that style.css may put in their own
+                                                       stacking contexts can then never paint over the
+                                                       open list (cont-44 cure). */
+                    var group = input.closest(".input-group");
+
+                    var dropdown = document.createElement("div");
+                    dropdown.className = "rh-province-dropdown";
+                    dropdown.setAttribute("role", "listbox");
+                    dropdown.setAttribute("aria-label", opts.headerLabel);
+                    dropdown.id = "rhDd_" + input.id;
+
+                    var header = document.createElement("div");
+                    header.className = "rh-province-header";
+                    header.textContent = opts.headerLabel;
+
+                    var listEl = document.createElement("div");
+                    listEl.className = "rh-province-list";
+
+                    dropdown.appendChild(header);
+                    dropdown.appendChild(listEl);
+                    wrapper.appendChild(dropdown);
+
+                    var highlightedIndex = -1;
+                    var currentItems = [];
+
+                    function escapeHtml(s) {
+                        return String(s).replace(/[&<>"']/g, function (c) {
+                            return {
+                                "&": "&amp;",
+                                "<": "&lt;",
+                                ">": "&gt;",
+                                '"': "&quot;",
+                                "'": "&#39;",
+                            }[c];
+                        });
+                    }
+
+                    var MAP_PIN_SVG =
+                        '<span class="rh-province-icon">' +
+                        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ' +
+                        'fill="none" stroke="currentColor" stroke-width="2" ' +
+                        'stroke-linecap="round" stroke-linejoin="round">' +
+                        '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>' +
+                        '<circle cx="12" cy="10" r="3"/></svg></span>';
+
+                    function open() {
+                        dropdown.classList.add("is-open");
+                        /* while one of our dropdowns is open, hide
+                                                           Google's .pac-container so the two never
+                                                           overlap (cont-37 rule) */
+                        document.body.classList.add("rh-province-active");
+                        /* STACKING LIFT (cont-44 cure) */
+                        wrapper.classList.add("rh-dd-host");
+                        if (group) group.classList.add("rh-dd-host-group");
+                    }
+
+                    function close() {
+                        dropdown.classList.remove("is-open");
+                        wrapper.classList.remove("rh-dd-host");
+                        if (group) group.classList.remove("rh-dd-host-group");
+                        highlightedIndex = -1;
+                        /* cont-48: TWO dropdowns share
+                                                           body.rh-province-active — drop it only when
+                                                           neither list is open any more. Switching
+                                                           boxes re-opens the new list before the old
+                                                           one's blur-close fires, so an unconditional
+                                                           remove would expose Google's pac-container
+                                                           while the second list is still open. */
+                        if (!document.querySelector(".rh-province-dropdown.is-open")) {
+                            document.body.classList.remove("rh-province-active");
+                        }
+                    }
+
+                    function updateHighlight() {
+                        var items = listEl.querySelectorAll(".rh-province-item");
+                        items.forEach(function (el, i) {
+                            el.classList.toggle("is-highlighted", i === highlightedIndex);
+                        });
+                        if (highlightedIndex >= 0 && items[highlightedIndex]) {
+                            items[highlightedIndex].scrollIntoView({ block: "nearest" });
+                        }
+                    }
+
+                    function render(matches) {
+                        currentItems = matches;
+                        highlightedIndex = -1;
+                        listEl.innerHTML = "";
+
+                        if (matches.length === 0) {
+                            close();
+                            return;
+                        }
+
+                        matches.forEach(function (item) {
+                            var el = document.createElement("div");
+                            el.className = "rh-province-item";
+                            el.setAttribute("role", "option");
+                            el.setAttribute("tabindex", "-1");
+
+                            var nameHtml = escapeHtml(item.name);
+                            if (item.sub) {
+                                nameHtml +=
+                                    '<span class="rh-province-sub"> — ' +
+                                    escapeHtml(item.sub) +
+                                    "</span>";
+                            }
+
+                            el.innerHTML =
+                                MAP_PIN_SVG +
+                                '<span class="rh-province-name">' +
+                                nameHtml +
+                                "</span>" +
+                                '<span class="rh-province-tag">' +
+                                escapeHtml(opts.tag) +
+                                "</span>";
+
+                            /* mousedown (not click) so the input hasn't
+                                                               lost focus yet when we fill it — prevents
+                                                               the blur handler from racing the pick. */
+                            el.addEventListener("mousedown", function (e) {
+                                e.preventDefault();
+                                opts.applyPick(item);
+                                /* cont-45: programmatic value changes fire
+                                                                   no events — dispatch `input` so the
+                                                                   hidden location composer + the live
+                                                                   listing preview stay in sync. (The
+                                                                   factory's own input listener re-renders
+                                                                   + re-opens; close() below runs last, so
+                                                                   the dropdown still ends closed.) */
+                                input.dispatchEvent(new Event("input", { bubbles: true }));
+                                close();
+                            });
+
+                            listEl.appendChild(el);
+                        });
+
+                        open();
+                    }
+
+                    /* cont-46/47: touch-to-open — the full list on
+                                                       focus, no typing needed. */
+                    function showAll() {
+                        render(opts.allMatches());
+                    }
+
+                    input.addEventListener("input", function () {
+                        var q = this.value.trim().toLowerCase();
+                        if (q.length < 1) {
+                            /* clearing the text while the box is still
+                                                               focused (backspace to empty) re-shows the
+                                                               full list instead of closing */
+                            if (document.activeElement === input) {
+                                showAll();
+                            } else {
+                                close();
+                            }
+                            return;
+                        }
+                        render(opts.findMatches(q));
+                    });
+
+                    /* focus = touching/clicking/tabbing into the box —
+                                                       ALWAYS refresh to the full list. No is-open guard:
+                                                       when switching boxes the old dropdown can still
+                                                       be "open" (its blur-close is pending) and a
+                                                       guarded focus would show a STALE list (cont-46). */
+                    input.addEventListener("focus", function () {
+                        showAll();
+                    });
+
+                    /* Second click/tap on an ALREADY-focused input fires
+                                                       no focus event — mousedown reopens the full list
+                                                       in that case. When the list is already open this
+                                                       is a no-op (keeps any typed filter). focus() runs
+                                                       first when the input somehow isn't focused yet:
+                                                       opening must always leave the field focused,
+                                                       otherwise no blur ever fires on it and the
+                                                       guarded blur-close below could never close the
+                                                       list. */
+                    input.addEventListener("mousedown", function () {
+                        if (document.activeElement !== input) input.focus();
+                        if (!dropdown.classList.contains("is-open")) showAll();
+                    });
+
+                    input.addEventListener("keydown", function (e) {
+                        if (e.key === "Escape") {
+                            close();
+                            return;
+                        }
+                        if (!dropdown.classList.contains("is-open")) return;
+
+                        if (e.key === "ArrowDown") {
+                            e.preventDefault();
+                            highlightedIndex = Math.min(
+                                highlightedIndex + 1,
+                                currentItems.length - 1,
+                            );
+                            updateHighlight();
+                        } else if (e.key === "ArrowUp") {
+                            e.preventDefault();
+                            highlightedIndex = Math.max(highlightedIndex - 1, 0);
+                            updateHighlight();
+                        } else if (e.key === "Enter" && highlightedIndex >= 0) {
+                            e.preventDefault();
+                            opts.applyPick(currentItems[highlightedIndex]);
+                            /* cont-45: same sync as the mousedown pick */
+                            input.dispatchEvent(new Event("input", { bubbles: true }));
+                            close();
+                        }
+                    });
+
+                    input.addEventListener("blur", function () {
+                        /* cont-46: only close if focus did NOT come back
+                                                           within the grace period — switching boxes
+                                                           within 150ms must not close the freshly
+                                                           opened list. */
+                        window.setTimeout(function () {
+                            if (document.activeElement !== input) close();
+                        }, 150);
+                    });
+
+                    document.addEventListener("click", function (e) {
+                        /* ignore clicks on the field's own label —
+                                                           clicking it focuses the input (which opens
+                                                           the list) and must not instantly close it
+                                                           again via this outside-click closer. */
+                        var labelGroup = input.closest(".input-group");
+                        var label = labelGroup ? labelGroup.querySelector("label") : null;
+                        if (
+                            !dropdown.contains(e.target) &&
+                            e.target !== input &&
+                            !(label && label.contains(e.target))
+                        ) {
+                            close();
+                        }
+                    });
+                }
+
+                /* =====================================================
+                                                   INSTANCE 1 — PROVINCE dropdown on the UPPER box
+                                                   Picking a province pans/drops the Leaflet pin via
+                                                   the same window.rhStep2PlaceSelected() bridge the
+                                                   Google Places script uses (cont-37 behaviour kept).
+                                                ===================================================== */
+                createRhPicker({
+                    input: provInput,
+                    headerLabel: "Provinces",
+                    tag: "Province",
+                    findMatches: function (q) {
+                        return PROVINCES.filter(function (p) {
+                            return p.name.toLowerCase().indexOf(q) !== -1;
+                        })
+                            .slice(0, 7)
+                            .map(function (p) {
+                                return { name: p.name, lat: p.lat, lng: p.lng };
+                            });
+                    },
+                    /* touch-to-open shows ALL 83 provinces, scrollable */
+                    allMatches: function () {
+                        return PROVINCES.slice();
+                    },
+                    applyPick: function (item) {
+                        /* cont-44 CRITICAL: `var` — this handler is
+                                                           defined OUTSIDE createRhPicker and cannot see
+                                                           the factory's locals; a bare assignment throws
+                                                           a silent strict-mode ReferenceError on EVERY
+                                                           pick (the suggestion visibly does nothing). */
+                        var input = document.getElementById("province");
+                        if (input) input.value = item.name;
+
+                        if (typeof window.rhStep2PlaceSelected === "function") {
+                            window.rhStep2PlaceSelected(item.lat, item.lng);
+                        }
+                    },
+                });
+
+                /* =====================================================
+                                                   CITY POOL — narrows to the selected province's
+                                                   cities when #province holds a known province name,
+                                                   else all cities (same rule as Step 1's rhCityPool).
+                                                ===================================================== */
+                function rhCityPool() {
+                    var provVal = provInput.value.trim().toLowerCase();
+                    var pool = CITIES;
+
+                    if (provVal !== "") {
+                        var inProv = CITIES.filter(function (c) {
+                            return c.province.toLowerCase() === provVal;
+                        });
+                        /* only narrow when the province value actually
+                                                           matches a known province — free-typed text
+                                                           that matches nothing keeps the full list */
+                        if (inProv.length > 0) pool = inProv;
+                    }
+
+                    return pool;
+                }
+
+                /* =====================================================
+                                                   INSTANCE 2 — CITY dropdown on the LOWER box
+                                                   Typing narrows to the top 7; touch-to-open shows the
+                                                   FULL pool (the province's cities when one is picked,
+                                                   else all of them).
+                                                ===================================================== */
+                createRhPicker({
+                    input: cityInput,
+                    headerLabel: "Cities",
+                    tag: "City",
+                    findMatches: function (q) {
+                        return rhCityPool()
+                            .filter(function (c) {
+                                return c.name.toLowerCase().indexOf(q) !== -1;
+                            })
+                            .slice(0, 7)
+                            .map(function (c) {
+                                return { name: c.name, sub: c.province };
+                            });
+                    },
+                    allMatches: function () {
+                        return rhCityPool().map(function (c) {
+                            return { name: c.name, sub: c.province };
+                        });
+                    },
+                    applyPick: function (item) {
+                        var input = document.getElementById("city");
+                        if (input) input.value = item.name;
+                    },
+                });
+
+                /* =====================================================
+                                                   HIDDEN location COMPOSER (cont-48 — Step 1's cont-45
+                                                   pattern). The visible form posts `province` + `city`,
+                                                   but the controller still validates/saves the legacy
+                                                   single `location` key. This keeps #rhLocationField
+                                                   composed as "City, Province" on every keystroke AND
+                                                   at submit time, so the controller's location check
+                                                   keeps passing with NO controller change. Controllers
+                                                   reading province + city directly simply ignore it.
+                                                ===================================================== */
+                var locationField = document.getElementById("rhLocationField");
+
+                function syncLocationField() {
+                    if (!locationField) return;
+
+                    var parts = [];
+                    if (cityInput && cityInput.value.trim() !== "") {
+                        parts.push(cityInput.value.trim());
+                    }
+                    if (provInput && provInput.value.trim() !== "") {
+                        parts.push(provInput.value.trim());
+                    }
+                    locationField.value = parts.join(", ");
+                }
+
+                if (provInput) provInput.addEventListener("input", syncLocationField);
+                if (cityInput) cityInput.addEventListener("input", syncLocationField);
+
+                /* belt and suspenders: re-compose right before the
+                                                   POST even if some path changed a value without an
+                                                   input event */
+                var rhForm = document.getElementById("hostStep2Form");
+                if (rhForm) rhForm.addEventListener("submit", syncLocationField);
+            })();
+        </script>
+
+
+    </body>
+
+</html>

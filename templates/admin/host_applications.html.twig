@@ -1,0 +1,917 @@
+{# roomhive/admin/host_applications.html.twig
+   Admin › Host Applications — extends admin/base.html.twig.
+
+   Two-pane layout: filter tabs + table on the left, detail panel
+   for the selected applicant on the right. Per-row three-dot menu
+   detaches to <body> when opened (same JS pattern as the
+   listing-applications page).
+
+   Actions: approve (is_host=1 + bell notification) / reject
+   (is_host=0 + bell notification) / delete (bare DELETE, no
+   cascade).
+
+   NOTE: the dedicated eye page (legacy hostapplicationeye.php)
+   hasn't been ported yet. The eye icon in each row links back to
+   this page with the ?id= param — it selects that applicant in
+   the right-hand detail panel, which already shows every field.
+#}
+{% extends 'admin/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'Host Applications' %}
+{% set page_heading = 'Host Applications' %}
+{% set page_subheading = 'Review and manage users who want to become hosts.' %}
+
+{% block styles %}
+    <style>
+        /* ---- Two-pane layout ---- */
+        .applications-content {
+            display: grid;
+            grid-template-columns: 1fr 360px;
+            gap: 20px;
+            align-items: start;
+        }
+        @media (max-width: 1100px) {
+            .applications-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* ---- Filter tabs ---- */
+        .filter-tabs {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+        }
+        .filter-tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border-radius: 10px;
+            background: #f6f7fb;
+            color: #5b6172;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            transition:
+                background 0.15s ease,
+                color 0.15s ease;
+        }
+        .filter-tab:hover {
+            background: #eef1f6;
+            color: #14142b;
+        }
+        .filter-tab.active {
+            background: #14142b;
+            color: #fff;
+        }
+        .filter-tab .icon {
+            width: 14px;
+            height: 14px;
+        }
+
+        /* ---- Table ---- */
+        .table-scroll {
+            overflow-x: auto;
+        }
+        table.app-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        table.app-table th {
+            text-align: left;
+            color: #8b93a6;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            padding: 10px 12px;
+            border-bottom: 1px solid #eef1f6;
+            white-space: nowrap;
+        }
+        table.app-table td {
+            padding: 12px;
+            border-bottom: 1px solid #f6f7fb;
+            vertical-align: middle;
+        }
+        table.app-table tr {
+            cursor: pointer;
+            transition: background 0.12s ease;
+        }
+        table.app-table tr:hover {
+            background: #fafbfd;
+        }
+        table.app-table tr.selected {
+            background: #fff7ea;
+        }
+        table.app-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .applicant-cell {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 220px;
+        }
+        .applicant-cell img {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            object-fit: cover;
+            background: #eda423;
+            flex-shrink: 0;
+        }
+        .people-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+        .people-name {
+            font-weight: 600;
+            color: #14142b;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .people-sub {
+            font-size: 12px;
+            color: #8b93a6;
+        }
+
+        .date-applied {
+            display: flex;
+            flex-direction: column;
+        }
+        .date-applied .time {
+            font-size: 11px;
+            color: #8b93a6;
+            margin-top: 2px;
+        }
+
+        .badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 9px;
+            border-radius: 999px;
+            display: inline-block;
+        }
+
+        /* ---- Row action buttons ---- */
+        .action-buttons {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+        .action-divider {
+            display: inline-block;
+            width: 1px;
+            height: 22px;
+            background: #eef1f6;
+        }
+
+        .btn-view {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            border: 1px solid #eef1f6;
+            background: #f6f7fb;
+            color: #5b6172;
+            text-decoration: none;
+            transition:
+                background 0.15s ease,
+                color 0.15s ease,
+                border-color 0.15s ease;
+        }
+        .btn-view:hover {
+            background: #eaf2fe;
+            color: #2f7de1;
+            border-color: #2f7de1;
+        }
+        .btn-view .icon {
+            width: 14px;
+            height: 14px;
+        }
+
+        .action-menu {
+            position: relative;
+        }
+        .btn-more {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            border: 1px solid #eef1f6;
+            background: #f6f7fb;
+            color: #5b6172;
+            cursor: pointer;
+            transition:
+                background 0.15s ease,
+                color 0.15s ease;
+        }
+        .btn-more:hover {
+            background: #eef1f6;
+            color: #14142b;
+        }
+        .btn-more .icon {
+            width: 14px;
+            height: 14px;
+        }
+
+        .action-dropdown {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            min-width: 200px;
+            background: #fff;
+            border: 1px solid #eef1f6;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(20, 20, 43, 0.18);
+            padding: 6px;
+        }
+        .action-dropdown.show {
+            display: block;
+        }
+        .action-dropdown form {
+            margin: 0;
+        }
+        .dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            padding: 8px 10px;
+            border: none;
+            background: transparent;
+            font-size: 13px;
+            font-weight: 600;
+            color: #14142b;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: left;
+            font-family: inherit;
+        }
+        .dropdown-item:hover {
+            background: #f6f7fb;
+        }
+        .dropdown-item .icon {
+            width: 14px;
+            height: 14px;
+        }
+        .accept-item:hover {
+            background: #e7f7ec;
+            color: #2fa84f;
+        }
+        .reject-item:hover,
+        .delete-item:hover {
+            background: #fceaea;
+            color: #e14b4b;
+        }
+
+        /* ---- Pagination ---- */
+        .pagination {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            padding: 18px 0 4px;
+            flex-wrap: wrap;
+        }
+        .page-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 34px;
+            height: 34px;
+            padding: 0 10px;
+            border: 1px solid #eef1f6;
+            background: #fff;
+            color: #14142b;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            transition:
+                background 0.15s ease,
+                border-color 0.15s ease;
+        }
+        .page-btn:hover {
+            background: #f6f7fb;
+            border-color: #d0d4dd;
+        }
+        .page-btn.active {
+            background: #14142b;
+            color: #fff;
+            border-color: #14142b;
+        }
+        .page-btn .icon {
+            width: 14px;
+            height: 14px;
+        }
+        .pagination-info {
+            margin-left: auto;
+            font-size: 12px;
+            color: #8b93a6;
+        }
+
+        /* ---- Detail panel (right column) ---- */
+        .detail-panel {
+            background: #fff;
+            border: 1px solid #eef1f6;
+            border-radius: 14px;
+            padding: 18px;
+            position: sticky;
+            top: 90px;
+        }
+        .detail-empty {
+            text-align: center;
+            padding: 40px 16px;
+            color: #8b93a6;
+            font-size: 13px;
+        }
+        .detail-empty .empty-icon {
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
+        .detail-empty .empty-icon .icon {
+            width: 32px;
+            height: 32px;
+        }
+
+        .detail-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+        }
+        .detail-header h2 {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 700;
+            color: #14142b;
+        }
+
+        .detail-profile {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .detail-profile img {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            object-fit: cover;
+            flex-shrink: 0;
+            background: #eda423;
+        }
+        .detail-name {
+            font-weight: 700;
+            color: #14142b;
+            font-size: 14px;
+            margin: 0 0 4px;
+        }
+        .detail-meta-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #8b93a6;
+            margin-top: 3px;
+        }
+        .detail-meta-row .icon {
+            width: 12px;
+            height: 12px;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px 14px;
+            margin-top: 14px;
+        }
+        .info-item span {
+            display: block;
+        }
+        .info-label {
+            font-size: 11px;
+            color: #8b93a6;
+            font-weight: 600;
+        }
+        .info-value {
+            font-size: 13px;
+            color: #14142b;
+            font-weight: 600;
+            margin-top: 2px;
+        }
+
+        .detail-section {
+            margin-top: 16px;
+            padding-top: 14px;
+            border-top: 1px solid #f6f7fb;
+        }
+        .detail-section h3 {
+            margin: 0 0 8px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #8b93a6;
+        }
+
+        .doc-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .doc-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12.5px;
+            color: #14142b;
+            padding: 6px 8px;
+            background: #f6f7fb;
+            border-radius: 6px;
+            text-decoration: none;
+        }
+        .doc-item:hover {
+            background: #eaf2fe;
+            color: #2f7de1;
+        }
+        .doc-item .icon {
+            width: 13px;
+            height: 13px;
+            color: #8b93a6;
+        }
+
+        .submitted-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 16px;
+            padding-top: 14px;
+            border-top: 1px solid #f6f7fb;
+            font-size: 13px;
+        }
+
+        .detail-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        .detail-actions form {
+            flex: 1;
+            margin: 0;
+        }
+        .btn-approve,
+        .btn-reject {
+            width: 100%;
+            border: none;
+            padding: 10px;
+            border-radius: 9px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .btn-approve {
+            background: #2fa84f;
+            color: #fff;
+        }
+        .btn-approve:hover {
+            background: #289043;
+        }
+        .btn-reject {
+            background: #fff;
+            color: #e14b4b;
+            border: 1px solid #e14b4b;
+        }
+        .btn-reject:hover {
+            background: #fceaea;
+        }
+
+        .detail-note {
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+            font-size: 11.5px;
+            color: #8b93a6;
+            margin-top: 10px;
+            line-height: 1.5;
+        }
+        .detail-note .icon {
+            width: 13px;
+            height: 13px;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+
+        /* ---- Flash banner ---- */
+        .flash-banner {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 16px;
+        }
+        .flash-banner.success {
+            background: #e7f7ec;
+            color: #2fa84f;
+        }
+        .flash-banner.error {
+            background: #fceaea;
+            color: #e14b4b;
+        }
+        .flash-banner .icon {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 16px;
+            color: #8b93a6;
+        }
+        .empty-state .empty-icon {
+            opacity: 0.5;
+            margin-bottom: 12px;
+        }
+        .empty-state .empty-icon .icon {
+            width: 32px;
+            height: 32px;
+        }
+        .empty-state p {
+            font-size: 13px;
+            margin: 0;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    {% if flash %}
+        <div class="flash-banner {{ flash.type }}">
+            {{ ui.icon(flash.type == 'success' ? 'check-circle' : 'alert-triangle') }}
+            <span>{{ flash.text }}</span>
+        </div>
+    {% endif %}
+
+    <div class="applications-content">
+        {# ============ LEFT: filter tabs + table ============ #}
+        <div class="applications-main">
+            <div class="filter-tabs">
+                <a
+                    class="filter-tab {{ filter == 'all' ? 'active' : '' }}"
+                    href="?{{ {filter: 'all'}|url_encode }}"
+                >
+                    {{ ui.icon('person') }} All ({{ counts.all }})
+                </a>
+                <a
+                    class="filter-tab {{ filter == 'pending' ? 'active' : '' }}"
+                    href="?{{ {filter: 'pending'}|url_encode }}"
+                >
+                    {{ ui.icon('clock') }} Pending ({{ counts.pending }})
+                </a>
+                <a
+                    class="filter-tab {{ filter == 'approved' ? 'active' : '' }}"
+                    href="?{{ {filter: 'approved'}|url_encode }}"
+                >
+                    {{ ui.icon('check-circle') }} Approved ({{ counts.approved }})
+                </a>
+                <a
+                    class="filter-tab {{ filter == 'rejected' ? 'active' : '' }}"
+                    href="?{{ {filter: 'rejected'}|url_encode }}"
+                >
+                    {{ ui.icon('x-circle') }} Rejected ({{ counts.rejected }})
+                </a>
+            </div>
+
+            <div class="table-scroll">
+                <table class="app-table">
+                    <thead>
+                        <tr>
+                            <th>Applicant</th>
+                            <th>Date Applied</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if page_items is empty %}
+                            <tr>
+                                <td colspan="4">
+                                    <div class="empty-state">
+                                        <div class="empty-icon">{{ ui.icon('inbox') }}</div>
+                                        <p>{{ counts.all == 0 ? 'No host applications yet.' : 'No applications match this filter.' }}</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% else %}
+                            {% for a in page_items %}
+                                <tr
+                                    class="{{ a.id == selected.id ? 'selected' : '' }}"
+                                    onclick="location.href='?{{ {filter: filter, page: page, id: a.id}|url_encode }}'"
+                                >
+                                    <td>
+                                        <div class="applicant-cell">
+                                            <img src="{{ a.avatar }}" alt="{{ a.name }}">
+                                            <div class="people-info">
+                                                <span class="people-name">{{ a.name }}</span>
+                                                <span class="people-sub">{{ a.city }}</span>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="date-applied">
+                                            {{ a.date }}
+                                            <span class="time">{{ a.time }}</span>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge {{ badge_class_map[a.status] ?? '' }}">{{ a.status }}</span>
+                                    </td>
+                                    <td onclick="event.stopPropagation()">
+                                        <div class="action-buttons">
+                                            {# Eye — opens dedicated full application eye viewer #}
+                                            <a
+                                                class="btn-view"
+                                                href="{{ path('app_admin_host_application_eye', {id: a.id}) }}?{{ {filter: filter, page: page}|url_encode }}"
+                                                aria-label="View application details"
+                                            >
+                                                {{ ui.icon('eye') }}
+                                            </a>
+                                            <span class="action-divider"></span>
+
+                                            {# Three-dot dropdown menu #}
+                                            <div class="action-menu">
+                                                <button
+                                                    type="button"
+                                                    class="btn-more"
+                                                    onclick="event.stopPropagation(); toggleActionMenu(this)"
+                                                    aria-label="More actions"
+                                                >
+                                                    {{ ui.icon('more-vertical') }}
+                                                </button>
+                                                <div class="action-dropdown">
+                                                    <form method="post" action="{{ path('app_admin_host_applications') }}?{{ {filter: filter, page: page}|url_encode }}">
+                                                        <input type="hidden" name="csrf_token" value="{{ admin_csrf }}">
+                                                        <input type="hidden" name="id" value="{{ a.id }}">
+                                                        <input type="hidden" name="action" value="approve">
+                                                        <button
+                                                            type="submit"
+                                                            class="dropdown-item accept-item"
+                                                            onclick="return confirm('Approve {{ a.name|e('js') }}' + String.fromCharCode(39) + 's host application?')"
+                                                        >
+                                                            {{ ui.icon('check-circle') }} <span>Accept</span>
+                                                        </button>
+                                                    </form>
+                                                    <form method="post" action="{{ path('app_admin_host_applications') }}?{{ {filter: filter, page: page}|url_encode }}">
+                                                        <input type="hidden" name="csrf_token" value="{{ admin_csrf }}">
+                                                        <input type="hidden" name="id" value="{{ a.id }}">
+                                                        <input type="hidden" name="action" value="reject">
+                                                        <button
+                                                            type="submit"
+                                                            class="dropdown-item reject-item"
+                                                            onclick="return confirm('Reject {{ a.name|e('js') }}' + String.fromCharCode(39) + 's host application?')"
+                                                        >
+                                                            {{ ui.icon('x-circle') }} <span>Reject</span>
+                                                        </button>
+                                                    </form>
+                                                    <form method="post" action="{{ path('app_admin_host_applications') }}?{{ {filter: filter, page: page}|url_encode }}">
+                                                        <input type="hidden" name="csrf_token" value="{{ admin_csrf }}">
+                                                        <input type="hidden" name="id" value="{{ a.id }}">
+                                                        <input type="hidden" name="action" value="delete">
+                                                        <button
+                                                            type="submit"
+                                                            class="dropdown-item delete-item"
+                                                            onclick="return confirm('Delete {{ a.name|e('js') }}' + String.fromCharCode(39) + 's host application permanently?')"
+                                                        >
+                                                            {{ ui.icon('trash') }} <span>Delete</span>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+
+            {% if total_items > 0 %}
+                <div class="pagination">
+                    <a class="page-btn" href="?{{ {filter: filter, page: max(1, page - 1)}|url_encode }}">{{ ui.icon('chevron-left') }}</a>
+                    {% for p in 1..total_pages %}
+                        <a
+                            class="page-btn {{ p == page ? 'active' : '' }}"
+                            href="?{{ {filter: filter, page: p}|url_encode }}"
+                        >{{ p }}</a>
+                    {% endfor %}
+                    <a class="page-btn" href="?{{ {filter: filter, page: min(total_pages, page + 1)}|url_encode }}">{{ ui.icon('chevron-right') }}</a>
+                    <span class="pagination-info">
+                        Showing {{ offset + 1 }} to {{ min(total_items, offset + per_page) }} of {{ total_items }} results
+                    </span>
+                </div>
+            {% endif %}
+        </div>
+
+        {# ============ RIGHT: detail panel ============ #}
+        <div>
+            <div class="detail-panel">
+                {% if not selected %}
+                    <div class="detail-empty">
+                        <div class="empty-icon">{{ ui.icon('inbox') }}</div>
+                        <p>{{ counts.all == 0 ? 'No host applications yet. Once someone applies to become a host, their details will show up here.' : 'Select an application to view its details.' }}</p>
+                    </div>
+                {% else %}
+                    <div class="detail-header">
+                        <h2>Application Details</h2>
+                        <a href="?{{ {filter: filter, page: page}|url_encode }}" class="btn-view" aria-label="Close">✕</a>
+                    </div>
+
+                    <div class="detail-profile">
+                        <img src="{{ selected.avatar }}" alt="{{ selected.name }}">
+                        <div>
+                            <p class="detail-name">{{ selected.name }}</p>
+                            <div class="detail-meta-row">{{ ui.icon('mail') }} {{ selected.email }}</div>
+                            <div class="detail-meta-row">{{ ui.icon('phone') }} {{ selected.phone ?: '—' }}</div>
+                        </div>
+                    </div>
+                    <div class="detail-meta-row" style="margin-top:10px;">
+                        {{ ui.icon('pin') }} {{ selected.city }}
+                    </div>
+                    <div class="detail-meta-row">
+                        {{ ui.icon('calendar-small') }} Member since {{ selected.member_since }}
+                    </div>
+
+                    <div class="detail-section">
+                        <h3>Identification</h3>
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <span class="info-label">ID Type</span>
+                                <span class="info-value">{{ selected.id_type|replace({'-': ' '})|title }}</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">ID Number</span>
+                                <span class="info-value">{{ selected.id_number }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="detail-section">
+                        <h3>Uploaded Document</h3>
+                        <div class="doc-list">
+                            {% if selected.id_file %}
+                                <a class="doc-item" href="{{ selected.id_file }}" target="_blank" rel="noopener">
+                                    {{ ui.icon('file') }} View Uploaded ID
+                                </a>
+                            {% else %}
+                                <div class="doc-item">{{ ui.icon('file') }} No file on record</div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="submitted-row">
+                        <span class="info-label">Submitted on</span>
+                        <span class="info-value">{{ selected.date }} {{ selected.time }}</span>
+                    </div>
+
+                    {% if selected.status == 'Pending' %}
+                        <div class="detail-actions">
+                            <form method="post" action="{{ path('app_admin_host_applications') }}?{{ {filter: filter, page: page, id: selected.id}|url_encode }}">
+                                <input type="hidden" name="csrf_token" value="{{ admin_csrf }}">
+                                <input type="hidden" name="id" value="{{ selected.id }}">
+                                <input type="hidden" name="action" value="reject">
+                                <button
+                                    type="submit"
+                                    class="btn-reject"
+                                    onclick="return confirm('Reject {{ selected.name|e('js') }}' + String.fromCharCode(39) + 's host application?')"
+                                >
+                                    Reject Application
+                                </button>
+                            </form>
+                            <form method="post" action="{{ path('app_admin_host_applications') }}?{{ {filter: filter, page: page, id: selected.id}|url_encode }}">
+                                <input type="hidden" name="csrf_token" value="{{ admin_csrf }}">
+                                <input type="hidden" name="id" value="{{ selected.id }}">
+                                <input type="hidden" name="action" value="approve">
+                                <button
+                                    type="submit"
+                                    class="btn-approve"
+                                    onclick="return confirm('Approve {{ selected.name|e('js') }}' + String.fromCharCode(39) + 's host application?')"
+                                >
+                                    Approve Application
+                                </button>
+                            </form>
+                        </div>
+                        <div class="detail-note">
+                            {{ ui.icon('lock') }}
+                            <span>You can approve or reject this application. The user will be notified of your decision.</span>
+                        </div>
+                    {% else %}
+                        <div class="detail-note">
+                            {{ ui.icon('lock') }}
+                            <span>This application has already been {{ selected.status|lower }}.</span>
+                        </div>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        /*
+         * Three-dot action menu — physically moves the dropdown to <body>
+         * when it opens so the table row's stacking/positioning context
+         * can't affect its layout. Only one menu open at a time. Closes
+         * on click-outside, scroll, resize, or Escape.
+         */
+        function toggleActionMenu(button) {
+            var menu = button.nextElementSibling;
+            if (!menu) return;
+
+            var isOpen = menu.classList.contains("show");
+            closeAllActionMenus();
+            if (isOpen) return;
+            openActionMenu(menu, button);
+        }
+
+        function openActionMenu(menu, button) {
+            menu._homeParent = menu.parentNode;
+            menu._homeNext = menu.nextSibling;
+            menu._homeButton = button;
+
+            document.body.appendChild(menu);
+            menu.classList.add("show");
+            positionActionMenu(menu, button);
+        }
+
+        function positionActionMenu(menu, button) {
+            var rect = button.getBoundingClientRect();
+            var menuWidth = menu.offsetWidth;
+            var menuHeight = menu.offsetHeight;
+
+            var left = rect.right - menuWidth;
+            var top = rect.bottom + 7;
+
+            if (left < 8) left = 8;
+            if (top + menuHeight > window.innerHeight - 8) {
+                top = rect.top - menuHeight - 7;
+            }
+
+            menu.style.left = left + "px";
+            menu.style.top = top + "px";
+        }
+
+        function closeAllActionMenus() {
+            document.querySelectorAll(".action-dropdown.show").forEach(function (menu) {
+                menu.classList.remove("show");
+                menu.style.left = "";
+                menu.style.top = "";
+
+                if (menu._homeParent) {
+                    if (
+                        menu._homeNext &&
+                        menu._homeNext.parentNode === menu._homeParent
+                    ) {
+                        menu._homeParent.insertBefore(menu, menu._homeNext);
+                    } else {
+                        menu._homeParent.appendChild(menu);
+                    }
+                    menu._homeParent = null;
+                    menu._homeNext = null;
+                    menu._homeButton = null;
+                }
+            });
+        }
+
+        document.addEventListener("click", function (event) {
+            if (
+                !event.target.closest(".action-menu") &&
+                !event.target.closest(".action-dropdown")
+            ) {
+                closeAllActionMenus();
+            }
+        });
+        window.addEventListener("scroll", closeAllActionMenus, true);
+        window.addEventListener("resize", closeAllActionMenus);
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "Escape") closeAllActionMenus();
+        });
+    </script>
+{% endblock %}

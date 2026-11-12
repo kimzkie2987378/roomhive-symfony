@@ -16,7 +16,7 @@ final class AuthController extends AbstractController
          1. Put ADMIN_SETUP_PASSWORD=<plaintext> in .env
          2. Load /login once → hash written to var/
          3. REMOVE the line from .env
-         Later: delete var/roomhive_admin_hash.php, repeat.
+       Later: delete var/roomhive_admin_hash.php, repeat.
        Permanent alternative: ADMIN_PASSWORD_HASH in .env
        (escape each $ as $$).
     ========================================================== */
@@ -89,7 +89,7 @@ final class AuthController extends AbstractController
             $error = $googleErrorCodes[$googleError];
         }
 
-        /* ---- NEW: ?created=1&email=... from register() —
+        /* ---- ?created=1&email=... from register() —
                 show the success message and prefill the email ---- */
         if ((string) $request->query->get('created') === '1') {
             $success  = 'Account created! Log in with your new credentials.';
@@ -197,14 +197,17 @@ final class AuthController extends AbstractController
 
     /* =========================================================
        REGISTER — port of createaccount.php.
-       Same validation chain (required fields → email format →
-       password ≥ 8 → confirm match → terms), same duplicate-
-       email guard, bcrypt hash, minimal INSERT (name, email,
-       password — the same columns the legacy page wrote).
+       SPLIT NAME FIELDS: the template posts first_name + last_name
+       (two separate inputs side-by-side). This method combines
+       them into the single `name` column ("First Last"). NO DB
+       CHANGE — every other page keeps reading `name` untouched.
 
-       NEW vs legacy: CSRF on the POST. On success we do NOT
-       log the user in — redirect to the login form with
-       ?created=1&email=... (which login() now honors).
+       Validation chain: required fields → email format →
+       password ≥ 8 → confirm match → terms → duplicate-email
+       guard → bcrypt INSERT. On success we do NOT log the user
+       in — redirect to the login form with ?created=1&email=...
+       (which login() honors with a success banner + prefilled
+       email).
     ========================================================== */
     #[Route('/register', name: 'app_register', methods: ['GET', 'POST'])]
     public function register(Request $request): Response
@@ -222,22 +225,25 @@ final class AuthController extends AbstractController
         }
 
         $error = '';
-        $old   = ['full_name' => '', 'email' => ''];
+        /* The template reads old.first_name / old.last_name / old.email —
+           keys must match the field names exactly. */
+        $old = ['first_name' => '', 'last_name' => '', 'email' => ''];
 
         $csrf = $this->ensureCsrfToken($request, self::CSRF_REG);
 
         if ($request->isMethod('POST')) {
 
-            $old['full_name'] = trim((string) $request->request->get('full_name', ''));
-            $old['email']     = trim((string) $request->request->get('email', ''));
-            $password         = (string) $request->request->get('password', '');
-            $confirmPassword  = (string) $request->request->get('confirm_password', '');
-            $terms            = $request->request->getBoolean('terms');
+            $old['first_name'] = trim((string) $request->request->get('first_name', ''));
+            $old['last_name']  = trim((string) $request->request->get('last_name', ''));
+            $old['email']      = trim((string) $request->request->get('email', ''));
+            $password          = (string) $request->request->get('password', '');
+            $confirmPassword   = (string) $request->request->get('confirm_password', '');
+            $terms             = $request->request->getBoolean('terms');
 
             /* ---- Validation — same order/messages as legacy ---- */
             if (
-                $old['full_name'] === '' || $old['email'] === ''
-                || $password === '' || $confirmPassword === ''
+                $old['first_name'] === '' || $old['last_name'] === ''
+                || $old['email'] === '' || $password === '' || $confirmPassword === ''
             ) {
                 $error = 'Please fill in all required fields.';
             } elseif (!filter_var($old['email'], FILTER_VALIDATE_EMAIL)) {
@@ -260,9 +266,14 @@ final class AuthController extends AbstractController
                     $error = 'An account with that email already exists.';
                 } else {
 
+                    /* ---- Combine First + Last into the single `name`
+                            column. NO DB CHANGE — every page that reads
+                            `name` keeps working untouched. ---- */
+                    $fullName = $old['first_name'] . ' ' . $old['last_name'];
+
                     /* ---- Create the account (bcrypt) ---- */
                     $this->db->insert('users', [
-                        'name'     => $old['full_name'],
+                        'name'     => $fullName,
                         'email'    => $old['email'],
                         'password' => password_hash($password, PASSWORD_DEFAULT),
                     ]);

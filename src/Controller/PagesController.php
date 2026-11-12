@@ -118,30 +118,4 @@ final class PagesController extends AbstractController
 
         return $response;
     }
-
-    /* =========================================================
-       PLACEHOLDER PAGES.
-       ⚠ NEVER add /logout, /login, /register, /forgot-password
-       or /become-a-host here — they live in their own methods/
-       controllers. A duplicate /logout PATH here would shadow
-       the real logout depending on method order (that bug
-       caused "logout doesn't work").
-
-       NOTE: app_listing_payment (/listings/{id}/payment) was
-       DELETED from this controller — PaymentController::choose()
-       owns that route name. Two methods with the same route
-       name would crash Symfony.
-    ========================================================== */
-    #[Route('/profile', name: 'app_profile')]
-    #[Route('/messages', name: 'app_messages')]
-    #[Route('/settings', name: 'app_settings')]
-    #[Route('/notifications', name: 'app_notifications')]
-    #[Route('/wallet', name: 'app_wallet')]
-    public function comingSoon(Request $request): Response
-    {
-        return $this->render('pages/coming-soon.html.twig', [
-            'page_name'    => $request->attributes->get('_route'),
-            'current_page' => $request->getPathInfo(),
-        ]);
-    }
 }

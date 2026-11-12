@@ -1,0 +1,1222 @@
+{# =========================================================
+   RoomHive — My Account › Payments
+   templates/user/payments.html.twig
+
+   REBUILT onto the shared account shell — same recipe as
+   notifications / bookings:
+
+     - Sidebar: shared partial templates/partials/sidebar.html.twig,
+       highlight key 'payments'. The inline sidebar copy + its CSS
+       are gone; the collapse JS stays on this page.
+     - Footer: shared partials/footer.html.twig (= user_footer.php).
+     - Lucide: guarded loader (window.__rhNavbarLucide — never
+       double-loads with the navbar's).
+     - Reveal: the REAL legacy mechanism (.up-reveal waits for
+       .in-view) + the 1.5s failsafe — the old kill-switch CSS
+       is gone.
+
+   PENDING TO PAY REMOVED (template-only change):
+     - The pending-payment notice (ok/warn by pending_to_pay)
+       that sat ABOVE the shell is GONE.
+     - The "Pending to Pay" stat card is GONE — the stats row is
+       3 cards now (Paid This Week / Total Paid All Time /
+       Refunded) on a 3-column grid (2-col / 1-col responsive
+       steps unchanged).
+     - The notice's now-dead page-local CSS (.up-notice-wrap,
+       .up-notice, .up-notice-ok, .up-notice-warn,
+       .up-stat-icon-pending) is removed with it.
+     - PaymentController is untouched — it still passes
+       pending_to_pay; the template simply no longer renders it.
+     - Payment HISTORY rows (paid/partial/unpaid/refunded pills)
+       are NOT touched — history keeps showing real payment
+       statuses.
+
+   NAVBAR CLEARANCE + LAYOUT — page-local, bulletproof (same fix
+   as the notifications page):
+     - The notice that used to sit above the shell is gone, so
+       main.up-dashboard carries the fixed-navbar clearance
+       itself: padding-top: 110px (padding can never collapse,
+       margins can) + max-width: 1560px — occupies the available
+       area instead of the legacy ~1240px cap.
+     - .up-dashboard .up-sidebar { top: 110px; } — the sticky offset
+       matches the other account pages, so the sidebar stays clear
+       of the navbar while scrolling (the partial's default is 86px).
+
+   Payments content:
+   - 3 stat cards, peso sign above the count-up number
+   - Payment History card, Payment Methods card, navy
+     honeycomb "Need Help?" card
+
+   PAYMENT HISTORY — NO REACT ISLAND (fix: payments now ALWAYS
+   show in the history card):
+     - The old card mounted the legacy React bundle
+       public/assets/react/payment-history.js — that file never
+       shipped with this port, so only the card header rendered
+       and the history stayed EMPTY.
+     - Now the rows are rendered SERVER-SIDE by Twig straight
+       from the `history` array PaymentController already passes
+       (controller untouched). Filter tabs (All / Paid / Partial
+       / Unpaid / Refunded with live per-tab counts), status
+       pills, remaining amounts and per-tab empty states are
+       plain markup + a ~40-line vanilla filter script at the
+       bottom of the page — SAME class names as the legacy
+       island stylesheet (.upay-filters / .upay-tab /
+       .up-booking-row / .up-status-*), same look.
+     - Progressive enhancement: without JavaScript every row
+       still renders. Nothing to copy from webprogg, no build
+       step, no external bundle.
+
+   Data comes from PaymentController::index (user, is_host,
+   history, history_total, pending_to_pay, all_time, this_week,
+   refunded_total, notif_count, payment_methods). Row fields
+   used: label, ref, link, total, remaining, date_label,
+   pay_state (paid | partial | unpaid | refunded) — all
+   supplied by the controller. No template-side money math,
+   no status logic. Controller untouched — template-only
+   change.
+========================================================= #}
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>My Account · RoomHive</title>
+
+        <script>
+            /* theme boot — before paint (same key as the rest of the app) */
+            (function () {
+                try {
+                    if (localStorage.getItem("roomhive_theme") === "dark") {
+                        document.documentElement.classList.add("dark");
+                        document.documentElement.setAttribute("data-theme", "dark");
+                    }
+                } catch (e) {}
+            })();
+            document.documentElement.classList.add("js");
+        </script>
+
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/myaccount.css') }}">
+
+        <style>
+            :root {
+                --rh-ink: #1c2a38;
+                --rh-muted: #66788a;
+                --rh-line: #e6ebf1;
+                --rh-card: #ffffff;
+                --rh-accent: #eda423;
+                --rh-accent-deep: #d98c12;
+                --rh-radius: 16px;
+                --rh-green: #1fa971;
+                --rh-green-bg: #e8f7ef;
+                --rh-blue: #2f7de1;
+                --rh-blue-bg: #e9f2fd;
+            }
+
+            body {
+                background: #f3f5f9;
+            }
+
+            .up-dashboard,
+            .up-dashboard * {
+                box-sizing: border-box;
+            }
+
+            svg.lucide {
+                vertical-align: -0.18em;
+                flex-shrink: 0;
+            }
+
+            /* =========================================
+                           NAVBAR CLEARANCE + LAYOUT — page-local,
+                           bulletproof. Same principle as the notifications
+                           fix: plain .up-dashboard rules can lose to
+                           myaccount.css and top margins can collapse away.
+                           The pending-payment notice that used to sit above
+                           the shell is gone, so main.up-dashboard carries
+                           the fixed-navbar clearance itself: padding-top:
+                           110px (same 110px line as the other account pages
+                           — padding can never collapse, margins can).
+                        ========================================== */
+            main.up-dashboard {
+                margin-top: 0;
+                padding: 110px 20px 70px;
+                max-width: 1560px;
+            }
+
+            /* keep the shell's vertical rhythm between the stats row
+                                                                           and the two-column area (myaccount.css owns the rest) */
+            .up-dashboard .up-content {
+                gap: 20px;
+            }
+
+            /* sticky offset matches the other account pages — when you
+                                                                           scroll, the sidebar sticks at the 110px line instead of
+                                                                           tucking under the navbar (the partial's default is 86px) */
+            .up-dashboard .up-sidebar {
+                top: 110px;
+            }
+
+            /* ================= stat cards ================= */
+            .up-stats {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 18px;
+            }
+            .up-stat-card {
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                background: var(--rh-card);
+                border: 1px solid var(--rh-line);
+                border-radius: var(--rh-radius);
+                padding: 18px;
+                min-width: 0;
+                box-shadow: 0 10px 30px rgba(28, 42, 56, 0.05);
+            }
+            .up-stat-card strong {
+                display: block;
+                font-size: 15px;
+                font-weight: 800;
+                color: var(--rh-ink);
+                line-height: 1.25;
+            }
+            .up-stat-card strong span[data-count] {
+                display: block;
+                font-size: 15.5px;
+                letter-spacing: -0.01em;
+            }
+            .up-peso {
+                font-weight: 600;
+                font-size: 13px;
+                opacity: 0.85;
+            }
+            .up-stat-label {
+                display: block;
+                margin-top: 3px;
+                font-size: 11.5px;
+                font-weight: 600;
+                color: var(--rh-muted);
+            }
+            .up-stat-icon {
+                width: 34px;
+                height: 34px;
+                stroke-width: 1.8;
+                flex-shrink: 0;
+            }
+            .up-stat-icon-paid {
+                color: var(--rh-green);
+            }
+            .up-stat-icon-total {
+                color: var(--rh-accent-deep);
+            }
+            .up-stat-icon-refund {
+                color: var(--rh-blue);
+            }
+
+            /* ================= cards / two-col ================= */
+            .up-two-col {
+                display: grid;
+                grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+                gap: 18px;
+                align-items: start;
+            }
+            .up-col {
+                display: flex;
+                flex-direction: column;
+                gap: 18px;
+                min-width: 0;
+            }
+            .up-bookings-card {
+                min-height: 340px;
+            }
+            .up-card-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                margin-bottom: 14px;
+            }
+            .up-card-head h3 {
+                margin: 0;
+                font-size: 16px;
+                color: var(--rh-ink);
+            }
+            .up-rec-count {
+                font-size: 12.5px;
+                font-weight: 700;
+                color: var(--rh-accent-deep);
+            }
+
+            /* ================= payment methods ================= */
+            .up-methods-empty {
+                text-align: center;
+                padding: 28px 10px 14px;
+            }
+            .up-methods-empty p:first-child {
+                margin: 0;
+                font-size: 15px;
+                font-weight: 700;
+                color: var(--rh-ink);
+            }
+            .up-methods-empty p:last-child {
+                margin: 6px 0 0;
+                font-size: 12.5px;
+                color: var(--rh-muted);
+            }
+            .up-method-item {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 11px 4px;
+                border-top: 1px solid var(--rh-line);
+            }
+            .up-method-item img {
+                width: 42px;
+                height: 28px;
+                object-fit: contain;
+                border-radius: 6px;
+            }
+            .up-method-item strong {
+                display: block;
+                font-size: 13px;
+                color: var(--rh-ink);
+            }
+            .up-method-item span {
+                display: block;
+                font-size: 11px;
+                color: var(--rh-muted);
+            }
+
+            /* ================= receipts + waiting list =================
+                           Receipts card — the file is the source of truth:
+                           public/uploads/signatures/booking-{id}.png (written by
+                           SignReceiptController when the host signs). Signed → the
+                           receipt is RECORDED here with the host's signature
+                           thumbnail + a View Receipt link; unsigned while the
+                           booking is still active → WAITING LIST. */
+            .up-receipts-card {
+                min-height: 120px;
+            }
+            .up-rc-group-head {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+                margin: 14px 0 2px;
+                font-size: 11.5px;
+                font-weight: 800;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                color: var(--rh-green);
+            }
+            .up-rc-group-head svg {
+                width: 14px;
+                height: 14px;
+            }
+            .up-rc-group-head-wait {
+                color: var(--rh-accent-deep);
+            }
+            .up-rc-row {
+                display: flex;
+                align-items: flex-start;
+                gap: 12px;
+                padding: 13px 4px;
+                border-top: 1px solid var(--rh-line);
+            }
+            .up-rc-row-wait {
+                opacity: 0.92;
+            }
+            .up-rc-ico {
+                width: 20px;
+                height: 20px;
+                stroke-width: 1.9;
+                flex-shrink: 0;
+                margin-top: 2px;
+            }
+            .up-rc-ico-ok {
+                color: var(--rh-green);
+            }
+            .up-rc-ico-wait {
+                color: var(--rh-accent-deep);
+            }
+            .up-rc-main {
+                flex: 1 1 auto;
+                min-width: 0;
+            }
+            .up-rc-title {
+                display: block;
+                font-size: 14.5px;
+                font-weight: 700;
+                color: var(--rh-ink);
+            }
+            .up-rc-meta {
+                display: block;
+                margin-top: 3px;
+                font-size: 12px;
+                color: var(--rh-muted);
+            }
+            .up-rc-sigline {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                margin-top: 7px;
+                font-size: 11.5px;
+                color: var(--rh-muted);
+            }
+            .up-rc-sig {
+                height: 26px;
+                max-width: 120px;
+                object-fit: contain;
+                border-radius: 6px;
+                background: #ffffff;
+                border: 1px dashed var(--rh-line);
+                padding: 3px 6px;
+            }
+            .up-rc-side {
+                text-align: right;
+                flex-shrink: 0;
+            }
+            .up-rc-view {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                margin-top: 6px;
+                padding: 7px 12px;
+                border-radius: 9px;
+                background: var(--rh-accent);
+                color: #1c2a38;
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 0.03em;
+                text-decoration: none;
+                transition:
+                    opacity 0.15s ease,
+                    transform 0.15s ease;
+            }
+            .up-rc-view:hover {
+                opacity: 0.9;
+                transform: translateY(-1px);
+            }
+            .up-rc-view svg {
+                width: 13px;
+                height: 13px;
+            }
+            .up-rc-wait-pill {
+                display: inline-block;
+                margin-top: 6px;
+                padding: 3px 10px;
+                border-radius: 999px;
+                font-size: 11px;
+                font-weight: 700;
+                white-space: nowrap;
+                background: #fff6e6;
+                color: #8a5a00;
+            }
+            .up-rc-empty {
+                text-align: center;
+                padding: 26px 10px 14px;
+            }
+            .up-rc-empty p {
+                margin: 0;
+                font-size: 14px;
+                font-weight: 700;
+                color: var(--rh-ink);
+            }
+            .up-rc-empty .up-rc-empty-sub {
+                margin: 6px 0 0;
+                font-size: 12.5px;
+                font-weight: 400;
+                color: var(--rh-muted);
+            }
+            .up-rc-empty .up-empty-icon {
+                margin-bottom: 10px;
+            }
+
+            /* ================= need help (navy honeycomb) ================= */
+            .up-need-help {
+                position: relative;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 14px;
+                overflow: hidden;
+                background-color: #1c2a38;
+                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='100' viewBox='0 0 56 100'%3E%3Cpath d='M28 66L0 50L0 16L28 0L56 16L56 50L28 66L28 100' fill='none' stroke='rgba(237,164,35,0.07)' stroke-width='1.4'/%3E%3Cpath d='M28 0L28 34L0 50L0 84L28 100L56 84L56 50L28 34' fill='none' stroke='rgba(237,164,35,0.07)' stroke-width='1.4'/%3E%3C/svg%3E");
+                background-size: 56px 100px;
+                border: 1px solid #14202c;
+                border-radius: var(--rh-radius);
+                padding: 20px;
+            }
+            .up-need-help-text h3 {
+                margin: 0;
+                font-size: 17px;
+                font-weight: 800;
+                color: #ffffff;
+            }
+            .up-need-help-text p {
+                margin: 5px 0 0;
+                font-size: 12.5px;
+                color: rgba(255, 255, 255, 0.72);
+                max-width: 230px;
+            }
+            .up-btn-solid {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                margin-top: 14px;
+                padding: 10px 16px;
+                border-radius: 10px;
+                background: var(--rh-accent);
+                color: #1c2a38;
+                font-size: 11.5px;
+                font-weight: 800;
+                letter-spacing: 0.05em;
+                text-decoration: none;
+                transition:
+                    opacity 0.2s ease,
+                    transform 0.2s ease;
+            }
+            .up-btn-solid:hover {
+                opacity: 0.9;
+                transform: translateY(-1px);
+            }
+            .up-btn-solid svg {
+                width: 15px;
+                height: 15px;
+            }
+            .up-need-help-icon {
+                width: 72px;
+                height: 72px;
+                color: var(--rh-accent);
+                stroke-width: 1.6;
+                flex-shrink: 0;
+            }
+
+            /* =========================================================
+                                                                           PAYMENT HISTORY rows + tabs render these classes — same
+                                                                           class names as the legacy island stylesheet, restyled to
+                                                                           the account-shell tokens.
+                                                                        ========================================================== */
+            #upayRows {
+                margin-top: 12px;
+            }
+
+            a.up-booking-row {
+                text-decoration: none;
+            }
+
+            .upay-filters {
+                display: flex;
+                gap: 4px;
+                flex-wrap: wrap;
+                padding: 4px;
+                background: #eef1f6;
+                border-radius: 12px;
+                width: fit-content;
+                max-width: 100%;
+            }
+
+            .upay-tab {
+                padding: 8px 16px;
+                border: none;
+                border-radius: 9px;
+                background: transparent;
+                color: #5b6b7c;
+                font: inherit;
+                font-size: 12.5px;
+                font-weight: 600;
+                cursor: pointer;
+                white-space: nowrap;
+                transition:
+                    background 0.2s ease,
+                    color 0.2s ease,
+                    box-shadow 0.2s ease;
+            }
+
+            .upay-tab:hover {
+                color: var(--rh-ink);
+            }
+
+            .upay-tab.active {
+                background: #fff;
+                color: var(--rh-ink);
+                font-weight: 700;
+                box-shadow: 0 1px 4px rgba(28, 42, 56, 0.12);
+            }
+
+            .upay-tab .cnt {
+                opacity: 0.55;
+                margin-left: 4px;
+            }
+
+            .up-booking-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 14px;
+                flex-wrap: wrap;
+                padding: 14px 6px;
+                border-top: 1px solid var(--rh-line);
+                transition: background 0.15s ease;
+            }
+
+            .up-booking-row:hover {
+                background: #f6f8fb;
+            }
+
+            .up-booking-label {
+                font-size: 14.5px;
+                font-weight: 700;
+                color: var(--rh-ink);
+                max-width: 260px;
+            }
+
+            .up-booking-dates {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                margin-top: 5px;
+                font-size: 12px;
+                color: var(--rh-muted);
+            }
+
+            .up-booking-dates svg {
+                width: 13px;
+                height: 13px;
+                flex-shrink: 0;
+            }
+
+            .upay-ref {
+                font-size: 11.5px;
+                color: #93a5b7;
+                margin-top: 3px;
+            }
+
+            .up-booking-row > div:last-child {
+                text-align: right;
+            }
+
+            .up-booking-row .up-status-paid,
+            .up-booking-row .up-status-partial,
+            .up-booking-row .up-status-unpaid,
+            .up-booking-row .up-status-refunded {
+                margin-bottom: 6px;
+            }
+
+            .upay-total {
+                display: block;
+                font-size: 15.5px;
+                font-weight: 800;
+                color: var(--rh-ink);
+            }
+            .upay-remaining {
+                display: block;
+                font-size: 11px;
+                color: var(--rh-accent-deep);
+                font-weight: 600;
+                margin-top: 3px;
+            }
+
+            .up-booking-row.upay-refunded {
+                opacity: 0.62;
+            }
+
+            .up-status-paid,
+            .up-status-partial,
+            .up-status-unpaid,
+            .up-status-refunded {
+                display: inline-block;
+                padding: 3px 10px;
+                border-radius: 999px;
+                font-size: 11px;
+                font-weight: 700;
+                white-space: nowrap;
+            }
+
+            .up-status-paid {
+                background: #e8f7ef;
+                color: #14683e;
+            }
+            .up-status-partial {
+                background: #fff6e6;
+                color: #8a5a00;
+            }
+            .up-status-unpaid {
+                background: #eef1f5;
+                color: #5b6b7c;
+            }
+            .up-status-refunded {
+                background: #e9f2fd;
+                color: #1d5fb8;
+            }
+
+            .up-empty {
+                text-align: center;
+                padding: 26px 10px;
+                color: var(--rh-muted);
+                font-size: 13px;
+            }
+
+            .up-empty-icon {
+                display: block;
+                width: 34px;
+                height: 34px;
+                margin: 0 auto 8px;
+                color: #c3c9d2;
+            }
+
+            /* ================= dark mode (same mechanism as before) ================= */
+            html.dark body {
+                background: #141c26;
+            }
+            html.dark .up-stat-card,
+            html.dark .up-card {
+                background: #1e2a38;
+                border-color: rgba(255, 255, 255, 0.08);
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+            }
+            html.dark .up-card-head h3,
+            html.dark .up-stat-card strong,
+            html.dark .upay-total,
+            html.dark .up-booking-label,
+            html.dark .up-methods-empty p:first-child,
+            html.dark .up-method-item strong {
+                color: #e8eef5;
+            }
+            html.dark .up-stat-label,
+            html.dark .up-booking-dates,
+            html.dark .upay-ref,
+            html.dark .up-empty,
+            html.dark .up-methods-empty p:last-child,
+            html.dark .up-method-item span {
+                color: #a9b8c8;
+            }
+            html.dark .upay-filters {
+                background: rgba(255, 255, 255, 0.08);
+            }
+            html.dark .upay-tab {
+                color: #a9b8c8;
+            }
+            html.dark .upay-tab.active {
+                background: #2a3949;
+                color: #fff;
+                box-shadow: none;
+            }
+            html.dark .up-booking-row {
+                border-color: rgba(255, 255, 255, 0.08);
+            }
+            html.dark .up-booking-row:hover {
+                background: rgba(255, 255, 255, 0.05);
+            }
+            html.dark .upay-remaining,
+            html.dark .up-rec-count {
+                color: var(--rh-accent);
+            }
+            html.dark .up-need-help {
+                background-color: #16222e;
+                border-color: rgba(255, 255, 255, 0.08);
+            }
+            /* receipts card — dark */
+            html.dark .up-rc-title,
+            html.dark .up-rc-empty p {
+                color: #e8eef5;
+            }
+            html.dark .up-rc-meta,
+            html.dark .up-rc-sigline,
+            html.dark .up-rc-empty .up-rc-empty-sub {
+                color: #a9b8c8;
+            }
+            html.dark .up-rc-row {
+                border-color: rgba(255, 255, 255, 0.08);
+            }
+            /* the signature thumbnail keeps its paper-white chip even
+                           in dark mode so the ink strokes stay readable */
+            html.dark .up-rc-sig {
+                border-color: rgba(255, 255, 255, 0.2);
+            }
+
+            /* ================= responsive ================= */
+            @media (max-width: 980px) {
+                .up-two-col {
+                    grid-template-columns: 1fr;
+                }
+            }
+            @media (max-width: 860px) {
+                .up-dashboard {
+                    flex-direction: column;
+                }
+                .up-stats {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+            }
+            @media (max-width: 560px) {
+                .up-stats {
+                    grid-template-columns: 1fr;
+                }
+                .up-card,
+                .up-stat-card {
+                    padding: 16px;
+                }
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .upay-tab {
+                    transition: none;
+                }
+            }
+
+            /* sidebar markup + styles live in templates/partials/sidebar.html.twig */
+        </style>
+    </head>
+    <body>
+
+        {{ include('partials/navbar.html.twig', {
+            is_logged_in: true,
+            is_host: is_host ?? false,
+            nav_avatar: user.avatar_path ?? null,
+            notification_count: notif_count ?? 0,
+            current_page: 'payments'
+        }) }}
+
+        <main class="up-dashboard">
+
+            <!-- ==================================================
+                 SIDEBAR — shared partial (templates/partials/sidebar.html.twig)
+                 highlight = active_sidebar key · collapse JS stays on this page
+            =================================================== -->
+            {% include 'partials/sidebar.html.twig' with { active_sidebar: 'payments' } %}
+
+            <div class="up-content">
+
+                <!-- ================= STAT CARDS ================= -->
+                <section class="up-stats">
+                    <div class="up-stat-card up-reveal" style="--i: 0;">
+                        <i data-lucide="calendar-check" class="up-stat-icon up-stat-icon-paid"></i>
+                        <div>
+                            <strong><span class="up-peso">&#8369;</span> <span data-count="{{ this_week }}" data-decimals="2">{{ this_week|number_format(2) }}</span></strong>
+                            <span class="up-stat-label">Paid This Week</span>
+                        </div>
+                    </div>
+                    <div class="up-stat-card up-reveal" style="--i: 1;">
+                        <i data-lucide="wallet" class="up-stat-icon up-stat-icon-total"></i>
+                        <div>
+                            <strong><span class="up-peso">&#8369;</span> <span data-count="{{ all_time }}" data-decimals="2">{{ all_time|number_format(2) }}</span></strong>
+                            <span class="up-stat-label">Total Paid All Time</span>
+                        </div>
+                    </div>
+                    <div class="up-stat-card up-reveal" style="--i: 2;">
+                        <i data-lucide="undo-2" class="up-stat-icon up-stat-icon-refund"></i>
+                        <div>
+                            <strong><span class="up-peso">&#8369;</span> <span data-count="{{ refunded_total }}" data-decimals="2">{{ refunded_total|number_format(2) }}</span></strong>
+                            <span class="up-stat-label">Refunded</span>
+                        </div>
+                    </div>
+                </section>
+
+                <div class="up-two-col">
+
+                    <!-- RECEIPTS — host-signed receipts are RECORDED
+                         here (signature file = truth, thumbnail shown);
+                         bookings still waiting for the host's signature
+                         sit in the WAITING LIST below. -->
+                    <div class="up-col">
+                        <div class="up-card up-receipts-card up-reveal">
+                            <div class="up-card-head">
+                                <h3>Receipts</h3>
+                                <span class="up-rec-count">{{ receipt_rows|length }} recorded &middot; {{ waiting_rows|length }} waiting</span>
+                            </div>
+
+                            {% if receipt_rows is empty and waiting_rows is empty %}
+                                <div class="up-rc-empty">
+                                    <i data-lucide="receipt-text" class="up-empty-icon"></i>
+                                    <p>No receipts yet</p>
+                                    <p class="up-rc-empty-sub">
+                                        Once the host signs your booking receipt it is recorded here &mdash;
+                                        until then the booking waits in the list below.
+                                    </p>
+                                </div>
+                            {% endif %}
+
+                            {% if receipt_rows is not empty %}
+                                <div class="up-rc-group-head">
+                                    <i data-lucide="circle-check"></i> Recorded &mdash; host signed
+                                </div>
+                                {% for rc in receipt_rows %}
+                                    <div class="up-rc-row">
+                                        <i data-lucide="circle-check" class="up-rc-ico up-rc-ico-ok"></i>
+                                        <div class="up-rc-main">
+                                            <strong class="up-rc-title">{{ rc.title }}</strong>
+                                            <span class="up-rc-meta">{{ rc.ref }} &middot; Signed {{ rc.signed_at }}</span>
+                                            <span class="up-rc-sigline">
+                                                <img class="up-rc-sig" src="{{ rc.sig_url }}" alt="Host signature">
+                                                <span>Host signature on file</span>
+                                            </span>
+                                        </div>
+                                        <div class="up-rc-side">
+                                            <span class="upay-total">&#8369; {{ rc.amount|number_format(2) }}</span>
+                                            <a class="up-rc-view" href="{{ rc.receipt_url }}">
+                                                <i data-lucide="file-text"></i> View Receipt
+                                            </a>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            {% endif %}
+
+                            {% if waiting_rows is not empty %}
+                                <div class="up-rc-group-head up-rc-group-head-wait">
+                                    <i data-lucide="clock"></i> Waiting list &mdash; host hasn&apos;t signed yet
+                                </div>
+                                {% for w in waiting_rows %}
+                                    <div class="up-rc-row up-rc-row-wait">
+                                        <i data-lucide="clock" class="up-rc-ico up-rc-ico-wait"></i>
+                                        <div class="up-rc-main">
+                                            <strong class="up-rc-title">{{ w.title }}</strong>
+                                            <span class="up-rc-meta">{{ w.ref }} &middot; Requested {{ w.requested }}</span>
+                                        </div>
+                                        <div class="up-rc-side">
+                                            <span class="upay-total">&#8369; {{ w.amount|number_format(2) }}</span>
+                                            <span class="up-rc-wait-pill">Waiting for host to sign</span>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
+
+                        <!-- PAYMENT HISTORY — server-rendered rows (NO React
+                             island: the legacy bundle
+                             public/assets/react/payment-history.js never
+                             shipped with this port, so the card stayed
+                             empty). Same data (`history` from the
+                             controller), same classes, same tabs; the
+                             filter is the small vanilla script at the
+                             bottom of the page. Without JS every row
+                             still renders. -->
+                        <div class="up-card up-bookings-card up-reveal">
+                            <div class="up-card-head">
+                                <h3>Payment History</h3>
+                                <span class="up-rec-count">{{ history_total }} record{{ history_total == 1 ? '' : 's' }}</span>
+                            </div>
+
+                            {% set upay_counts = {'all': history|length, 'paid': 0, 'partial': 0, 'unpaid': 0, 'refunded': 0} %}
+                            {% for r in history %}
+                                {% set upay_counts = upay_counts|merge({(r.pay_state): (upay_counts[r.pay_state] ?? 0) + 1}) %}
+                            {% endfor %}
+
+                            <div class="upay-filters" id="upayTabs">
+                                <button type="button" class="upay-tab active" data-upay-tab="all">All <span class="cnt">{{ upay_counts.all }}</span></button>
+                                <button type="button" class="upay-tab" data-upay-tab="paid">Paid <span class="cnt">{{ upay_counts.paid }}</span></button>
+                                <button type="button" class="upay-tab" data-upay-tab="partial">Partial <span class="cnt">{{ upay_counts.partial }}</span></button>
+                                <button type="button" class="upay-tab" data-upay-tab="unpaid">Unpaid <span class="cnt">{{ upay_counts.unpaid }}</span></button>
+                                <button type="button" class="upay-tab" data-upay-tab="refunded">Refunded <span class="cnt">{{ upay_counts.refunded }}</span></button>
+                            </div>
+
+                            <div id="upayRows">
+                                {% if history is empty %}
+                                    <div class="up-empty">
+                                        <i data-lucide="receipt-text" class="up-empty-icon"></i>
+                                        No payments yet &mdash; bookings appear here once you reserve a space.
+                                    </div>
+                                {% else %}
+                                    {% for r in history %}
+                                        <a class="up-booking-row{{ r.pay_state == 'refunded' ? ' upay-refunded' : '' }}" href="{{ r.link }}" data-upay-state="{{ r.pay_state }}">
+                                            <div>
+                                                <div class="up-booking-label">{{ r.label }}</div>
+                                                <div class="up-booking-dates">
+                                                    <i data-lucide="calendar"></i> {{ r.date_label }}
+                                                </div>
+                                                <div class="upay-ref">{{ r.ref }}</div>
+                                            </div>
+                                            <div>
+                                                <span class="up-status-{{ r.pay_state }}">{{ r.pay_state|capitalize }}</span>
+                                                <span class="upay-total">&#8369; {{ r.total|number_format(2) }}</span>
+                                                {% if r.pay_state == 'partial' and r.remaining > 0.005 %}
+                                                    <span class="upay-remaining">Remaining &#8369; {{ r.remaining|number_format(2) }}</span>
+                                                {% endif %}
+                                            </div>
+                                        </a>
+                                    {% endfor %}
+
+                                    <div class="up-empty" id="upayEmpty" hidden>
+                                        <i data-lucide="receipt-text" class="up-empty-icon"></i>
+                                        <span id="upayEmptyText">No payments found.</span>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PAYMENT METHODS + HELP -->
+                    <div class="up-col">
+                        <div class="up-card up-reveal">
+                            <div class="up-card-head">
+                                <h3>Payment Methods</h3>
+                            </div>
+
+                            {% if payment_methods is empty %}
+                                <div class="up-methods-empty">
+                                    <p>No payment methods yet</p>
+                                    <p>Payments are settled with the host or support.</p>
+                                </div>
+                            {% else %}
+                                {% for method in payment_methods %}
+                                    <div class="up-method-item">
+                                        <img src="{{ method.icon }}" alt="{{ method.label }}">
+                                        <div>
+                                            <strong>&#8226;&#8226;&#8226;&#8226; &#8226;&#8226;&#8226;&#8226; &#8226;&#8226;&#8226;&#8226; {{ method.last4 }}</strong>
+                                            <span>Expires {{ method.expires }}</span>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
+
+                        <div class="up-need-help up-reveal">
+                            <div class="up-need-help-text">
+                                <h3>Need Help?</h3>
+                                <p>Questions about a charge? We're here 24/7.</p>
+                                <a href="/contact" class="up-btn-solid">
+                                    <i data-lucide="headset"></i> CONTACT SUPPORT
+                                </a>
+                            </div>
+                            <i data-lucide="life-buoy" class="up-need-help-icon"></i>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </main>
+
+        {{ include('partials/footer.html.twig') }}
+
+        <!-- Lucide — guarded loader, same key as navbar (never double-runs).
+             Renders every static icon on this page (stat cards, receipts
+             card, payment-history rows + tabs). -->
+        <script>
+            (function () {
+                "use strict";
+                function renderRhIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
+                }
+                if (!window.__rhNavbarLucide) {
+                    window.__rhNavbarLucide = true;
+                    var s = document.createElement("script");
+                    s.src = "https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js";
+                    s.addEventListener("load", renderRhIcons);
+                    document.head.appendChild(s);
+                }
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", renderRhIcons);
+                } else {
+                    renderRhIcons();
+                }
+                window.addEventListener("load", renderRhIcons);
+            })();
+        </script>
+
+        <!-- Sidebar collapse — same behavior + localStorage key as legacy -->
+        <script>
+            (function () {
+                var sidebar = document.getElementById("upSidebar");
+                var toggle = document.getElementById("upSidebarToggle");
+                if (!sidebar || !toggle) {
+                    return;
+                }
+
+                var STORAGE_KEY = "roomhive_sidebar_collapsed";
+                var links = sidebar.querySelectorAll(".up-side-link");
+
+                function updateTitles(collapsed) {
+                    links.forEach(function (link) {
+                        var label = link.querySelector(".up-side-label");
+                        if (collapsed) {
+                            link.setAttribute("title", label ? label.textContent : "");
+                        } else {
+                            link.removeAttribute("title");
+                        }
+                    });
+                }
+
+                function applyState(collapsed) {
+                    sidebar.classList.toggle("collapsed", collapsed);
+                    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                    toggle.setAttribute(
+                        "aria-label",
+                        collapsed ? "Expand sidebar" : "Collapse sidebar",
+                    );
+                    updateTitles(collapsed);
+                }
+
+                var savedCollapsed = false;
+                try {
+                    savedCollapsed = localStorage.getItem(STORAGE_KEY) === "1";
+                } catch (e) {}
+                applyState(savedCollapsed);
+
+                toggle.addEventListener("click", function () {
+                    var nowCollapsed = !sidebar.classList.contains("collapsed");
+                    applyState(nowCollapsed);
+                    try {
+                        localStorage.setItem(STORAGE_KEY, nowCollapsed ? "1" : "0");
+                    } catch (e) {}
+                });
+            })();
+        </script>
+
+        <!-- Reveal — the REAL legacy mechanism: myaccount.css waits for .in-view.
+     Plus a 1.5s failsafe so the page can never render blank. -->
+        <script>
+            (function () {
+                "use strict";
+
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                var revealEls = Array.prototype.slice.call(
+                    document.querySelectorAll(".up-reveal"),
+                );
+
+                function showAll() {
+                    revealEls.forEach(function (el) {
+                        el.classList.add("in-view");
+                    });
+                }
+
+                if (reduced || !("IntersectionObserver" in window)) {
+                    showAll();
+                } else {
+                    var io = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) {
+                                    return;
+                                }
+                                var el = entry.target;
+                                io.unobserve(el);
+                                el.classList.add("in-view");
+                                window.setTimeout(function () {
+                                    el.style.setProperty("--i", "0");
+                                }, 1200);
+                            });
+                        },
+                        {
+                            threshold: 0.12,
+                            rootMargin: "0px 0px -40px 0px",
+                        },
+                    );
+                    revealEls.forEach(function (el) {
+                        io.observe(el);
+                    });
+
+                    /* failsafe — force-reveal anything still hidden after 1.5s */
+                    setTimeout(showAll, 1500);
+                }
+            })();
+        </script>
+
+        <!-- Money count-up (identical params to legacy) -->
+        <script>
+            (function () {
+                "use strict";
+
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+                var counters = document.querySelectorAll("[data-count]");
+                if (counters.length && !reduced && "IntersectionObserver" in window) {
+                    var countIo = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) return;
+                                var el = entry.target;
+                                countIo.unobserve(el);
+
+                                var target = parseFloat(el.getAttribute("data-count")) || 0;
+                                var decimals =
+                                    parseInt(el.getAttribute("data-decimals"), 10) || 0;
+                                var t0 = null;
+                                var DURATION = 1300;
+
+                                var stepFn = function (ts) {
+                                    if (!t0) t0 = ts;
+                                    var k = Math.min((ts - t0) / DURATION, 1);
+                                    var eased = 1 - Math.pow(1 - k, 3);
+                                    el.textContent = (target * eased).toLocaleString(
+                                        undefined,
+                                        {
+                                            minimumFractionDigits: decimals,
+                                            maximumFractionDigits: decimals,
+                                        },
+                                    );
+                                    if (k < 1) window.requestAnimationFrame(stepFn);
+                                };
+
+                                window.requestAnimationFrame(stepFn);
+                            });
+                        },
+                        {
+                            threshold: 0.6,
+                        },
+                    );
+                    Array.prototype.forEach.call(counters, function (el) {
+                        countIo.observe(el);
+                    });
+                }
+            })();
+        </script>
+
+        <!-- Payment History tabs — vanilla filter (same behavior as the
+             legacy island: All / Paid / Partial / Unpaid / Refunded,
+             per-tab counts + empty states). Rows are server-rendered,
+             so the history shows even with JavaScript off. -->
+        <script>
+            (function () {
+                "use strict";
+
+                var tabs = document.querySelectorAll("#upayTabs [data-upay-tab]");
+                var rows = document.querySelectorAll("#upayRows [data-upay-state]");
+                var emptyBox = document.getElementById("upayEmpty");
+                var emptyText = document.getElementById("upayEmptyText");
+                if (!tabs.length || !rows.length || !emptyBox || !emptyText) {
+                    return;
+                }
+
+                var EMPTY_MSG = {
+                    all: "No payments found.",
+                    paid: "No paid bookings yet.",
+                    partial: "No partially paid bookings yet.",
+                    unpaid: "No unpaid bookings yet.",
+                    refunded: "No refunds yet.",
+                };
+
+                function applyTab(tab) {
+                    var state = tab.getAttribute("data-upay-tab");
+                    var shown = 0;
+
+                    tabs.forEach(function (t) {
+                        t.classList.toggle("active", t === tab);
+                    });
+
+                    rows.forEach(function (row) {
+                        var match =
+                            state === "all" ||
+                            row.getAttribute("data-upay-state") === state;
+                        row.style.display = match ? "" : "none";
+                        if (match) {
+                            shown++;
+                        }
+                    });
+
+                    emptyBox.hidden = shown > 0;
+                    emptyText.textContent = EMPTY_MSG[state] || EMPTY_MSG.all;
+                }
+
+                tabs.forEach(function (tab) {
+                    tab.addEventListener("click", function () {
+                        applyTab(tab);
+                    });
+                });
+            })();
+        </script>
+
+    </body>
+
+</html>

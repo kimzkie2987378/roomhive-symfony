@@ -1,0 +1,946 @@
+# =============================================================
+#  RoomHive -- REPAIR: templates\user\bookings.html.twig
+#  (fixes: Variable "b" does not exist in user/bookings.html.twig
+#          at line 1135.)
+#
+#  WHAT IS WRONG
+#    BookingsController (GET /bookings) renders
+#    'user/bookings.html.twig' and passes it a LIST named
+#    `bookings` -- never a variable named `b`. The file currently
+#    sitting at C:\RoomHive\templates\user\bookings.html.twig is
+#    NOT the bookings list: it is a ~1,700-line copy of the BOOKING
+#    DETAILS template, which uses a single booking variable `b`
+#    everywhere. Twig hits the first {{ b... }} in that wrong file
+#    -- at its line 1135 -- and dies with:
+#        Variable "b" does not exist in user/bookings.html.twig
+#        at line 1135.
+#
+#    HOW IT GOT THERE: the old RoomHive_CancelBooking_List_Install.ps1
+#    did NOT embed its template. It searched your Downloads folder,
+#    Desktop and the current directory for ANY file named
+#    bookings.html.twig and installed whatever it found. A wrong
+#    file with that name was picked up and copied over the real
+#    My Bookings page.
+#
+#  WHAT THIS INSTALLER DOES -- POLLUTION-PROOF
+#    It reads NOTHING from Downloads / Desktop / the current
+#    directory. The full, verified My Bookings page is EMBEDDED
+#    INSIDE this script (single-quoted here-string), so no stale
+#    copy in any folder can be picked up by mistake. It:
+#      1. shows what the current file actually is (line/byte count
+#         + verdict) before touching anything;
+#      2. makes a ONE-TIME backup (.bak-fixblist -- never
+#         overwritten on re-runs);
+#      3. writes the embedded template (UTF-8 WITHOUT BOM + LF);
+#      4. VERIFIES the installed file: {# header, DOCTYPE, NO
+#         "{% extends", the single "{% for b in bookings %}" loop,
+#         the Cancel pill + /booking/cancel-booking POST, the
+#         navbar/sidebar/footer partial includes, and the EXACT
+#         size (30342 bytes / 695 lines);
+#      5. SCANS templates\user and flags any template that still
+#         contains "{% extends" or booking-details content in the
+#         wrong file;
+#      6. WARNS about stray bookings.html.twig / booking_details.html.twig
+#         files in Downloads/Desktop/script folder -- the old
+#         installers (RoomHive_CancelBooking_List_Install.ps1,
+#         RoomHive_ReviewPopup_Install.ps1,
+#         RoomHive_SignGate_Payments_Install.ps1) still install
+#         whatever file of that name they find there. Delete or
+#         rename the strays so they can never be picked up again.
+#
+#  Run from any directory:
+#      powershell -ExecutionPolicy Bypass -File .\RoomHive_BookingsList_Repair_Install.ps1
+# =============================================================
+
+ $ErrorActionPreference = 'Stop'
+ $root = 'C:\RoomHive'
+ $enc  = [System.Text.UTF8Encoding]::new($false)
+ $dir  = Join-Path $root 'templates\user'
+ $dest = Join-Path $dir 'bookings.html.twig'
+
+Write-Host '=== RoomHive -- repair templates\user\bookings.html.twig (fixes: Variable "b" does not exist, line 1135) ==='
+Write-Host ''
+
+if (-not (Test-Path $root)) {
+    Write-Host "FAIL: $root does not exist -- wrong project root?"
+    exit 1
+}
+
+# ---- 1. make sure templates\user exists ----
+if (-not (Test-Path $dir)) {
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    Write-Host "MKDIR: created $dir"
+} else {
+    Write-Host "DIR: $dir already exists"
+}
+
+# ---- 2. diagnose what is currently sitting there ----
+ $hadFile = Test-Path $dest
+if ($hadFile) {
+    $oldBytes = ([System.IO.File]::ReadAllBytes($dest)).Length
+    $oldLines = [System.IO.File]::ReadAllLines($dest).Count
+    $oldText  = [System.IO.File]::ReadAllText($dest)
+    Write-Host ''
+    Write-Host ("CURRENT FILE (the broken one): " + $oldLines + " lines / " + $oldBytes + " bytes")
+    $firstLine = ([System.IO.File]::ReadAllLines($dest))[0]
+    if ($firstLine.Length -gt 70) { $firstLine = $firstLine.Substring(0, 70) }
+    Write-Host ("  first line: " + $firstLine)
+    if ($oldText.Contains('bd-cover') -or $oldText.Contains('bd-header') -or $oldText.Contains('bd-review-overlay')) {
+        Write-Host '  VERDICT: a copy of the BOOKING DETAILS template -- NOT the bookings list.'
+        Write-Host '           That is exactly why Twig says: Variable "b" does not exist.'
+    } elseif ($oldBytes -eq 30342 -and $oldText.Contains('ub-cancel-btn')) {
+        Write-Host '  VERDICT: already the correct My Bookings page (re-run -- re-installing anyway).'
+    } elseif ($oldText.Contains('{% extends')) {
+        Write-Host '  VERDICT: an old polluted shell template.'
+    } else {
+        Write-Host '  VERDICT: unrecognized file.'
+    }
+} else {
+    Write-Host 'CURRENT FILE: none (fresh install)'
+}
+
+# ---- 3. one-time backup ----
+if ($hadFile) {
+    $bak = "$dest.bak-fixblist"
+    if (-not (Test-Path $bak)) {
+        Copy-Item $dest $bak -Force
+        Write-Host 'BACKUP: templates\user\bookings.html.twig.bak-fixblist'
+    } else {
+        Write-Host 'BACKUP: .bak-fixblist already exists -- kept untouched'
+    }
+} else {
+    Write-Host 'BACKUP: no existing bookings.html.twig (fresh install)'
+}
+
+# ---- 4. the verified template, embedded (pollution-proof) ----
+ $template = @'
+{# =========================================================
+   RoomHive — My Bookings (renter + host)
+   templates/user/bookings.html.twig
+
+   Status-tab bookings list on the shared account shell (navbar +
+   sidebar partial + footer). Sidebar highlight key: 'bookings'.
+
+   NAVBAR CLEARANCE + LAYOUT — page-local, bulletproof (same fix as
+   the notifications page): plain .up-dashboard rules can lose to
+   myaccount.css and a top margin can collapse away — which let the
+   sidebar box slide under the fixed navbar (toggle + Overview link
+   hidden). So the shell overrides live on main.up-dashboard (higher
+   specificity, always wins) and the clearance is PADDING, which can
+   never collapse: sidebar top = 110px, card top = 185px, shell
+   max-width 1560px. .up-dashboard .up-sidebar { top: 110px; } keeps
+   the sticky offset clear of the navbar while scrolling.
+
+   ROW LAYOUT + IMAGE FIX (this version, page-local, bulletproof):
+   two visible bugs on the live page —
+     1. THUMB always showed the grey house-icon placeholder: the
+        controller never supplied cover / cover_url. BookingsController
+        now pulls the listing cover (same subselect as
+        HostBookingsController) and resolves it through the shared
+        resolvePhoto() mapping — the <img> renders whenever the
+        listing has a photo, placeholder stays as the fallback.
+     2. The right meta column (status pill · price · "Reserve Paid" ·
+        "₱n left" pill) hugged the card edge, "Reserve Paid" rendered
+        LARGE (a generic span rule leaked in), and the chevron
+        overlapped the pills. The whole row is now defined HERE on
+        main.up-dashboard specificity so myaccount.css can never
+        interfere:
+          - .up-booking-row   → flex, items centered, gap 16, border +
+                                radius, color/text-decoration inherit;
+          - .up-booking-info  → flex: 1 + min-width: 0 (title
+                                ellipsizes instead of pushing the row);
+          - .up-booking-side  → own column, right-aligned, margin-left:
+                                auto, padding-right 24px so the
+                                absolutely-centred chevron never overlaps;
+          - price <strong>    → 15px/800 ink (the prominent figure);
+          - bare label spans  → 12px muted (Reserve Paid / Fully Paid /
+                                Booking Total / Refunded to Wallet) —
+                                :not() chain keeps the status pill and
+                                the colored note pills untouched;
+          - .up-booking-chevron → absolute, right 14px, vertically
+                                centered, muted.
+        Dark-mode variants included (same mechanism as the payments
+        page). The old margin-left band-aid on .up-booking-info is
+        gone — the flex gap owns the thumb↔text spacing now.
+
+   CANCEL BOOKING (this version): every PENDING row now carries a
+   small red "Cancel" pill at the foot of the right meta column.
+   Click → JS confirm (same wording as the details page's cancel
+   form) → a hidden form POSTs /booking/cancel-booking
+   (BookingCancelController — already live) → 98% of what was paid
+   is credited to the wallet, the host is notified, and the PRG
+   redirect lands on /booking/{id}?review=1 where the "rate your
+   stay" overlay pops. The button is type=button INSIDE the row <a>,
+   so its handler calls preventDefault + stopPropagation to keep
+   the link from firing, then disables itself against double
+   submits. Only pending rows render it — the controller bounces
+   every other status, so nothing else would work anyway.
+
+   Data from BookingsController (bookings, bookings_total, tabs,
+   status_counts, status_filter, is_host, nav_avatar,
+   notification_count). NO CONTROLLER CHANGE IS NEEDED for this —
+   BookingsController.php already ships b.status in every row.
+========================================================= #}
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>My Bookings · RoomHive</title>
+
+        <script>
+            /* theme boot — before paint */
+            (function () {
+                try {
+                    if (localStorage.getItem("roomhive_theme") === "dark") {
+                        document.documentElement.classList.add("dark");
+                        document.documentElement.setAttribute("data-theme", "dark");
+                    }
+                } catch (e) {}
+            })();
+            document.documentElement.classList.add("js");
+        </script>
+
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/myaccount.css') }}">
+
+        <style>
+            :root {
+                --rh-ink: #1c2a38;
+                --rh-muted: #66788a;
+                --rh-line: #e6ebf1;
+                --rh-card: #ffffff;
+                --rh-accent: #eda423;
+                --rh-radius: 16px;
+            }
+
+            /* =========================================================
+                                       NAVBAR CLEARANCE + LAYOUT — page-local, bulletproof
+                                       Same fix as the notifications page: plain .up-dashboard
+                                       rules can lose to myaccount.css and a top margin can
+                                       collapse away — which let the sidebar box slide under
+                                       the fixed navbar (toggle + Overview link hidden). So:
+                                         - main.up-dashboard (higher specificity) always wins;
+                                         - the clearance is PADDING — margins can collapse,
+                                           padding can never — sidebar top = 110px, card top
+                                           = 185px, the same geometry as the other pages;
+                                         - max-width: 1560px — occupies the available area
+                                           instead of the legacy ~1240px cap.
+                                    ========================================================== */
+            main.up-dashboard {
+                margin-top: 0;
+                padding: 110px 20px 70px;
+                max-width: 1560px;
+            }
+
+            /* the MIDDLE COLUMN (bookings card) keeps its extra 75px
+                                       drop below the shell's 110px clearance */
+            .up-dashboard .up-content {
+                padding-top: 75px;
+            }
+
+            /* sticky offset matches the natural top — when you scroll,
+                                       the sidebar sticks at the same 110px line instead of
+                                       tucking under the navbar (the partial's default is 86px) */
+            .up-dashboard .up-sidebar {
+                top: 110px;
+            }
+
+            .nav-bell svg {
+                width: 22px;
+                height: 22px;
+                display: block;
+            }
+
+            /* Lucide calendar in booking rows */
+            .up-booking-dates {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+            }
+            .up-booking-dates svg {
+                width: 13px;
+                height: 13px;
+                flex-shrink: 0;
+            }
+
+            /* thumb with placeholder behind (works with or without a photo) */
+            .up-thumb-wrap {
+                position: relative;
+                overflow: hidden;
+                flex-shrink: 0;
+                width: 92px;
+                height: 68px;
+                border-radius: 10px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: linear-gradient(135deg, #dfe6ee, #c9d4e0);
+                color: #93a5b7;
+            }
+            .up-thumb-wrap svg {
+                width: 20px;
+                height: 20px;
+            }
+            .up-thumb-wrap img {
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+            }
+
+            .up-bookings-empty svg {
+                width: 34px;
+                height: 34px;
+                margin-bottom: 6px;
+                color: #93a5b7;
+            }
+
+            /* RESERVE PAYMENT NOTE — "₱200.00 left" pill */
+            .up-booking-side .ub-left-note {
+                font-size: 11px;
+                font-weight: 800;
+                color: #c77800;
+                background: #fff6e9;
+                border: 1px dashed #f5c77e;
+                border-radius: 999px;
+                padding: 2px 9px;
+                white-space: nowrap;
+            }
+
+            /* REFUND PILL + green amount */
+            .up-booking-side .ub-refund-note {
+                font-size: 11px;
+                font-weight: 800;
+                color: #1e7a3d;
+                background: #e9f7ef;
+                border: 1px dashed #bfe8cf;
+                border-radius: 999px;
+                padding: 2px 9px;
+                white-space: nowrap;
+            }
+            .up-booking-side strong.ub-refund-amount {
+                color: #1e7a3d;
+            }
+
+            .up-status-rejected {
+                background: #fdecea;
+                color: #a1332e;
+            }
+
+            /* CANCEL BOOKING — small red pill at the foot of the right
+               meta column, pending rows only. Outline at rest, filled
+               on hover — same red family as the status-rejected pill. */
+            main.up-dashboard .ub-list .ub-cancel-btn {
+                appearance: none;
+                margin-top: 6px;
+                border: 1px solid #e3b7ae;
+                background: #ffffff;
+                color: #a1332e;
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 0.02em;
+                border-radius: 999px;
+                padding: 3px 12px;
+                cursor: pointer;
+                transition: background 0.15s ease, color 0.15s ease,
+                    border-color 0.15s ease;
+            }
+            main.up-dashboard .ub-list .ub-cancel-btn:hover {
+                background: #a1332e;
+                border-color: #a1332e;
+                color: #ffffff;
+            }
+            main.up-dashboard .ub-list .ub-cancel-btn:active {
+                transform: translateY(1px);
+            }
+
+            /* =========================================================
+                                       ROW LAYOUT — page-local, bulletproof.
+                                       thumb · info (grows, ellipsizes) · right meta column ·
+                                       absolute chevron — fully defined here so myaccount.css
+                                       and generic `a` rules can never interfere.
+                                    ========================================================== */
+            main.up-dashboard .ub-list .up-booking-row {
+                display: flex;
+                align-items: center;
+                gap: 16px;
+                position: relative;
+                padding: 16px 18px;
+                border: 1px solid var(--rh-line);
+                border-radius: 12px;
+                color: inherit;
+                text-decoration: none;
+                transition: background 0.15s ease;
+            }
+            main.up-dashboard .ub-list .up-booking-row:hover {
+                background: #f6f8fb;
+            }
+            main.up-dashboard .ub-list .up-booking-row + .up-booking-row {
+                margin-top: 12px;
+            }
+
+            /* thumb — pinned box; photo covers it, icon shows behind */
+            main.up-dashboard .ub-list .up-booking-thumb.up-thumb-wrap {
+                width: 92px;
+                height: 68px;
+            }
+
+            /* info column — grows, never pushes the row wide */
+            main.up-dashboard .ub-list .up-booking-info {
+                flex: 1 1 auto;
+                min-width: 0;
+            }
+            main.up-dashboard .ub-list .up-booking-info h4 {
+                margin: 0 0 3px;
+                font-size: 15px;
+                font-weight: 800;
+                color: var(--rh-ink);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            main.up-dashboard .ub-list .up-booking-location {
+                margin: 0 0 4px;
+                font-size: 12.5px;
+                color: var(--rh-muted);
+            }
+            main.up-dashboard .ub-list .up-booking-dates {
+                margin: 0;
+                font-size: 12px;
+                color: var(--rh-muted);
+            }
+
+            /* right meta column — right-aligned, clear of the chevron */
+            main.up-dashboard .ub-list .up-booking-side {
+                margin-left: auto;
+                flex-shrink: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+                gap: 4px;
+                text-align: right;
+                padding-right: 24px;
+            }
+            main.up-dashboard .ub-list .up-booking-side strong {
+                font-size: 15px;
+                font-weight: 800;
+                color: var(--rh-ink);
+                white-space: nowrap;
+            }
+            /* pay-state label — "Reserve Paid" / "Fully Paid" / "Booking
+               Total" / "Refunded to Wallet": small muted line. The :not()
+               chain keeps the status pill + colored note pills out. */
+            main.up-dashboard .ub-list .up-booking-side > span:not(.up-status):not(.ub-left-note):not(.ub-refund-note) {
+                font-size: 12px;
+                color: var(--rh-muted);
+                text-decoration: none;
+                white-space: nowrap;
+            }
+
+            /* chevron — vertically centered, never overlapping the pills */
+            main.up-dashboard .ub-list .up-booking-chevron {
+                position: absolute;
+                right: 14px;
+                top: 50%;
+                transform: translateY(-50%);
+                font-size: 22px;
+                line-height: 1;
+                color: #93a5b7;
+            }
+
+            /* narrow screens — let the row wrap instead of overflowing */
+            @media (max-width: 620px) {
+                main.up-dashboard .ub-list .up-booking-row {
+                    flex-wrap: wrap;
+                }
+                main.up-dashboard .ub-list .up-booking-side {
+                    padding-right: 0;
+                }
+            }
+
+            /* dark mode — same mechanism as the payments page */
+            html.dark main.up-dashboard .ub-list .up-booking-row {
+                border-color: rgba(255, 255, 255, 0.08);
+            }
+            html.dark main.up-dashboard .ub-list .up-booking-row:hover {
+                background: rgba(255, 255, 255, 0.05);
+            }
+            html.dark main.up-dashboard .ub-list .up-booking-info h4,
+            html.dark main.up-dashboard .ub-list .up-booking-side strong {
+                color: #e8eef5;
+            }
+            html.dark main.up-dashboard .ub-list .up-booking-location,
+            html.dark main.up-dashboard .ub-list .up-booking-dates,
+            html.dark main.up-dashboard .ub-list .up-booking-side > span:not(.up-status):not(.ub-left-note):not(.ub-refund-note) {
+                color: #a9b8c8;
+            }
+            html.dark main.up-dashboard .ub-list .up-booking-chevron {
+                color: #5f7488;
+            }
+
+            /* dark mode: cancel pill */
+            html.dark main.up-dashboard .ub-list .ub-cancel-btn {
+                background: transparent;
+                border-color: rgba(224, 141, 132, 0.45);
+                color: #e08d84;
+            }
+            html.dark main.up-dashboard .ub-list .ub-cancel-btn:hover {
+                background: #a1332e;
+                border-color: #a1332e;
+                color: #ffffff;
+            }
+
+            /* dark mode: tab pill + thumbs */
+            html.dark .ub-tab.active {
+                background: #1a222b;
+                color: #eda423;
+            }
+            html.dark .up-thumb-wrap {
+                background: linear-gradient(135deg, #26333f, #1c2a38);
+                color: #5f7488;
+            }
+
+            /* sidebar markup + styles live in templates/partials/sidebar.html.twig */
+
+            @media (max-width: 860px) {
+                .up-dashboard {
+                    flex-direction: column;
+                }
+            }
+        </style>
+    </head>
+    <body>
+
+        {{ include('partials/navbar.html.twig', {
+            is_logged_in: true,
+            is_host: is_host ?? false,
+            nav_avatar: nav_avatar ?? null,
+            notification_count: notification_count ?? 0,
+            current_page: 'bookings'
+        }) }}
+
+        <main class="up-dashboard">
+
+            <!-- ==================================================
+                 SIDEBAR — shared partial (templates/partials/sidebar.html.twig)
+                 highlight = active_sidebar key · collapse JS stays on this page
+            =================================================== -->
+            {% include 'partials/sidebar.html.twig' with { active_sidebar: 'bookings' } %}
+
+            <div class="up-content">
+
+                <section class="up-card up-bookings-card up-reveal">
+
+                    <div class="up-card-header">
+                        <h3>My Bookings (<span class="up-wishlist-count">{{ bookings_total }}</span>)</h3>
+                        <a href="/" class="up-link-view-all">Browse Listings</a>
+                    </div>
+
+                    <!-- STATUS TABS -->
+                    <div class="ub-tabs">
+                        {% for key, label in tabs %}
+                            <a
+                                href="{{ path('app_bookings', { status: key }) }}"
+                                class="ub-tab{{ status_filter == key ? ' active' : '' }}"
+                            >
+                                {{ label }}
+                                <span class="ub-tab-count">({{ status_counts[key] }})</span>
+                            </a>
+                        {% endfor %}
+                    </div>
+
+                    {% if bookings is empty %}
+
+                        <div class="up-bookings-empty">
+                            <i data-lucide="calendar-check"></i>
+                            <p class="up-bookings-empty-title">
+                                {% if status_filter == 'all' %}
+                                    No bookings yet
+                                {% else %}
+                                    No {{ tabs[status_filter] }} bookings
+                                {% endif %}
+                            </p>
+                            <p class="up-bookings-empty-text">
+                                {% if status_filter == 'all' %}
+                                    Once you book a stay, it will show up here.
+                                {% else %}
+                                    Try a different tab, or browse listings to book a new stay.
+                                {% endif %}
+                            </p>
+                            <a href="/" class="up-btn-outline">BROWSE LISTINGS</a>
+                        </div>
+
+                    {% else %}
+
+                        <div class="ub-list" style="display:flex; flex-direction:column;">
+                            {% for b in bookings %}
+                                <a
+                                    href="/booking/{{ b.id }}"
+                                    class="up-booking-row up-reveal"
+                                    style="--i: {{ min(loop.index0, 6) }}"
+                                >
+                                    <div class="up-booking-thumb up-thumb-wrap">
+                                        {% if b.cover %}
+                                            <img
+                                                src="{{ b.cover_url }}"
+                                                alt="{{ b.title }}"
+                                                onerror="this.remove();"
+                                            >
+                                        {% endif %}
+                                        <i data-lucide="home"></i>
+                                    </div>
+                                    <div class="up-booking-info">
+                                        <h4>{{ b.title }}</h4>
+                                        <p class="up-booking-location">{{ b.location }}</p>
+                                        <p class="up-booking-dates"><i data-lucide="calendar"></i>{{ b.dates }}</p>
+                                    </div>
+                                    <div class="up-booking-side">
+                                        <span class="up-status up-status-{{ b.status }}">{{ b.status|capitalize }}</span>
+
+                                        {% if b.show_refund %}
+                                            <strong class="ub-refund-amount">₱ {{ b.refunded_fmt }}</strong>
+                                            <span>Refunded to Wallet</span>
+                                            <span class="ub-refund-note">✓ Credited</span>
+                                        {% elseif b.payment_state == 'full' %}
+                                            <strong>₱ {{ b.total_fmt }}</strong>
+                                            <span>Fully Paid</span>
+                                        {% elseif b.payment_state == 'advance' %}
+                                            <strong>₱ {{ b.paid_fmt }}</strong>
+                                            <span>Reserve Paid</span>
+                                            <span class="ub-left-note">₱{{ b.left_fmt }} left</span>
+                                        {% else %}
+                                            <strong>₱ {{ b.total_fmt }}</strong>
+                                            <span>Booking Total</span>
+                                        {% endif %}
+
+                                        {% if b.status == 'pending' %}
+                                            <button
+                                                type="button"
+                                                class="ub-cancel-btn"
+                                                data-booking-id="{{ b.id }}"
+                                            >Cancel</button>
+                                        {% endif %}
+                                    </div>
+                                    <span class="up-booking-chevron">›</span>
+                                </a>
+                            {% endfor %}
+                        </div>
+
+                    {% endif %}
+                </section>
+
+            </div>
+        </main>
+
+        {{ include('partials/footer.html.twig') }}
+
+        <!-- Lucide — guarded loader, same key as navbar (never double-runs) -->
+        <script>
+            (function () {
+                "use strict";
+                function renderRhIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
+                }
+                if (!window.__rhNavbarLucide) {
+                    window.__rhNavbarLucide = true;
+                    var s = document.createElement("script");
+                    s.src = "https://unpkg.com/lucide@latest/dist/umd/lucide.min.js";
+                    s.addEventListener("load", renderRhIcons);
+                    document.head.appendChild(s);
+                }
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", renderRhIcons);
+                } else {
+                    renderRhIcons();
+                }
+                window.addEventListener("load", renderRhIcons);
+            })();
+        </script>
+
+        <!-- Sidebar collapse — same behavior + localStorage key as legacy -->
+        <script>
+            (function () {
+                var sidebar = document.getElementById("upSidebar");
+                var toggle = document.getElementById("upSidebarToggle");
+                if (!sidebar || !toggle) {
+                    return;
+                }
+
+                var STORAGE_KEY = "roomhive_sidebar_collapsed";
+                var links = sidebar.querySelectorAll(".up-side-link");
+
+                function updateTitles(collapsed) {
+                    links.forEach(function (link) {
+                        var label = link.querySelector(".up-side-label");
+                        if (collapsed) {
+                            link.setAttribute("title", label ? label.textContent : "");
+                        } else {
+                            link.removeAttribute("title");
+                        }
+                    });
+                }
+
+                function applyState(collapsed) {
+                    sidebar.classList.toggle("collapsed", collapsed);
+                    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                    toggle.setAttribute(
+                        "aria-label",
+                        collapsed ? "Expand sidebar" : "Collapse sidebar",
+                    );
+                    updateTitles(collapsed);
+                }
+
+                var savedCollapsed = false;
+                try {
+                    savedCollapsed = localStorage.getItem(STORAGE_KEY) === "1";
+                } catch (e) {}
+                applyState(savedCollapsed);
+
+                toggle.addEventListener("click", function () {
+                    var nowCollapsed = !sidebar.classList.contains("collapsed");
+                    applyState(nowCollapsed);
+                    try {
+                        localStorage.setItem(STORAGE_KEY, nowCollapsed ? "1" : "0");
+                    } catch (e) {}
+                });
+            })();
+        </script>
+
+        <!-- CANCEL BOOKING — pending rows only. The confirm wording is
+     the details page's; the hidden-form POST is followed by the
+     controller's PRG redirect (/booking/{id}?review=1), so the
+     "rate your stay" box pops the moment the cancellation lands. -->
+        <script>
+            (function () {
+                "use strict";
+
+                var CONFIRM_TEXT =
+                    "Cancel this booking? Your paid reserve will be refunded to your wallet.";
+
+                document.querySelectorAll(".ub-cancel-btn").forEach(function (btn) {
+                    btn.addEventListener("click", function (e) {
+                        /* the button sits inside the row <a> — stop the
+                           navigation, then own the click */
+                        e.preventDefault();
+                        e.stopPropagation();
+
+                        if (!window.confirm(CONFIRM_TEXT)) {
+                            return;
+                        }
+
+                        var bookingId = btn.getAttribute("data-booking-id");
+                        if (!bookingId) {
+                            return;
+                        }
+
+                        btn.disabled = true;
+
+                        /* plain form POST — the browser follows the
+                           controller's redirect, no fetch fallback needed */
+                        var form = document.createElement("form");
+                        form.method = "POST";
+                        form.action = "/booking/cancel-booking";
+
+                        var input = document.createElement("input");
+                        input.type = "hidden";
+                        input.name = "booking_id";
+                        input.value = bookingId;
+
+                        form.appendChild(input);
+                        document.body.appendChild(form);
+                        form.submit();
+                    });
+                });
+            })();
+        </script>
+
+        <!-- Reveal — the REAL legacy mechanism: myaccount.css waits for .in-view.
+     Plus a 1.5s failsafe so the page can never render blank. -->
+        <script>
+            (function () {
+                "use strict";
+
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                var revealEls = Array.prototype.slice.call(
+                    document.querySelectorAll(".up-reveal"),
+                );
+
+                function showAll() {
+                    revealEls.forEach(function (el) {
+                        el.classList.add("in-view");
+                    });
+                }
+
+                if (reduced || !("IntersectionObserver" in window)) {
+                    showAll();
+                } else {
+                    var io = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) {
+                                    return;
+                                }
+                                var el = entry.target;
+                                io.unobserve(el);
+                                el.classList.add("in-view");
+                                window.setTimeout(function () {
+                                    el.style.setProperty("--i", "0");
+                                }, 1200);
+                            });
+                        },
+                        {
+                            threshold: 0.12,
+                            rootMargin: "0px 0px -40px 0px",
+                        },
+                    );
+                    revealEls.forEach(function (el) {
+                        io.observe(el);
+                    });
+
+                    /* failsafe — force-reveal anything still hidden after 1.5s */
+                    setTimeout(showAll, 1500);
+                }
+            })();
+        </script>
+
+    </body>
+</html>
+'@
+ $template = $template.Replace("`r`n", "`n").TrimEnd("`n") + "`n"
+
+[System.IO.File]::WriteAllText($dest, $template, $enc)
+
+# ---- 5. verify the installed file ----
+ $check = [System.IO.File]::ReadAllText($dest)
+ $ok = $true
+if (-not $check.Contains('{#')) {
+    Write-Host 'FAIL: installed file is missing the {# header'; $ok = $false
+}
+if (-not $check.Contains('<!DOCTYPE html>')) {
+    Write-Host 'FAIL: installed file is missing <!DOCTYPE html>'; $ok = $false
+}
+if ($check.Contains('{% extends')) {
+    Write-Host 'FAIL: installed file contains "{% extends" -- must be standalone'; $ok = $false
+}
+if ($check.Contains('bd-cover') -or $check.Contains('bd-review-overlay')) {
+    Write-Host 'FAIL: installed file contains booking-details content'; $ok = $false
+}
+if (-not $check.Contains('{% for b in bookings %}')) {
+    Write-Host 'FAIL: the "{% for b in bookings %}" loop is missing'; $ok = $false
+}
+if (-not $check.Contains('ub-cancel-btn')) {
+    Write-Host 'FAIL: the Cancel pill is missing'; $ok = $false
+}
+if (-not $check.Contains('data-booking-id')) {
+    Write-Host 'FAIL: the cancel button data-booking-id is missing'; $ok = $false
+}
+if (-not $check.Contains('/booking/cancel-booking')) {
+    Write-Host 'FAIL: the /booking/cancel-booking POST is missing'; $ok = $false
+}
+if (-not $check.Contains('{{ include(''partials/navbar.html.twig'''))) {
+    Write-Host 'FAIL: the navbar partial include is missing'; $ok = $false
+}
+if (-not $check.Contains('{% include ''partials/sidebar.html.twig''')) {
+    Write-Host 'FAIL: the sidebar partial include is missing'; $ok = $false
+}
+if (-not $check.Contains('{{ include(''partials/footer.html.twig'') }}')) {
+    Write-Host 'FAIL: the footer partial include is missing'; $ok = $false
+}
+if (-not $check.Contains('</html>')) {
+    Write-Host 'FAIL: the installed file does not end with </html>'; $ok = $false
+}
+
+ $bytes = ([System.IO.File]::ReadAllBytes($dest)).Length
+ $lines = [System.IO.File]::ReadAllLines($dest).Count
+Write-Host ''
+Write-Host ("VERIFY: installed size = " + $bytes + " bytes / " + $lines + " lines (expected 30342 / 695)")
+if ($bytes -ne 30342) {
+    Write-Host 'FAIL: installed size does not match the embedded template'; $ok = $false
+}
+if ($lines -ne 695) {
+    Write-Host 'FAIL: installed line count does not match the embedded template'; $ok = $false
+}
+
+# ---- 6. scan templates\user for leftover pollution ----
+Write-Host ''
+Write-Host 'USER TEMPLATE SCAN (templates\user):'
+Get-ChildItem -Path $dir -Filter '*.twig' | Sort-Object Name | ForEach-Object {
+    $t = [System.IO.File]::ReadAllText($_.FullName)
+    $ln = [System.IO.File]::ReadAllLines($_.FullName).Count
+    $flags = ''
+    if ($t.Contains('{% extends')) { $flags = $flags + '  <-- contains "{% extends"' }
+    if ($t.Contains('bd-cover') -or $t.Contains('bd-review-overlay')) {
+        if ($_.Name -ne 'bookings.html.twig') {
+            $flags = $flags + '  <-- booking-details content in the wrong file!'
+        }
+    }
+    Write-Host ("  " + $_.Name.PadRight(34) + $ln + " lines / " + $_.Length + " bytes" + $flags)
+}
+
+# ---- 7. stray-source watch (the old installers' pickup folders) ----
+Write-Host ''
+Write-Host 'STRAY-SOURCE WATCH (Downloads / Desktop / script folder / current dir):'
+ $watchDirs = @(
+    $PSScriptRoot,
+    (Join-Path $env:USERPROFILE 'Downloads'),
+    (Join-Path $env:USERPROFILE 'Desktop'),
+    (Get-Location).Path
+) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+
+ $warnStray = $false
+foreach ($d in $watchDirs) {
+    foreach ($name in @('bookings.html.twig', 'booking_details.html.twig')) {
+        $p = Join-Path $d $name
+        if (Test-Path $p) {
+            $sz = ([System.IO.File]::ReadAllBytes($p)).Length
+            $ln = [System.IO.File]::ReadAllLines($p).Count
+            $canonical = ($name -eq 'bookings.html.twig' -and $sz -eq 30342) -or
+                         ($name -eq 'booking_details.html.twig' -and $sz -eq 69569)
+            if ($canonical) {
+                Write-Host ("  OK        " + $p + "  (" + $ln + " lines -- verified copy)")
+            } else {
+                Write-Host ("  DANGER    " + $p + "  (" + $ln + " lines / " + $sz + " bytes -- NOT a verified version)")
+                $warnStray = $true
+            }
+        }
+    }
+}
+if ($warnStray) {
+    Write-Host ''
+    Write-Host '  WARNING: a stray template file with the WRONG size was found in one of'
+    Write-Host '  the folders above. The OLD installers'
+    Write-Host '    RoomHive_CancelBooking_List_Install.ps1'
+    Write-Host '    RoomHive_ReviewPopup_Install.ps1'
+    Write-Host '    RoomHive_SignGate_Payments_Install.ps1'
+    Write-Host '  do NOT embed their files -- they install WHATEVER file of that name'
+    Write-Host '  they find in Downloads/Desktop first. That is exactly how a copy of'
+    Write-Host '  the booking-details template ended up overwriting the bookings list.'
+    Write-Host '  DELETE or RENAME the DANGER file (add .stray to the name) and never'
+    Write-Host '  re-run those old installers.'
+} else {
+    Write-Host '  no dangerous stray template files found.'
+}
+
+Write-Host ''
+if ($ok) {
+    Write-Host 'RESULT: FILE REPAIRED AND VERIFIED.'
+    Write-Host ''
+    Write-Host 'Next steps:'
+    Write-Host '  1. php bin/console cache:clear'
+    Write-Host '  2. Hard-refresh the browser: Ctrl+Shift+R'
+    Write-Host '  3. Visit http://127.0.0.1:8001/bookings -- the Twig error is gone.'
+    Write-Host '     You should see the My Bookings page again: status tabs with'
+    Write-Host '     counts, rows with thumb + title + dates, the status pill, the'
+    Write-Host '     price column ("Reserve Paid" / "Fully Paid" / "Refunded to'
+    Write-Host '     Wallet"), the red Cancel pill on PENDING rows, and the chevron.'
+    Write-Host '     A row click opens /booking/{id}; the Cancel pill posts to'
+    Write-Host '     /booking/cancel-booking (98% refund to wallet) and lands on'
+    Write-Host '     the details page with the rate-your-stay popup.'
+} else {
+    Write-Host 'RESULT: INSTALL FAILED - read the FAIL lines above.'
+    Write-Host 'The file that was there before is kept at .bak-fixblist.'
+}

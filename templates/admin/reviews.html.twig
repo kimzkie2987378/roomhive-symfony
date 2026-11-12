@@ -1,0 +1,359 @@
+{# roomhive/admin/reviews.html.twig
+   Admin › Reviews — extends admin/base.html.twig.
+   1:1 port of legacy admin/adminreviews.php.
+
+   Top: summary panel with average rating + ★ + total reviews
+   caption, plus a 5-item summary grid (count per star level).
+
+   Below: panel with filter tabs (All / 5★ / 4★ / 3★ / 2★ / 1★)
+   and a 100-row table of reviews. Each row has a delete button
+   (POST with delete_review + csrf_token).
+
+   Comment cell: truncated to 140 chars with mb_strimwidth + '…'
+   suffix. The full comment is not shown in the table.
+
+   Star string is pre-computed in PHP (str_repeat ★ ×N + ☆ ×(5-N))
+   because Twig has no built-in `repeat` filter.
+
+   Deleting a review is permanent (no undo, no soft-delete).
+#}
+{% extends 'admin/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'Reviews' %}
+{% set page_heading = 'Reviews' %}
+{% set page_subheading = 'Moderate guest reviews. Deleting one is permanent.' %}
+
+{% block styles %}
+    <style>
+        /* ---- Review-specific styles (carried over from legacy) ---- */
+        .review-stars {
+            color: #f5b301;
+            letter-spacing: 2px;
+            font-size: 14px;
+        }
+        .review-comment-cell {
+            max-width: 380px;
+        }
+        .review-comment-cell p {
+            margin: 0;
+            font-size: 13px;
+            color: #4b5568;
+            line-height: 1.5;
+        }
+
+        /* ---- Summary panel ---- */
+        .stat-value-row {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        .stat-value {
+            font-size: 30px;
+            font-weight: 800;
+            color: #14142b;
+            line-height: 1.2;
+        }
+        .stat-caption {
+            font-size: 12px;
+            color: #8b93a6;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+        }
+        @media (max-width: 700px) {
+            .summary-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        .summary-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px;
+            background: #f6f7fb;
+            border-radius: 10px;
+        }
+        .summary-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: #fff4e0;
+            color: #c77a00;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .summary-icon .icon {
+            width: 16px;
+            height: 16px;
+        }
+        .summary-label {
+            display: block;
+            font-size: 11px;
+            color: #8b93a6;
+            font-weight: 600;
+        }
+        .summary-value {
+            display: block;
+            font-size: 16px;
+            color: #14142b;
+            font-weight: 700;
+            margin-top: 2px;
+        }
+
+        /* ---- Panel ---- */
+        .panel {
+            background: #fff;
+            border: 1px solid #eef1f6;
+            border-radius: 14px;
+            padding: 18px;
+        }
+
+        /* ---- Filter tabs ---- */
+        .filter-tabs {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+        }
+        .filter-tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 8px 14px;
+            border-radius: 10px;
+            background: #f6f7fb;
+            color: #5b6172;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            transition:
+                background 0.15s ease,
+                color 0.15s ease;
+        }
+        .filter-tab:hover {
+            background: #eef1f6;
+            color: #14142b;
+        }
+        .filter-tab.active {
+            background: #14142b;
+            color: #fff;
+        }
+        .filter-tab .count {
+            background: rgba(255, 255, 255, 0.18);
+            color: inherit;
+            padding: 1px 7px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        .filter-tab:not(.active) .count {
+            background: #eceef3;
+            color: #5b6172;
+        }
+
+        /* ---- Table ---- */
+        .table-scroll {
+            overflow-x: auto;
+        }
+        table.app-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        table.app-table th {
+            text-align: left;
+            color: #8b93a6;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            padding: 10px 12px;
+            border-bottom: 1px solid #eef1f6;
+            white-space: nowrap;
+        }
+        table.app-table td {
+            padding: 12px;
+            border-bottom: 1px solid #f6f7fb;
+            vertical-align: middle;
+        }
+        table.app-table tr:last-child td {
+            border-bottom: none;
+        }
+        .people-name {
+            font-weight: 600;
+            color: #14142b;
+        }
+        .rating-cell {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* ---- Delete button ---- */
+        .btn-delete {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            border: 1px solid #e14b4b;
+            background: #fff;
+            color: #e14b4b;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+        .btn-delete:hover {
+            background: #fceaea;
+        }
+        .btn-delete .icon {
+            width: 14px;
+            height: 14px;
+        }
+
+        /* ---- Flash banner ---- */
+        .flash-banner {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 16px;
+        }
+        .flash-banner.success {
+            background: #e7f7ec;
+            color: #2fa84f;
+        }
+        .flash-banner.error {
+            background: #fceaea;
+            color: #e14b4b;
+        }
+        .flash-banner .icon {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+
+        /* ---- Empty state ---- */
+        .empty-state {
+            text-align: center;
+            padding: 50px 16px;
+            color: #8b93a6;
+        }
+        .empty-state .empty-icon {
+            opacity: 0.5;
+            margin-bottom: 12px;
+        }
+        .empty-state .empty-icon .icon {
+            width: 36px;
+            height: 36px;
+        }
+        .empty-state p {
+            font-size: 13.5px;
+            margin: 0;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    {% if flash %}
+        <div class="flash-banner {{ flash.type }}">
+            {{ ui.icon(flash.type == 'success' ? 'check-circle' : 'alert-triangle') }}
+            <span>{{ flash.text }}</span>
+        </div>
+    {% endif %}
+
+    {# ============ SUMMARY PANEL ============ #}
+    <div class="panel" style="margin-bottom:18px;">
+        <div class="stat-value-row">
+            <span class="stat-value">{{ avg_rating_label }}</span>
+            <span class="review-stars">★</span>
+            <span class="stat-caption">{{ total_reviews }} review{{ total_reviews == 1 ? '' : 's' }} platform-wide</span>
+        </div>
+        <div class="summary-grid">
+            {% for i in 5..1 %}
+                <div class="summary-item">
+                    <div class="summary-icon">{{ ui.icon('star') }}</div>
+                    <div>
+                        <span class="summary-label">{{ i }} star{{ i == 1 ? '' : 's' }}</span>
+                        <span class="summary-value">{{ star_counts[i] ?? 0 }}</span>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    {# ============ REVIEWS PANEL ============ #}
+    <div class="panel">
+        <div class="filter-tabs">
+            <a class="filter-tab {{ rating == 'all' ? 'active' : '' }}" href="?{{ {rating: 'all'}|url_encode }}">
+                All <span class="count">{{ total_reviews }}</span>
+            </a>
+            {% for i in 5..1 %}
+                <a class="filter-tab {{ rating == i ? 'active' : '' }}" href="?{{ {rating: i}|url_encode }}">
+                    {{ i }} ★ <span class="count">{{ star_counts[i] ?? 0 }}</span>
+                </a>
+            {% endfor %}
+        </div>
+
+        {% if reviews is empty %}
+            <div class="empty-state">
+                <div class="empty-icon">{{ ui.icon('inbox') }}</div>
+                <p>No reviews in this view.</p>
+            </div>
+        {% else %}
+            <div class="table-scroll">
+                <table class="app-table">
+                    <thead>
+                        <tr>
+                            <th>Reviewer</th>
+                            <th>Listing</th>
+                            <th>Rating</th>
+                            <th>Comment</th>
+                            <th>Date</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in reviews %}
+                            <tr>
+                                <td><span class="people-name">{{ r.reviewer_name }}</span></td>
+                                <td>{{ r.listing_title }}</td>
+                                <td>
+                                    <span class="rating-cell">
+                                        <span class="review-stars">{{ r.stars }}</span>
+                                        <span>{{ r.rating_label }}</span>
+                                    </span>
+                                </td>
+                                <td class="review-comment-cell"><p>{{ r.comment_short }}</p></td>
+                                <td>{{ r.created_at|date('M j, Y') }}</td>
+                                <td>
+                                    <form
+                                        method="post"
+                                        action="{{ path('app_admin_reviews') }}?{{ {rating: rating}|url_encode }}"
+                                        onsubmit="return confirm('Delete this review permanently?');"
+                                    >
+                                        <input type="hidden" name="csrf_token" value="{{ admin_csrf }}">
+                                        <input type="hidden" name="delete_review" value="{{ r.id }}">
+                                        <button type="submit" class="btn-delete" aria-label="Delete review">
+                                            {{ ui.icon('trash') }}
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}

@@ -1,0 +1,285 @@
+{# roomhive/admin/settings.html.twig
+   Admin › Settings — extends admin/base.html.twig.
+   1:1 port of legacy admin/adminsettings.php.
+
+   Two-pane layout: platform settings form on the left, admin
+   account info + Log Out on the right.
+
+   PAYOUTS-TABLE-STYLE GUARD: if `platform_settings` does not
+   exist yet, the left panel renders an empty state ("run the
+   platform_settings CREATE TABLE SQL first"). Same pattern as
+   the payouts page uses for the missing `payouts` table.
+
+   Form fields: Site Name (required), Support Email (required,
+   must be a valid email), Support Phone (optional), Maintenance
+   Mode (checkbox). POSTs save_settings + csrf_token.
+
+   Validation happens server-side:
+     - CSRF token verified with hash_equals
+     - site_name cannot be empty
+     - support_email must pass filter_var FILTER_VALIDATE_EMAIL
+   On error the form re-renders with the attempted values + a
+   red flash banner. On success the form re-reads the saved
+   values and shows a green "Settings saved." banner.
+#}
+{% extends 'admin/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'Settings' %}
+{% set page_heading = 'Settings' %}
+{% set page_subheading = 'Platform-wide configuration and your admin account.' %}
+
+{% block styles %}
+<style>
+    /* ---- 2-col layout: settings form (1.4fr) + admin account (1fr) ---- */
+    .grid-3 {
+        display: grid;
+        grid-template-columns: 1.4fr 1fr;
+        gap: 18px;
+        align-items: start;
+    }
+    @media (max-width: 1000px) { .grid-3 { grid-template-columns: 1fr; } }
+
+    .panel {
+        background: #fff;
+        border: 1px solid #EEF1F6;
+        border-radius: 14px;
+        padding: 18px;
+    }
+    .panel-header { margin-bottom: 18px; }
+    .panel-header h2 {
+        margin: 0; font-size: 16px; font-weight: 700; color: #14142B;
+    }
+
+    /* ---- Form fields ---- */
+    .info-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+    }
+    @media (max-width: 700px) { .info-grid { grid-template-columns: 1fr; } }
+    .info-item { display: flex; flex-direction: column; gap: 6px; }
+    .info-item.full-width { grid-column: 1 / -1; }
+    .info-label {
+        font-size: 11px; color: #8B93A6; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .field-input {
+        width: 100%;
+        padding: 9px 12px;
+        border: 1px solid #EEF1F6;
+        border-radius: 8px;
+        font-size: 13px; font-weight: 500; color: #14142B;
+        background: #fff;
+        font-family: inherit;
+        transition: border-color .15s ease, box-shadow .15s ease;
+    }
+    .field-input:focus {
+        outline: none;
+        border-color: #EDA423;
+        box-shadow: 0 0 0 3px rgba(237, 164, 35, 0.15);
+    }
+
+    /* ---- Maintenance mode row ---- */
+    .maint-row {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 14px;
+        margin-top: 18px; padding-top: 16px;
+        border-top: 1px solid #EEF1F6;
+    }
+    .maint-row .maint-text { min-width: 0; }
+    .maint-row .people-name {
+        display: block; font-size: 14px; font-weight: 700; color: #14142B;
+        margin-bottom: 2px;
+    }
+    .maint-row .stat-caption {
+        font-size: 12px; color: #8B93A6; line-height: 1.4;
+    }
+    .maint-toggle {
+        display: flex; align-items: center; gap: 8px;
+        cursor: pointer; flex-shrink: 0;
+    }
+    .maint-toggle input[type="checkbox"] {
+        width: 18px; height: 18px;
+        accent-color: #EDA423;
+        cursor: pointer;
+    }
+    .maint-toggle .stat-caption {
+        font-size: 12.5px; color: #5B6172; font-weight: 600;
+        user-select: none;
+    }
+
+    /* ---- Save button ---- */
+    .save-row { margin-top: 18px; }
+    .btn-save {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 11px 22px;
+        border: none; border-radius: 9px;
+        background: #2FA84F; color: #fff;
+        font-size: 13px; font-weight: 700;
+        cursor: pointer; font-family: inherit;
+        transition: background .15s ease;
+    }
+    .btn-save:hover { background: #289043; }
+    .btn-save .icon { width: 16px; height: 16px; }
+
+    /* ---- Admin account panel (right) ---- */
+    .detail-profile {
+        display: flex; align-items: center; gap: 14px;
+        margin-bottom: 16px;
+    }
+    .admin-avatar {
+        width: 64px; height: 64px; border-radius: 50%;
+        background: #EDA423; color: #fff;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 700; font-size: 22px; flex-shrink: 0;
+    }
+    .detail-name {
+        margin: 0 0 4px;
+        font-size: 16px; font-weight: 700; color: #14142B;
+    }
+    .detail-meta-row {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 12.5px; color: #8B93A6; margin-top: 3px;
+    }
+    .detail-meta-row .icon { width: 13px; height: 13px; }
+
+    .detail-section {
+        margin-top: 16px; padding-top: 14px;
+        border-top: 1px solid #F6F7FB;
+    }
+    .detail-section h3 {
+        margin: 0 0 10px;
+        font-size: 11px; font-weight: 700; color: #8B93A6;
+        text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .doc-list { display: flex; flex-direction: column; gap: 6px; }
+    .doc-item {
+        display: flex; align-items: center; gap: 8px;
+        font-size: 12.5px; color: #14142B;
+        padding: 8px 10px; background: #F6F7FB; border-radius: 6px;
+    }
+    .doc-item .icon { width: 14px; height: 14px; color: #8B93A6; }
+
+    .detail-actions { margin-top: 16px; }
+    .btn-logout {
+        display: block; width: 100%;
+        text-align: center; text-decoration: none;
+        padding: 11px;
+        border: 1px solid #E14B4B; border-radius: 9px;
+        background: #fff; color: #E14B4B;
+        font-size: 13px; font-weight: 700;
+        font-family: inherit;
+        transition: background .15s ease;
+    }
+    .btn-logout:hover { background: #FCEAEA; }
+
+    /* ---- Flash banner ---- */
+    .flash-banner {
+        display: flex; align-items: center; gap: 10px;
+        padding: 12px 16px; border-radius: 10px;
+        font-size: 13px; font-weight: 500; margin-bottom: 16px;
+    }
+    .flash-banner.success { background: #E7F7EC; color: #2FA84F; }
+    .flash-banner.error { background: #FCEAEA; color: #E14B4B; }
+    .flash-banner .icon { width: 18px; height: 18px; flex-shrink: 0; }
+
+    /* ---- Empty state ---- */
+    .empty-state {
+        text-align: center; padding: 50px 16px; color: #8B93A6;
+    }
+    .empty-state .empty-icon { opacity: .5; margin-bottom: 12px; }
+    .empty-state .empty-icon .icon { width: 36px; height: 36px; }
+    .empty-state p { font-size: 13.5px; margin: 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% if flash %}
+    <div class="flash-banner {{ flash.type }}">
+        {{ ui.icon(flash.type == 'success' ? 'check-circle' : 'alert-triangle') }}
+        <span>{{ flash.text }}</span>
+    </div>
+{% endif %}
+
+<div class="grid-3">
+
+    {# ============ LEFT: Platform Settings form ============ #}
+    <div class="panel">
+        <div class="panel-header"><h2>Platform Settings</h2></div>
+
+        {% if not settings_table_exists %}
+            <div class="empty-state">
+                <div class="empty-icon">{{ ui.icon('alert-triangle') }}</div>
+                <p>Run the <code>platform_settings</code> CREATE TABLE SQL first.</p>
+            </div>
+        {% else %}
+            <form method="post" action="{{ path('app_admin_settings') }}">
+                <input type="hidden" name="csrf_token" value="{{ admin_csrf }}">
+
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">Site Name</span>
+                        <input class="field-input" type="text" name="site_name"
+                               value="{{ settings.site_name }}" required>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Support Email</span>
+                        <input class="field-input" type="email" name="support_email"
+                               value="{{ settings.support_email }}" required>
+                    </div>
+                    <div class="info-item full-width">
+                        <span class="info-label">Support Phone</span>
+                        <input class="field-input" type="text" name="support_phone"
+                               value="{{ settings.support_phone }}">
+                    </div>
+                </div>
+
+                <div class="maint-row">
+                    <div class="maint-text">
+                        <span class="people-name">Maintenance Mode</span>
+                        <span class="stat-caption">Shows a maintenance notice to guests and hosts (frontend wiring optional).</span>
+                    </div>
+                    <label class="maint-toggle">
+                        <input type="checkbox" name="maintenance_mode"
+                               {{ settings.maintenance_mode == '1' ? 'checked' : '' }}>
+                        <span class="stat-caption">Enabled</span>
+                    </label>
+                </div>
+
+                <div class="save-row">
+                    <button type="submit" name="save_settings" value="1" class="btn-save">
+                        {{ ui.icon('check') }} Save Settings
+                    </button>
+                </div>
+            </form>
+        {% endif %}
+    </div>
+
+    {# ============ RIGHT: Admin Account panel ============ #}
+    <div class="panel">
+        <div class="panel-header"><h2>Admin Account</h2></div>
+
+        <div class="detail-profile">
+            <div class="admin-avatar">{{ admin_name|slice(0, 1)|upper }}</div>
+            <div>
+                <p class="detail-name">{{ admin_name }}</p>
+                <div class="detail-meta-row">{{ ui.icon('mail') }} {{ admin_email ?: 'No email on session' }}</div>
+                <div class="detail-meta-row">{{ ui.icon('lock') }} Administrator</div>
+            </div>
+        </div>
+
+        <div class="detail-section">
+            <h3>Session</h3>
+            <div class="doc-list">
+                <div class="doc-item">{{ ui.icon('clock') }} Logged in this browser session</div>
+            </div>
+        </div>
+
+        <div class="detail-actions">
+            <a href="{{ path('app_admin_logout') }}" class="btn-logout">Log Out</a>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

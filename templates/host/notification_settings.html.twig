@@ -1,0 +1,214 @@
+{# roomhive/host/notification_settings.html.twig
+   Host › Notification Settings — 1:1 port of legacy
+   host/hostnotificationsettings.php.
+
+   Host dashboard shell (extends host/base.html.twig; sidebar
+   Settings › "Notification Settings" highlights via
+   active_nav = 'notificationsettings' — the sidebar link to
+   /host/notification-settings was pre-reserved by the shell;
+   legacy note: the key matches host_sidebar.php's settings-group).
+
+   SHELL NOTE (legacy included notification_dropdown.php manually
+   because the shared navbar did not auto-include it): the ported
+   navbar already ships the bell + dropdown, so no extra include.
+
+   Content (1:1 with legacy):
+   - "Notification Settings" header + "Saved to your RoomHive
+     account." subtitle
+   - Flash banner (PRG via rh_flash) — KEPT: it carries its Lucide
+     icon (success circle-check / error circle-alert), sized by the
+     page-local .hp-flash svg rule, exactly like the legacy
+     <style> block
+   - One hp-card with ONE POST form: the 6 REAL
+     notification_preferences columns as hp-setting-row toggles
+     (title + description + hp-switch slider), generated from the
+     controller's prefs_meta map (same loop as legacy $prefKeys)
+   - hn_csrf hidden field (legacy hn_csrf_field()); the controller
+     keeps the token in the session under 'hn_csrf' (legacy
+     hn_csrf_* helpers were self-contained — host_init does not
+     load functions.php)
+   - SAVE PREFERENCES submit (name save_prefs value 1 — the
+     controller gates the save on it, same as legacy)
+
+   ICON SUBSTITUTIONS — macro keys (admin/_macros.html.twig):
+     legacy `circle-check` → 'check-circle'   (same glyph, older name)
+     legacy `circle-alert` → 'alert-triangle' (not in the macro
+                             table; closest existing alert glyph)
+   No other icons on this page. No page-level lucide loader —
+   the shared navbar ships the guarded loader.
+
+   CSS NOTE: hp-page-header / hp-flash / hp-setting-row /
+   hp-switch / hp-slider / hp-form-actions / hp-btn-primary came
+   from legacy hostprofile.css, which the Symfony shell does not
+   ship — redeclared page-locally with the same values the other
+   ported host pages standardized on (same approach as
+   host/payouts.html.twig).
+
+   Pairs with: HostNotificationSettingsController
+     GET|POST /host/notification-settings
+     name app_host_notification_settings
+#}
+{% extends 'host/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'notificationsettings' %}
+
+{% block page_title %}Notification Settings — RoomHive{% endblock %}
+
+{% block styles %}
+<style>
+    /* ---- Page header (same values as the other host pages) ---- */
+    .hp-page-header {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 16px; flex-wrap: wrap;
+    }
+    .hp-page-title { margin: 0; font-size: 24px; font-weight: 800; color: var(--rh-ink); }
+    .hp-page-subtitle { margin: 4px 0 0; font-size: 13px; color: var(--rh-muted); max-width: 680px; }
+
+    /* ---- Flash messages (legacy hp-flash-*) ---- */
+    .hp-flash {
+        margin: 0 0 14px; padding: 12px 14px; border-radius: 10px;
+        font-size: 13px; font-weight: 600;
+    }
+    .hp-flash-success { background: #E7F7EC; color: #1E7A3D; border: 1px solid #BFE8CF; }
+    .hp-flash-error   { background: #FCEAEA; color: #C4302F; border: 1px solid #F3B9B9; }
+
+    /* Lucide icon inside the flash message
+       (verbatim from the legacy page's <style> block) */
+    .hp-flash svg {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+        vertical-align: -3px;
+        margin-right: 6px;
+    }
+
+    /* ---- Preference rows (legacy hp-setting-row) ---- */
+    .hp-setting-row {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 16px; padding: 13px 0;
+        border-bottom: 1px solid #F1F4F8;
+    }
+    .hp-setting-row:last-of-type { border-bottom: 0; }
+    .hp-setting-row strong {
+        display: block;
+        font-size: 13.5px; font-weight: 700; color: var(--rh-ink);
+    }
+    .hp-setting-row p { margin: 3px 0 0; font-size: 12px; color: var(--rh-muted); }
+
+    /* ---- Toggle switch (legacy hp-switch / hp-slider) ---- */
+    .hp-switch {
+        position: relative; display: inline-block;
+        width: 44px; height: 24px; flex-shrink: 0;
+        cursor: pointer;
+    }
+    .hp-switch input {
+        position: absolute; opacity: 0; width: 0; height: 0;
+    }
+    .hp-slider {
+        position: absolute; inset: 0;
+        border-radius: 999px;
+        background: #d7dde5;
+        transition: background 0.2s ease;
+    }
+    .hp-slider::before {
+        content: ""; position: absolute; top: 3px; left: 3px;
+        width: 18px; height: 18px; border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+        transition: transform 0.2s ease;
+    }
+    .hp-switch input:checked + .hp-slider { background: var(--rh-accent); }
+    .hp-switch input:checked + .hp-slider::before { transform: translateX(20px); }
+    .hp-switch input:focus-visible + .hp-slider {
+        box-shadow: 0 0 0 3px rgba(237, 164, 35, 0.25);
+    }
+
+    /* ---- Form actions + primary button (same values as payouts) ---- */
+    .hp-form-actions {
+        display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+        margin-top: 16px;
+    }
+    .hp-btn-primary {
+        display: inline-block; padding: 8px 16px; border-radius: 9px;
+        border: 1px solid var(--rh-accent);
+        background: linear-gradient(135deg, #f6b93b, #eda423);
+        color: #1c2a38; font-size: 12px; font-weight: 700;
+        font-family: inherit; text-decoration: none; cursor: pointer;
+        box-shadow: 0 8px 18px rgba(237, 164, 35, 0.35);
+        transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .hp-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 24px rgba(237, 164, 35, 0.45);
+    }
+
+    /* ---- Icon baseline ---- */
+    svg.icon { display: inline-block; vertical-align: -0.18em; flex-shrink: 0; }
+
+    /* ---- Dark mode ---- */
+    body[data-theme="dark"] .hp-page-title { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-setting-row { border-bottom-color: #1a222b; }
+    body[data-theme="dark"] .hp-setting-row strong { color: #e8ecf1; }
+    body[data-theme="dark"] .hp-setting-row p { color: #8d99a5; }
+    body[data-theme="dark"] .hp-slider { background: #2a3540; }
+    body[data-theme="dark"] .hp-btn-primary { background: linear-gradient(135deg, #f6b93b, #eda423); border-color: #eda423; }
+
+    @media (prefers-reduced-motion: reduce) {
+        .hp-slider,
+        .hp-slider::before,
+        .hp-btn-primary {
+            transition: none;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="hp-page-header">
+    <div>
+        <h1 class="hp-page-title">Notification Settings</h1>
+        <p class="hp-page-subtitle">Saved to your RoomHive account.</p>
+    </div>
+</div>
+
+{% if session_flash %}
+    <div class="hp-flash {{ session_flash.type == 'success' ? 'hp-flash-success' : 'hp-flash-error' }}">
+        {# KEPT (legacy): the flash carries its Lucide icon —
+           circle-check on success / circle-alert on error.
+           Macro substitutions: check-circle / alert-triangle. #}
+        {% if session_flash.type == 'success' %}
+            {{ ui.icon('check-circle') }}
+        {% else %}
+            {{ ui.icon('alert-triangle') }}
+        {% endif %}{{ session_flash.message }}
+    </div>
+{% endif %}
+
+<section class="hp-card">
+    <form method="POST" action="{{ path('app_host_notification_settings') }}">
+        <input type="hidden" name="hn_csrf" value="{{ hn_csrf }}">
+
+        {# The 6 REAL columns — looped from the controller's
+           prefs_meta map, same as legacy's $prefKeys foreach #}
+        {% for key, meta in prefs_meta %}
+            <div class="hp-setting-row">
+                <div>
+                    <strong>{{ meta[0] }}</strong>
+                    <p>{{ meta[1] }}</p>
+                </div>
+                <label class="hp-switch">
+                    <input type="checkbox" name="{{ key }}" {{ prefs[key] ? 'checked' : '' }}>
+                    <span class="hp-slider"></span>
+                </label>
+            </div>
+        {% endfor %}
+
+        <div class="hp-form-actions">
+            <button type="submit" name="save_prefs" value="1" class="hp-btn-primary">SAVE PREFERENCES</button>
+        </div>
+    </form>
+</section>
+
+{% endblock %}

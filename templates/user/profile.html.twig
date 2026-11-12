@@ -1,3 +1,78 @@
+{# =========================================================
+   RoomHive — My Account › Overview (profile dashboard)
+   templates/user/profile.html.twig
+
+   REBUILT from the user's live template onto the shared account
+   shell — same recipe as help / notifications / bookings /
+   payments / messages / reviews / wallet / wishlist. This page
+   and payments share the same PENDING-PAYMENT NOTICE above the
+   shell (same .up-notice classes), and like payments it has NO
+   ub-page-head — so the layout fix follows the payments variant.
+
+     - Sidebar: shared partial templates/partials/sidebar.html.twig,
+       highlight key 'overview'. The inline <aside> + its ~190-line
+       CSS block + the 13-entry sideLinks array (which still
+       carried the REMOVED Saved Searches entry) are gone — the
+       partial owns them (12 entries, help is the last).
+     - Navbar include: defensive ?? guards added — controller
+       variable names kept (is_host / nav_avatar /
+       notification_count). current_page: 'profile'.
+     - Footer: shared partials/footer.html.twig after </main>
+       (the live page already had it — kept).
+     - Lucide: the live page already used the guarded loader
+       (window.__rhNavbarLucide — never double-loads with the
+       navbar's) — kept verbatim.
+     - Reveal: the KILL-SWITCH CSS (force every .up-reveal visible)
+       and the old add-classes-immediately failsafe script are
+       dropped -> the REAL legacy mechanism (.up-reveal waits for
+       .in-view) + the 1.5s failsafe so the page can never render
+       blank. Markup untouched — the 9 reveal cards carry no
+       --i stagger (they didn't before either).
+     - Collapse: same localStorage key (roomhive_sidebar_collapsed)
+       + the updateTitles version (already on the live page — kept).
+
+   NAVBAR CLEARANCE + LAYOUT — page-local, bulletproof (payments
+   variant — the notice sits above the shell, there is NO
+   ub-page-head):
+     - .up-notice-wrap carries the navbar clearance as PADDING
+       (max-width: 1560px, padding: 110px 20px 0 — padding can
+       never collapse; the old margin: 18px auto -6px had zero
+       clearance and rode under the fixed navbar).
+     - main.up-dashboard { margin-top: 0; padding: 22px 20px 70px;
+       max-width: 1560px; } — the shell follows the notice at its
+       original rhythm, at full available width (specificity
+       0,1,1 — always wins vs myaccount.css).
+     - .up-dashboard .up-content { gap: 20px; } — rhythm insurance
+       on a bumped selector.
+     - .up-dashboard .up-sidebar { top: 110px; } — the sticky
+       offset matches the other account pages (the partial's
+       default is 86px).
+     - Dropped page-local blocks myaccount.css owns: .up-dashboard
+       flex def, .up-content base, .up-card base. .up-card-head
+       (+ its a rules) stays page-local (payments precedent).
+     - box-sizing group extended to .up-notice-wrap (border-box so
+       its 20px side padding stays inside 1560px).
+
+   Content (1:1 with the live page — nothing content-side changed):
+   - pending-payment notice (up-notice-warn / up-notice-ok)
+   - profile card: avatar picker (POST /profile/avatar, syncs the
+     navbar avatar too), Verified / Pending / Not-verified badge,
+     member meta list, Edit Profile -> /profile/edit, About Me
+   - 4 chart cards: Bookings + Total Spent bars (last 6 months,
+     server-computed heights), Wallet donut (data-pct, offset
+     125.66), Wishlist stack + legend (wl_categories)
+   - Recent Bookings (status + pay chips) | right column: Identity
+     Verification, Payment Summary (This week / To pay tabs swap
+     from data-* attributes), Payment Methods, Account Security,
+     Need Help
+   - Wishlist grid: heart remove -> POST /wishlist/remove
+     (capture-phase delegation), count + empty-state swap
+
+   Data from ProfileController::index (user, is_host, nav_avatar,
+   notification_count, id_status, summary, chart, wallet,
+   wl_total, wl_categories, bookings, wishlist).
+   Controller untouched — template-only change. Pure Twig -> Ctrl+F5.
+========================================================= #}
 <!DOCTYPE html>
 <html lang="en">
     <head>
@@ -35,17 +110,53 @@
                 background: #f3f5f9;
             }
 
+            .up-notice-wrap,
             .up-dashboard,
             .up-dashboard * {
                 box-sizing: border-box;
             }
 
-            /* ================= notice ================= */
-            .up-notice-wrap {
-                max-width: 1240px;
-                margin: 18px auto -6px;
-                padding: 0 20px;
+            svg.lucide {
+                vertical-align: -0.18em;
+                flex-shrink: 0;
             }
+
+            /* =========================================================
+                           NAVBAR CLEARANCE + LAYOUT — page-local, bulletproof
+                           (payments variant: the pending-payment notice sits
+                           above the shell, there is NO ub-page-head). The notice
+                           wrap carries the clearance as PADDING — margins can
+                           collapse, padding can never — so the notice cannot
+                           ride under the fixed navbar (the old margin:
+                           18px auto -6px had zero clearance). The shell follows
+                           right below at full available width.
+                        ========================================================== */
+            .up-notice-wrap {
+                max-width: 1560px;
+                margin: 0 auto;
+                padding: 110px 20px 0;
+            }
+
+            main.up-dashboard {
+                margin-top: 0;
+                padding: 22px 20px 70px;
+                max-width: 1560px;
+            }
+
+            /* keep the shell's vertical rhythm between the stacked
+                           sections (myaccount.css owns the rest) */
+            .up-dashboard .up-content {
+                gap: 20px;
+            }
+
+            /* sticky offset matches the other account pages — when you
+                           scroll, the sidebar sticks at the 110px line instead of
+                           tucking under the navbar (the partial's default is 86px) */
+            .up-dashboard .up-sidebar {
+                top: 110px;
+            }
+
+            /* ================= notice ================= */
             .up-notice {
                 display: flex;
                 gap: 12px;
@@ -72,146 +183,6 @@
                 background: #fff6e6;
                 color: #8a5a00;
                 border: 1px solid #f3ddb0;
-            }
-
-            /* ================= shell ================= */
-            .up-dashboard {
-                display: flex;
-                align-items: flex-start;
-                gap: 22px;
-                max-width: 1240px;
-                margin: 0 auto;
-                padding: 22px 20px 70px;
-            }
-            .up-content {
-                flex: 1 1 auto;
-                min-width: 0;
-                display: flex;
-                flex-direction: column;
-                gap: 20px;
-            }
-
-            /* =========================================================
-                                   SIDEBAR — ported 1:1 from legacy includes/sidebar.php
-                                   (this block owns layout & spacing, loads after the old
-                                   stylesheet so these rules win)
-                                ========================================================= */
-            .up-sidebar {
-                /* spacing knobs */
-                --up-w: 240px;
-                --up-w-collapsed: 66px;
-                --up-icon: 18px;
-                --up-gap: 12px;
-                --up-link-pad-y: 10px;
-                --up-link-pad-x: 14px;
-                --up-link-gap: 4px;
-                --up-side-pad: 10px;
-
-                display: flex;
-                flex-direction: column;
-                gap: var(--up-link-gap);
-                width: var(--up-w);
-                padding: 8px var(--up-side-pad);
-                transition: width 0.3s ease;
-                overflow: hidden;
-
-                background: var(--rh-card);
-                border: 1px solid var(--rh-line);
-                border-radius: var(--rh-radius);
-                box-shadow: 0 10px 30px rgba(28, 42, 56, 0.06);
-                position: sticky;
-                top: 86px;
-                flex: 0 0 auto;
-            }
-
-            .up-side-toggle {
-                display: flex;
-                align-items: center;
-                justify-content: flex-end;
-                width: 100%;
-                padding: 6px 4px;
-                margin: 0;
-                background: transparent;
-                border: none;
-                border-radius: 8px;
-                color: inherit;
-                font: inherit;
-                cursor: pointer;
-                transition: background 0.2s ease;
-            }
-            .up-side-toggle:hover {
-                background: rgba(0, 0, 0, 0.06);
-            }
-            .up-side-toggle svg {
-                width: 20px;
-                height: 20px;
-                transition: transform 0.3s ease;
-            }
-
-            .up-side-link {
-                display: flex;
-                align-items: center;
-                gap: var(--up-gap);
-                padding: var(--up-link-pad-y) var(--up-link-pad-x);
-                margin: 0;
-                white-space: nowrap;
-                transition: background 0.2s ease;
-                color: #3e4f61;
-                text-decoration: none;
-                font-size: 14px;
-                font-weight: 500;
-                border-radius: 10px;
-            }
-            .up-side-link svg {
-                width: var(--up-icon);
-                height: var(--up-icon);
-                flex-shrink: 0;
-                color: #7a8ea3;
-                transition: color 0.2s ease;
-            }
-            .up-side-link:hover {
-                background: rgba(28, 42, 56, 0.06);
-                color: var(--rh-ink);
-            }
-            .up-side-link:hover svg {
-                color: var(--rh-ink);
-            }
-            .up-side-link.active {
-                background: var(--rh-ink);
-                color: #fff;
-                font-weight: 600;
-            }
-            .up-side-link.active svg {
-                color: var(--rh-accent);
-            }
-
-            .up-side-label {
-                min-width: 0;
-                overflow: hidden;
-                text-overflow: ellipsis;
-            }
-
-            /* collapsed state */
-            .up-sidebar.collapsed {
-                width: var(--up-w-collapsed);
-            }
-            .up-sidebar.collapsed .up-side-toggle svg {
-                transform: rotate(180deg);
-            }
-            .up-sidebar.collapsed .up-side-toggle {
-                justify-content: center;
-            }
-            .up-sidebar.collapsed .up-side-label {
-                display: none;
-            }
-            .up-sidebar.collapsed .up-side-link {
-                justify-content: center;
-                gap: 0;
-                padding-left: 0;
-                padding-right: 0;
-            }
-            .up-side-logout {
-                margin-top: 10px;
             }
 
             /* ================= profile card ================= */
@@ -569,13 +540,7 @@
                 gap: 18px;
                 min-width: 0;
             }
-            .up-card {
-                background: var(--rh-card);
-                border: 1px solid var(--rh-line);
-                border-radius: var(--rh-radius);
-                padding: 20px;
-                box-shadow: 0 10px 30px rgba(28, 42, 56, 0.05);
-            }
+            /* .up-card base def lives in myaccount.css — same as payments/reviews */
             .up-card-head {
                 display: flex;
                 align-items: center;
@@ -898,15 +863,15 @@
                 margin-top: 6px;
             }
 
-            /* ================= dark mode ================= */
+            /* ================= dark mode =================
+                           (sidebar dark rules live in the partial) */
             html.dark body {
                 background: #141c26;
             }
             html.dark .up-profile-card,
             html.dark .up-ch-card,
             html.dark .up-card,
-            html.dark .up-wl,
-            html.dark .up-sidebar {
+            html.dark .up-wl {
                 background: #1e2a38;
                 border-color: rgba(255, 255, 255, 0.08);
                 box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
@@ -965,33 +930,6 @@
             html.dark .up-photo-fallback {
                 border-color: #1e2a38;
             }
-            html.dark .up-sidebar {
-                background: #1e2a38;
-                border-color: rgba(255, 255, 255, 0.08);
-            }
-            html.dark .up-side-link {
-                color: #b9c6d4;
-            }
-            html.dark .up-side-link svg {
-                color: #8296ab;
-            }
-            html.dark .up-side-link:hover {
-                background: rgba(255, 255, 255, 0.07);
-                color: #fff;
-            }
-            html.dark .up-side-link:hover svg {
-                color: #fff;
-            }
-            html.dark .up-side-link.active {
-                background: #eda423;
-                color: #1c2a38;
-            }
-            html.dark .up-side-link.active svg {
-                color: #1c2a38;
-            }
-            html.dark .up-side-toggle:hover {
-                background: rgba(255, 255, 255, 0.08);
-            }
 
             /* ================= responsive ================= */
             @media (max-width: 1100px) {
@@ -1007,20 +945,6 @@
             @media (max-width: 860px) {
                 .up-dashboard {
                     flex-direction: column;
-                }
-                .up-sidebar,
-                .up-sidebar.collapsed {
-                    width: 100%;
-                    position: static;
-                }
-                .up-sidebar.collapsed .up-side-label {
-                    display: inline;
-                }
-                .up-sidebar.collapsed .up-side-link {
-                    justify-content: flex-start;
-                    gap: var(--up-gap);
-                    padding-left: var(--up-link-pad-x);
-                    padding-right: var(--up-link-pad-x);
                 }
                 .up-wl-grid {
                     grid-template-columns: repeat(2, 1fr);
@@ -1038,39 +962,18 @@
                 }
             }
 
-            @media (prefers-reduced-motion: reduce) {
-                .up-sidebar,
-                .up-side-toggle svg,
-                .up-side-link {
-                    transition: none;
-                }
-            }
-
-            /* =====================================================
-                                   REVEAL KILL-SWITCH — the page must never render blank.
-                                   myaccount.css hides .up-reveal cards until the scroll
-                                   script adds ITS class; instead of guessing the class
-                                   name, force every card visible.
-                                ====================================================== */
-            .up-reveal,
-            .js .up-reveal,
-            html.js .up-reveal {
-                opacity: 1 !important;
-                visibility: visible !important;
-                transform: none !important;
-                animation: none !important;
-            }
+            /* sidebar markup + styles live in templates/partials/sidebar.html.twig */
         </style>
     </head>
     <body>
 
         {{ include('partials/navbar.html.twig', {
-    is_logged_in: true,
-    is_host: is_host,
-    nav_avatar: nav_avatar,
-    notification_count: notification_count,
-    current_page: 'profile'
-}) }}
+            is_logged_in: true,
+            is_host: is_host ?? false,
+            nav_avatar: nav_avatar ?? null,
+            notification_count: notification_count ?? 0,
+            current_page: 'profile'
+        }) }}
 
         <div class="up-notice-wrap">
             <div class="up-notice {% if summary.pending > 0 %}up-notice-warn{% else %}up-notice-ok{% endif %}">
@@ -1089,50 +992,10 @@
         <main class="up-dashboard">
 
             <!-- ==================================================
-         SIDEBAR — 1:1 port of legacy includes/sidebar.php
-         (collapse persists via localStorage: roomhive_sidebar_collapsed)
-    =================================================== -->
-            <aside class="up-sidebar" id="upSidebar">
-
-                <button
-                    type="button"
-                    class="up-side-toggle"
-                    id="upSidebarToggle"
-                    aria-expanded="true"
-                    aria-label="Collapse sidebar"
-                >
-                    <i data-lucide="chevron-left"></i>
-                </button>
-
-                {% set sideLinks = [
-            ['overview',      '/profile',                'layout-dashboard', 'Overview'],
-            ['bookings',      '/bookings',               'calendar-check',   'My Bookings'],
-            ['wishlist',      '/wishlist',               'heart',            'Wishlist'],
-            ['payments',      '/payments',               'credit-card',      'Payments'],
-            ['wallet',        '/wallet',                 'wallet',           'Wallet'],
-            ['reviews',       '/reviews',                'star',             'Reviews'],
-            ['messages',      '/messages',               'message-square',   'Messages'],
-            ['notifcenter',   '/notifications',          'bell',             'Notifications'],
-            ['profile',       '/profile/edit',           'user-round',       'Profile & Account'],
-            ['security',      '/settings',               'settings',         'Settings'],
-            ['notifications', '/settings/notifications', 'bell-ring',        'Notification Settings'],
-            ['savedsearches', '/saved-searches',         'search',           'Saved Searches'],
-            ['help',          '/help',                   'circle-help',      'Help Center']
-        ] %}
-
-                {% for link in sideLinks %}
-                    <a href="{{ link[1] }}" class="up-side-link{{ link[0] == 'overview' ? ' active' : '' }}">
-                        <i data-lucide="{{ link[2] }}"></i>
-                        <span class="up-side-label">{{ link[3] }}</span>
-                    </a>
-                {% endfor %}
-
-                <a href="/logout" class="up-side-link up-side-logout">
-                    <i data-lucide="log-out"></i>
-                    <span class="up-side-label">Log Out</span>
-                </a>
-
-            </aside>
+                 SIDEBAR — shared partial (templates/partials/sidebar.html.twig)
+                 highlight = active_sidebar key · collapse JS stays on this page
+            =================================================== -->
+            {% include 'partials/sidebar.html.twig' with { active_sidebar: 'overview' } %}
 
             <div class="up-content">
 
@@ -1428,7 +1291,7 @@
                 if (!window.__rhNavbarLucide) {
                     window.__rhNavbarLucide = true;
                     var s = document.createElement("script");
-                    s.src = "https://unpkg.com/lucide@latest/dist/umd/lucide.min.js";
+                    s.src = "https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js";
                     s.addEventListener("load", renderRhIcons);
                     document.head.appendChild(s);
                 }
@@ -1490,18 +1353,57 @@
             })();
         </script>
 
+        <!-- Reveal — the REAL legacy mechanism (self-contained):
+             .up-reveal waits for .in-view; 1.5s failsafe so the page
+             can never render blank -->
         <script>
-            /* Reveal failsafe — force every card into its visible state */
             (function () {
-                function revealAll() {
-                    document.querySelectorAll(".up-reveal").forEach(function (el) {
-                        el.classList.add("in", "is-visible", "revealed");
+                "use strict";
+
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+                var revealEls = Array.prototype.slice.call(
+                    document.querySelectorAll(".up-reveal"),
+                );
+
+                function showAll() {
+                    revealEls.forEach(function (el) {
+                        el.classList.add("in-view");
                     });
                 }
-                revealAll();
-                setTimeout(revealAll, 1200);
-            })();
 
+                if (reduced || !("IntersectionObserver" in window)) {
+                    showAll();
+                } else {
+                    var io = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) return;
+                                var el = entry.target;
+                                io.unobserve(el);
+                                el.classList.add("in-view");
+                                window.setTimeout(function () {
+                                    el.style.setProperty("--i", "0");
+                                }, 1200);
+                            });
+                        },
+                        {
+                            threshold: 0.12,
+                            rootMargin: "0px 0px -40px 0px",
+                        },
+                    );
+                    revealEls.forEach(function (el) {
+                        io.observe(el);
+                    });
+
+                    /* failsafe — force-reveal anything still hidden after 1.5s */
+                    setTimeout(showAll, 1500);
+                }
+            })();
+        </script>
+
+        <!-- Page logic — donut, summary tabs, avatar upload, wishlist remove (1:1) -->
+        <script>
             /* Wallet donut — offset = 125.66 × (1 − pct/100) */
             (function () {
                 var C = 125.66;
@@ -1647,4 +1549,5 @@
         </script>
 
     </body>
+
 </html>

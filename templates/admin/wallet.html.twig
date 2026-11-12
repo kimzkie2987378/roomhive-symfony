@@ -1,0 +1,1027 @@
+{#
+   Admin → Wallet — mirrors host/payouts.html.twig for the admin side.
+
+   Stat pills (top-right of the page header): Available (commission
+   not yet withdrawn), Pending (in-flight payout requests — always 0
+   in the instant-processing model), Paid Out (completed payouts).
+
+   Request-a-Payout card: amount (₱100 minimum from the controller; NO
+   max attribute — the server caps at Available so min/max can never
+   contradict and Chrome can't block the form) + payout method select
+   (GCash / PayMaya / Bank Transfer / Debit / Credit Card) + REQUEST
+   PAYOUT. Posts back to /admin/wallet (PRG) carrying the session's
+   pay_csrf token — CSRF-guarded, same as host/payouts.
+
+   METHOD FIELDS: the form asks for the details the money is actually
+   sent to, per method — GCash and PayMaya ask for the 11-digit 09
+   mobile number, Bank Transfer asks for bank + account name + account
+   number, and Debit / Credit Card asks for the card number (grouped
+   every 4 digits), the MM/YY expiry (auto-slash) and the cardholder
+   name. A page script shows the group matching the select and
+   disables the rest, so only the visible fields are posted; the
+   controller validates them again and stores a display-safe "sent to"
+   string in admin_payouts.destination (card/account numbers masked to
+   the last 4). Below ₱100 available the form disables itself with a
+   note — no valid payout exists below the fixed minimum.
+
+   A validated request is processed INSTANTLY: status 'completed',
+   processed_at set, the amount is gone from the Available pill on the
+   redirect, and the row is recorded in Payout History. The green
+   RECEIPT box renders once after a successful payout (consumed from
+   the session, one render).
+
+   Below the history sits a compact COMMISSION LEDGER (the last 15
+   commission rows from wallet_transactions) so the page stays
+   recognisably "the wallet".
+
+   CSS NOTE: the host page leans on --rh-* vars + .hp-card from
+   host/base.html.twig + legacy hostprofile.css. The admin shell ships
+   NONE of those, so they are redeclared page-locally at the top of
+   the styles block (same values the host pages standardised on).
+
+   ICON SUBSTITUTIONS — same mapping rule as host/bookings.html.twig:
+     wallet    → macro 'wallet'    (exists)
+     clock     → macro 'clock'     (Pending pill; hourglass substitution)
+     banknote  → macro 'banknote'  (exists)
+
+   Pairs with: AdminWalletController
+     GET|POST /admin/wallet   name admin_wallet
+#}
+{% extends 'admin/base.html.twig' %}
+{% import 'admin/_macros.html.twig' as ui %}
+
+{% set active_nav = 'Wallet' %}
+{% set page_heading = 'Wallet' %}
+{% set page_subheading = 'Track platform commission and withdraw your earnings to a payout method.' %}
+
+{% block page_title %}Wallet — RoomHive Admin{% endblock %}
+
+{% block styles %}
+    <style>
+        /* ---- Host-page vars the admin shell does NOT ship (redeclared locally) ---- */
+        :root {
+            --rh-ink: #14142b;
+            --rh-muted: #8b93a6;
+            --rh-line: #eef1f6;
+            --rh-accent: #eda423;
+            --rh-accent-light: #fff4e0;
+            --rh-radius: 12px;
+        }
+
+        /* ---- Card shell (host base ships this; admin shell does not) ---- */
+        .hp-card {
+            background: #fff;
+            border: 1px solid var(--rh-line);
+            border-radius: var(--rh-radius);
+            padding: 18px 20px;
+            margin-bottom: 18px;
+        }
+        .hp-card-header {
+            margin-bottom: 14px;
+        }
+        .hp-card-header h3 {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 800;
+            color: var(--rh-ink);
+        }
+        .hp-muted {
+            color: var(--rh-muted);
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        /* ---- Page header (same values as the other host pages) ---- */
+        .hp-page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+        }
+        .hp-page-title {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--rh-ink);
+        }
+        .hp-page-subtitle {
+            margin: 4px 0 0;
+            font-size: 13px;
+            color: var(--rh-muted);
+            max-width: 680px;
+        }
+
+        /* ---- Stat pillbox (top-right of the page header) ---- */
+        .hp-stat-pillbox {
+            display: flex;
+            align-items: stretch;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .hp-stat-pill-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #fff;
+            border: 1px solid var(--rh-line);
+            border-radius: 12px;
+            padding: 10px 14px;
+            min-width: 130px;
+        }
+        .hp-stat-pill-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            background: #f0f1f6;
+            flex-shrink: 0;
+        }
+        .hp-stat-pill-icon svg {
+            width: 20px;
+            height: 20px;
+            color: #5d6875;
+        }
+        .hp-stat-pill-icon.hp-yellow svg {
+            color: #c77a00;
+        }
+        .hp-stat-pill-icon.hp-green svg {
+            color: #1fa971;
+        }
+        .hp-stat-pill-label {
+            margin: 0;
+            font-size: 10.5px;
+            font-weight: 700;
+            color: var(--rh-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .hp-stat-pill-value {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 800;
+            color: var(--rh-ink);
+            line-height: 1.2;
+        }
+
+        /* ---- Flash messages (legacy hp-flash-*) ---- */
+        .hp-flash {
+            margin: 0 0 14px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .hp-flash-success {
+            background: #e7f7ec;
+            color: #1e7a3d;
+            border: 1px solid #bfe8cf;
+        }
+        .hp-flash-error {
+            background: #fceaea;
+            color: #c4302f;
+            border: 1px solid #f3b9b9;
+        }
+
+        /* ---- Receipt box (result of the last successful payout) ---- */
+        .hp-receipt {
+            margin: 0 0 18px;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid #bfe8cf;
+            background: #fff;
+        }
+        .hp-receipt-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            background: #e7f7ec;
+            border-bottom: 1px dashed #bfe8cf;
+            padding: 12px 16px;
+        }
+        .hp-receipt-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13.5px;
+            font-weight: 800;
+            color: #1e7a3d;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .hp-receipt-title svg {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+        }
+        .hp-receipt-ref {
+            font-size: 12px;
+            font-weight: 700;
+            color: #1fa971;
+            background: #fff;
+            border: 1px solid #bfe8cf;
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-family: "Consolas", "Courier New", monospace;
+            white-space: nowrap;
+        }
+        .hp-receipt-body {
+            padding: 4px 16px 12px;
+        }
+        .hp-receipt-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 9px 0;
+            border-bottom: 1px dashed #eef1f6;
+            font-size: 13px;
+        }
+        .hp-receipt-row:last-of-type {
+            border-bottom: 0;
+        }
+        .hp-receipt-row .k {
+            color: var(--rh-muted);
+            font-weight: 700;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .hp-receipt-row .v {
+            color: var(--rh-ink);
+            font-weight: 700;
+        }
+        .hp-receipt-row .v.money {
+            font-size: 15px;
+            font-weight: 800;
+            color: #1e7a3d;
+        }
+        .hp-receipt-total {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 6px;
+            padding: 12px 0 2px;
+            border-top: 2px solid #eef1f6;
+        }
+        .hp-receipt-total .k {
+            font-size: 11px;
+            font-weight: 800;
+            color: var(--rh-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .hp-receipt-total .v {
+            font-size: 18px;
+            font-weight: 800;
+            color: var(--rh-ink);
+        }
+        .hp-receipt-note {
+            margin: 10px 0 0;
+            font-size: 11.5px;
+            color: var(--rh-muted);
+        }
+
+        /* ---- Request form (legacy hp-form-* / hp-input / hp-select) ---- */
+        .hp-form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+        }
+        .hp-field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 0;
+        }
+        .hp-field label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--rh-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .hp-input,
+        .hp-select {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 10px 12px;
+            border-radius: 9px;
+            border: 1px solid #dfe4ea;
+            background: #fff;
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--rh-ink);
+            outline: none;
+            transition:
+                border-color 0.15s ease,
+                box-shadow 0.15s ease;
+        }
+        .hp-input:focus,
+        .hp-select:focus {
+            border-color: var(--rh-accent);
+            box-shadow: 0 0 0 3px rgba(237, 164, 35, 0.18);
+        }
+        .hp-input:disabled,
+        .hp-select:disabled {
+            background: #f6f7fb;
+            color: var(--rh-muted);
+        }
+
+        .hp-form-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 16px;
+        }
+        .hp-btn-primary {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 9px;
+            border: 1px solid var(--rh-accent);
+            background: linear-gradient(135deg, #f6b93b, #eda423);
+            color: #1c2a38;
+            font-size: 12px;
+            font-weight: 700;
+            font-family: inherit;
+            text-decoration: none;
+            cursor: pointer;
+            box-shadow: 0 8px 18px rgba(237, 164, 35, 0.35);
+            transition:
+                background 0.15s ease,
+                transform 0.15s ease,
+                box-shadow 0.15s ease;
+        }
+        .hp-btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(237, 164, 35, 0.45);
+        }
+        .hp-btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        /* ---- Per-method destination fields ---- */
+        .hp-method-fields {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-top: 14px;
+        }
+        .hp-method-fields[hidden] {
+            display: none;
+        }
+        .hp-span-2 {
+            grid-column: 1 / -1;
+        }
+        .hp-hint {
+            margin: 0;
+            font-size: 11.5px;
+            color: var(--rh-muted);
+            line-height: 1.5;
+        }
+
+        /* ---- History table (legacy hp-table values) ---- */
+        .hp-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .hp-table th {
+            text-align: left;
+            padding: 10px 12px;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--rh-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            border-bottom: 2px solid #eef1f6;
+            white-space: nowrap;
+        }
+        .hp-table td {
+            padding: 12px;
+            border-bottom: 1px solid #f6f7fb;
+            color: var(--rh-ink);
+            vertical-align: top;
+        }
+        .hp-amount {
+            font-weight: 800;
+            white-space: nowrap;
+        }
+        .hp-dest {
+            font-size: 12px;
+            color: var(--rh-muted);
+        }
+
+        /* ---- Status pills (legacy hp-status-*) ---- */
+        .hp-status {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+        .hp-status-active {
+            background: #e7f7ec;
+            color: #1fa971;
+        }
+        .hp-status-pending {
+            background: var(--rh-accent-light);
+            color: #b07708;
+        }
+        .hp-status-rejected {
+            background: #fceaea;
+            color: #e14b4b;
+        }
+        .hp-status-unlisted {
+            background: #f0f1f6;
+            color: var(--rh-muted);
+        }
+
+        /* ---- Empty state ---- */
+        .hp-empty-state {
+            text-align: center;
+            padding: 56px 20px;
+            background: #fff;
+            border: 1px dashed var(--rh-line);
+            border-radius: var(--rh-radius);
+            font-size: 13.5px;
+            color: var(--rh-muted);
+        }
+        .hp-empty-state p {
+            margin: 0;
+        }
+        .hp-empty-state-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--rh-ink);
+            margin-bottom: 6px;
+        }
+
+        /* ---- Icon baseline ---- */
+        svg.icon {
+            display: inline-block;
+            vertical-align: -0.18em;
+            flex-shrink: 0;
+        }
+
+        /* ---- Dark mode ---- */
+        body[data-theme="dark"] .hp-card,
+        body[data-theme="dark"] .hp-stat-pill-item {
+            background: #141b24;
+            border-color: #1a222b;
+        }
+        body[data-theme="dark"] .hp-card-header h3,
+        body[data-theme="dark"] .hp-page-title {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-stat-pill-label {
+            color: #8d99a5;
+        }
+        body[data-theme="dark"] .hp-stat-pill-value {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-stat-pill-icon {
+            background: #1a222b;
+        }
+        body[data-theme="dark"] .hp-input,
+        body[data-theme="dark"] .hp-select {
+            background: #141b24;
+            border-color: #2a3540;
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-field label {
+            color: #8d99a5;
+        }
+        body[data-theme="dark"] .hp-btn-primary {
+            background: linear-gradient(135deg, #f6b93b, #eda423);
+            border-color: #eda423;
+        }
+        body[data-theme="dark"] .hp-table th {
+            color: #8d99a5;
+        }
+        body[data-theme="dark"] .hp-table td {
+            color: #e8ecf1;
+            border-bottom-color: #1a222b;
+        }
+        body[data-theme="dark"] .hp-status-active {
+            background: rgba(47, 190, 125, 0.15);
+            color: #4ade80;
+        }
+        body[data-theme="dark"] .hp-status-pending {
+            background: rgba(237, 164, 35, 0.15);
+            color: #f6c04e;
+        }
+        body[data-theme="dark"] .hp-status-rejected {
+            background: rgba(226, 74, 61, 0.15);
+            color: #f28b82;
+        }
+        body[data-theme="dark"] .hp-status-unlisted {
+            background: #1a222b;
+            color: #8d99a5;
+        }
+        body[data-theme="dark"] .hp-empty-state {
+            background: #141b24;
+            border-color: #1a222b;
+            color: #8d99a5;
+        }
+        body[data-theme="dark"] .hp-empty-state-title {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-receipt {
+            background: #141b24;
+            border-color: rgba(47, 190, 125, 0.35);
+        }
+        body[data-theme="dark"] .hp-receipt-top {
+            background: rgba(47, 190, 125, 0.12);
+            border-bottom-color: rgba(47, 190, 125, 0.3);
+        }
+        body[data-theme="dark"] .hp-receipt-title {
+            color: #4ade80;
+        }
+        body[data-theme="dark"] .hp-receipt-ref {
+            background: #1a222b;
+            border-color: rgba(47, 190, 125, 0.35);
+            color: #4ade80;
+        }
+        body[data-theme="dark"] .hp-receipt-row {
+            border-bottom-color: #1a222b;
+        }
+        body[data-theme="dark"] .hp-receipt-row .k {
+            color: #8d99a5;
+        }
+        body[data-theme="dark"] .hp-receipt-row .v {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-receipt-row .v.money {
+            color: #4ade80;
+        }
+        body[data-theme="dark"] .hp-receipt-total {
+            border-top-color: #1a222b;
+        }
+        body[data-theme="dark"] .hp-receipt-total .k {
+            color: #8d99a5;
+        }
+        body[data-theme="dark"] .hp-receipt-total .v {
+            color: #e8ecf1;
+        }
+        body[data-theme="dark"] .hp-receipt-note {
+            color: #8d99a5;
+        }
+        body[data-theme="dark"] .hp-hint,
+        body[data-theme="dark"] .hp-dest,
+        body[data-theme="dark"] .hp-muted {
+            color: #8d99a5;
+        }
+
+        /* ---- Responsive Mobile Styles ---- */
+        @media (max-width: 768px) {
+            .hp-page-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 14px;
+            }
+            .hp-stat-pillbox {
+                width: 100%;
+                display: grid;
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+            .hp-stat-pill-item {
+                width: 100%;
+                box-sizing: border-box;
+            }
+            .hp-form-grid,
+            .hp-method-fields {
+                grid-template-columns: 1fr;
+            }
+            .hp-span-2 {
+                grid-column: 1;
+            }
+            .hp-form-actions {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 10px;
+            }
+            .hp-btn-primary {
+                width: 100%;
+                text-align: center;
+                padding: 13px;
+            }
+            .hp-table-wrap {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                margin: 0 -10px;
+                padding: 0 10px;
+                width: calc(100% + 20px);
+            }
+            .hp-table {
+                min-width: 520px;
+            }
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    <div class="hp-page-header">
+        <div>
+            <h1 class="hp-page-title">Wallet</h1>
+            <p class="hp-page-subtitle">Withdraw your platform revenue to your payout method.</p>
+        </div>
+
+        <div class="hp-stat-pillbox">
+            <div class="hp-stat-pill-item">
+                <div class="hp-stat-pill-icon">
+                    {{ ui.icon('wallet') }}
+                </div>
+                <div>
+                    <p class="hp-stat-pill-label">Available</p>
+                    <p class="hp-stat-pill-value">₱ {{ available|number_format(2, '.', ',') }}</p>
+                </div>
+            </div>
+            <div class="hp-stat-pill-item">
+                <div class="hp-stat-pill-icon hp-yellow">
+                    {{ ui.icon('clock') }}
+                </div>
+                <div>
+                    <p class="hp-stat-pill-label">Pending</p>
+                    <p class="hp-stat-pill-value">₱ {{ pending_out|number_format(2, '.', ',') }}</p>
+                </div>
+            </div>
+            <div class="hp-stat-pill-item">
+                <div class="hp-stat-pill-icon hp-green">
+                    {{ ui.icon('banknote') }}
+                </div>
+                <div>
+                    <p class="hp-stat-pill-label">Paid Out</p>
+                    <p class="hp-stat-pill-value">₱ {{ paid_out|number_format(2, '.', ',') }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if session_flash %}
+        <div class="hp-flash {{ session_flash.type == 'success' ? 'hp-flash-success' : 'hp-flash-error' }}">
+            {{ session_flash.message }}
+        </div>
+    {% endif %}
+
+    {% if payout_receipt %}
+        <!-- RECEIPT — one render after the successful instant payout -->
+        <section class="hp-receipt">
+            <div class="hp-receipt-top">
+                <span class="hp-receipt-title">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>
+                    Payout Successful
+                </span>
+                <span class="hp-receipt-ref">{{ payout_receipt.reference }}</span>
+            </div>
+            <div class="hp-receipt-body">
+                <div class="hp-receipt-row">
+                    <span class="k">Amount Paid Out</span>
+                    <span class="v money">₱ {{ payout_receipt.amount|number_format(2, '.', ',') }}</span>
+                </div>
+                <div class="hp-receipt-row">
+                    <span class="k">Payout Method</span>
+                    <span class="v">{{ payout_receipt.method }}</span>
+                </div>
+                {% if payout_receipt.destination %}
+                    <div class="hp-receipt-row">
+                        <span class="k">Sent To</span>
+                        <span class="v">{{ payout_receipt.destination }}</span>
+                    </div>
+                {% endif %}
+                <div class="hp-receipt-row">
+                    <span class="k">Processed</span>
+                    <span class="v">{{ payout_receipt.date }} &middot; {{ payout_receipt.time }}</span>
+                </div>
+                <div class="hp-receipt-row">
+                    <span class="k">Status</span>
+                    <span class="v"><span class="hp-status hp-status-active">Completed</span></span>
+                </div>
+                <div class="hp-receipt-total">
+                    <span class="k">New Available Balance</span>
+                    <span class="v">₱ {{ payout_receipt.new_available|number_format(2, '.', ',') }}</span>
+                </div>
+                <p class="hp-receipt-note">The money is gone from your Available balance and the payout is recorded in your history below.</p>
+            </div>
+        </section>
+    {% endif %}
+
+    <!-- Request payout -->
+    <section class="hp-card">
+        <div class="hp-card-header">
+            <h3>Request a Payout</h3>
+        </div>
+        <form method="POST" action="{{ path('admin_wallet') }}">
+            <input type="hidden" name="pay_csrf" value="{{ pay_csrf }}">
+            <div class="hp-form-grid">
+                <div class="hp-field">
+                    <label for="amount">Amount (₱)</label>
+                    <input
+                        class="hp-input"
+                        type="number"
+                        name="amount"
+                        id="amount"
+                        min="{{ min_amount }}"
+                        step="0.01"
+                        value="{{ available|round(0, 'floor') }}"
+                        required
+                        {% if available < min_amount %}disabled{% endif %}
+                    >
+                </div>
+                <div class="hp-field">
+                    <label for="method">Payout Method</label>
+                    <select
+                        class="hp-select"
+                        name="method"
+                        id="method"
+                        {% if available < min_amount %}disabled{% endif %}
+                    >
+                        <option>GCash</option>
+                        <option>PayMaya</option>
+                        <option>Bank Transfer</option>
+                        <option>Debit / Credit Card</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Per-method destination fields — the script below shows the
+             group matching the select; the controller re-validates the
+             posted fields server-side -->
+            <div class="hp-method-fields" data-for="GCash">
+                <div class="hp-field">
+                    <label for="gcash_number">GCash Mobile Number</label>
+                    <input
+                        class="hp-input"
+                        type="tel"
+                        name="gcash_number"
+                        id="gcash_number"
+                        inputmode="numeric"
+                        maxlength="11"
+                        placeholder="09123456789"
+                        autocomplete="tel"
+                        {% if available < min_amount %}disabled{% endif %}
+                    >
+                </div>
+                <p class="hp-hint hp-span-2">The payout is credited to this GCash number — 11 digits starting with 09.</p>
+            </div>
+            <div class="hp-method-fields" data-for="PayMaya" hidden>
+                <div class="hp-field">
+                    <label for="paymaya_number">PayMaya Mobile Number</label>
+                    <input
+                        class="hp-input"
+                        type="tel"
+                        name="paymaya_number"
+                        id="paymaya_number"
+                        inputmode="numeric"
+                        maxlength="11"
+                        placeholder="09123456789"
+                        autocomplete="tel"
+                        {% if available < min_amount %}disabled{% endif %}
+                    >
+                </div>
+                <p class="hp-hint hp-span-2">The payout is credited to this PayMaya number — 11 digits starting with 09.</p>
+            </div>
+            <div class="hp-method-fields" data-for="Bank Transfer" hidden>
+                <div class="hp-field">
+                    <label for="bank_name">Bank</label>
+                    <input
+                        class="hp-input"
+                        type="text"
+                        name="bank_name"
+                        id="bank_name"
+                        placeholder="BDO, BPI, Metrobank…"
+                        {% if available < min_amount %}disabled{% endif %}
+                    >
+                </div>
+                <div class="hp-field">
+                    <label for="bank_account_name">Account Name</label>
+                    <input
+                        class="hp-input"
+                        type="text"
+                        name="bank_account_name"
+                        id="bank_account_name"
+                        placeholder="Juan Dela Cruz"
+                        autocomplete="name"
+                        {% if available < min_amount %}disabled{% endif %}
+                    >
+                </div>
+                <div class="hp-field hp-span-2">
+                    <label for="bank_account_number">Account Number</label>
+                    <input
+                        class="hp-input"
+                        type="text"
+                        name="bank_account_number"
+                        id="bank_account_number"
+                        inputmode="numeric"
+                        placeholder="012345678901"
+                        {% if available < min_amount %}disabled{% endif %}
+                    >
+                </div>
+            </div>
+            <div class="hp-method-fields" data-for="Debit / Credit Card" hidden>
+                <div class="hp-field">
+                    <label for="card_number">Card Number</label>
+                    <input
+                        class="hp-input"
+                        type="text"
+                        name="card_number"
+                        id="card_number"
+                        inputmode="numeric"
+                        maxlength="23"
+                        placeholder="1234 5678 9012 3456"
+                        autocomplete="cc-number"
+                        {% if available < min_amount %}disabled{% endif %}
+                    >
+                </div>
+                <div class="hp-field">
+                    <label for="card_expiry">Expiry (MM/YY)</label>
+                    <input
+                        class="hp-input"
+                        type="text"
+                        name="card_expiry"
+                        id="card_expiry"
+                        inputmode="numeric"
+                        maxlength="5"
+                        placeholder="09/27"
+                        autocomplete="cc-exp"
+                        {% if available < min_amount %}disabled{% endif %}
+                    >
+                </div>
+                <div class="hp-field hp-span-2">
+                    <label for="card_name">Cardholder Name</label>
+                    <input
+                        class="hp-input"
+                        type="text"
+                        name="card_name"
+                        id="card_name"
+                        placeholder="Name printed on the card"
+                        autocomplete="cc-name"
+                        {% if available < min_amount %}disabled{% endif %}
+                    >
+                </div>
+                <p class="hp-hint hp-span-2">Only the last 4 digits are stored — the full card number is never saved.</p>
+            </div>
+            <div class="hp-form-actions">
+                <button
+                    type="submit"
+                    name="request_payout"
+                    value="1"
+                    class="hp-btn-primary"
+                    {% if available < min_amount %}disabled{% endif %}
+                >REQUEST PAYOUT</button>
+                <span class="hp-muted" style="align-self:center;">
+                    {% if available >= min_amount %}
+                        Minimum ₱100 &middot; no maximum &middot; processed instantly
+                    {% else %}
+                        Your available balance is below the ₱100 minimum &mdash; request a payout once you earn more commission
+                    {% endif %}
+                </span>
+            </div>
+        </form>
+    </section>
+
+    <!-- Payout History -->
+    <section class="hp-card">
+        <div class="hp-card-header">
+            <h3>Payout History</h3>
+        </div>
+
+        {% if not payout_table_exists %}
+            <div class="hp-empty-state">
+                <p class="hp-empty-state-title">Payouts table not created yet</p>
+                <p>The admin_payouts table could not be created automatically — check the database credentials and reload.</p>
+            </div>
+        {% elseif payouts is empty %}
+            <div class="hp-empty-state">
+                <p class="hp-empty-state-title">No payouts yet</p>
+                <p>Your payout requests and their status will show up here.</p>
+            </div>
+        {% else %}
+            <div class="hp-table-wrap">
+                <table class="hp-table">
+                    <thead>
+                        <tr>
+                            <th>Requested</th>
+                            <th>Method</th>
+                            <th>Sent To</th>
+                            <th>Status</th>
+                            <th style="text-align:right;">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in payouts %}
+                            <tr>
+                                <td>{{ p.requested }}</td>
+                                <td>{{ p.method }}</td>
+                                <td class="hp-dest">{{ p.destination ?: '—' }}</td>
+                                <td><span class="hp-status {{ p.status_class }}">{{ p.status_label }}</span></td>
+                                <td class="hp-amount" style="text-align:right;">₱ {{ p.amount|number_format(2, '.', ',') }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+    </section>
+
+    <!-- Revenue Ledger — compact, so the page stays recognisably "the wallet" -->
+    <section class="hp-card">
+        <div class="hp-card-header">
+            <h3>Revenue Ledger <span class="hp-muted">— total earned ₱ {{ commission_earned|number_format(2, '.', ',') }}</span></h3>
+        </div>
+
+        {% if commission_ledger is empty %}
+            <div class="hp-empty-state">
+                <p class="hp-empty-state-title">No revenue yet</p>
+                <p>Revenue earned from bookings will appear here as it accrues.</p>
+            </div>
+        {% else %}
+            <div class="hp-table-wrap">
+                <table class="hp-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Source</th>
+                            <th style="text-align:right;">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for c in commission_ledger %}
+                            <tr>
+                                <td>{{ c.when }}</td>
+                                <td>{{ c.description ?: ('#' ~ c.id) }}</td>
+                                <td class="hp-amount" style="text-align:right; color:#1E7A3D;">+ ₱ {{ c.amount|number_format(2, '.', ',') }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+    </section>
+
+    <script>
+        /* Per-method destination fields — show the group matching the select,
+           disable the rest (disabled inputs are never posted). */
+        (function () {
+            var methodSel = document.getElementById("method");
+            if (!methodSel) {
+                return;
+            }
+            var groups = Array.prototype.slice.call(
+                document.querySelectorAll(".hp-method-fields"),
+            );
+
+            function syncMethod() {
+                var val = methodSel.value;
+                groups.forEach(function (g) {
+                    var on = g.getAttribute("data-for") === val;
+                    if (on) {
+                        g.removeAttribute("hidden");
+                    } else {
+                        g.setAttribute("hidden", "hidden");
+                    }
+                    Array.prototype.slice
+                        .call(g.querySelectorAll("input"))
+                        .forEach(function (i) {
+                            /* keep the below-minimum disable state intact when the form is locked */
+                            if (methodSel.disabled) {
+                                return;
+                            }
+                            i.disabled = !on;
+                        });
+                });
+            }
+            methodSel.addEventListener("change", syncMethod);
+            syncMethod();
+
+            /* Card number — digits only, grouped every 4. */
+            var cardNum = document.getElementById("card_number");
+            if (cardNum) {
+                cardNum.addEventListener("input", function () {
+                    var d = cardNum.value.replace(/[^0-9]/g, "").slice(0, 19);
+                    cardNum.value = d.replace(/(.{4})/g, "$1 ").trim();
+                });
+            }
+
+            /* Card expiry — auto MM/YY slash. */
+            var cardExp = document.getElementById("card_expiry");
+            if (cardExp) {
+                cardExp.addEventListener("input", function () {
+                    var d = cardExp.value.replace(/[^0-9]/g, "").slice(0, 4);
+                    cardExp.value = d.length > 2 ? d.slice(0, 2) + "/" + d.slice(2) : d;
+                });
+            }
+        })();
+    </script>
+{% endblock %}

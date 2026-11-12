@@ -63,10 +63,22 @@ final class ListingsController extends AbstractController
        SHARED HELPERS
     ====================================================== */
 
+    /**
+     * Column-existence check via a direct information_schema.COLUMNS
+     * query — bypasses DBAL's createSchemaManager()->listTableColumns()
+     * which (under the wrong platform auto-detect) sends the MariaDB-only
+     * CHECK_CONSTRAINTS i_c.TABLE_NAME query that 500s on MySQL.
+     */
     private function hasColumn(string $table, string $column): bool
     {
-        $cols = $this->db->createSchemaManager()->listTableColumns($table);
-        return isset($cols[$column]);
+        return (bool) $this->db->fetchOne(
+            "SELECT 1 FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = :table
+               AND COLUMN_NAME = :column
+             LIMIT 1",
+            ['table' => $table, 'column' => $column]
+        );
     }
 
     /**
@@ -151,17 +163,60 @@ final class ListingsController extends AbstractController
         $priceMax  = max(0, min(20000, $priceMax));
         $amenities = array_values(array_intersect($amenities, array_keys(self::AMENITY_OPTIONS)));
 
+        /* ---- Viewer (session) — decided ONCE here: it drives both
+           the "hide my rented spaces" rule and the enquiry-waiting
+           card column added to the SELECT below. ---- */
+        $viewerSession = $request->getSession();
+        $viewerId      = ($viewerSession->get('logged_in') === true)
+            ? (int) $viewerSession->get('user_id', 0)
+            : 0;
+
         $hasAmenitiesCol = $this->hasColumn('listings', 'amenities');
 
         $sql    = "SELECT l.id, l.title, l.location, l.category, l.price,
                           l.parking, l.created_at" .
             ($hasAmenitiesCol ? ", l.amenities" : "") . ",
-                   p.photo_path AS cover_photo
+                   p.photo_path AS cover_photo" .
+            ($viewerId > 0 ? ",
+                   (SELECT b2.id
+                      FROM bookings b2
+                     WHERE b2.listing_id = l.id
+                       AND b2.user_id = :viewer_user_id
+                       AND b2.status = 'pending'
+                     ORDER BY b2.booked_at DESC
+                     LIMIT 1) AS my_enquiry_booking_id" : "") . "
              FROM listings l
              LEFT JOIN listing_photos p
                     ON p.listing_id = l.id AND p.photo_type = 'cover'
             WHERE l.status = 'approved'";
         $params = [];
+
+        /* =====================================================
+           HIDE MY RENTED SPACES + ENQUIRY WAITING CARD
+
+           - CONFIRMED booking (the viewer is renting the space):
+             the listing disappears from THEIR grid only; every
+             other visitor still sees it and the detail page
+             disables the booked dates for them.
+           - PENDING application (enquiry waiting for the host):
+             the card STAYS in the viewer's grid — it renders
+             slightly blurred with the 3-dot loader,
+             "Waiting for host to accept" and a Cancel button,
+             driven by the my_enquiry_booking_id subquery that
+             the SELECT above adds for logged-in viewers.
+           Cancelled / rejected / completed bookings do neither,
+           so the card looks normal again the moment a stay ends,
+           a request is declined or the enquiry is withdrawn.
+        ====================================================== */
+        if ($viewerId > 0) {
+            $sql .= " AND l.id NOT IN (
+                        SELECT b.listing_id
+                        FROM bookings b
+                        WHERE b.user_id = :viewer_user_id
+                          AND b.status = 'confirmed'
+                      )";
+            $params['viewer_user_id'] = $viewerId;
+        }
 
         if ($q !== '') {
             $sql .= " AND (l.title LIKE :q OR l.location LIKE :q)";
@@ -219,8 +274,42 @@ final class ListingsController extends AbstractController
             $sql . " LIMIT " . self::PER_PAGE . " OFFSET " . $offset,
             $params
         );
+        /* ---- RATINGS -- one grouped query over the legacy reviews
+           table covers every listing ON THIS PAGE: each card gets its
+           average (rounded to 1 decimal, the exact rounding the detail
+           page's chip uses) + review count, so card stars and the
+           detail-page chip can never disagree. Best effort: a missing
+           reviews table degrades to 0 / 0 and every card falls back to
+           its empty star track + "No reviews yet". ---- */
+        $ratingsById = [];
+        if ($rows !== []) {
+            $ridPh = [];
+            $ratingsParams = [];
+            foreach (array_values($rows) as $ri => $rrow) {
+                $ph = 'rid_' . $ri;
+                $ridPh[] = ':' . $ph;
+                $ratingsParams[$ph] = (int) $rrow['id'];
+            }
+            try {
+                $ratingAgg = $this->db->fetchAllAssociative(
+                    'SELECT listing_id, AVG(rating) AS avg_rating, COUNT(*) AS review_count
+                       FROM reviews
+                      WHERE listing_id IN (' . implode(', ', $ridPh) . ')
+                      GROUP BY listing_id',
+                    $ratingsParams
+                );
+                foreach ($ratingAgg as $agg) {
+                    $ratingsById[(int) $agg['listing_id']] = [
+                        'rating'  => round((float) $agg['avg_rating'], 1),
+                        'reviews' => (int) $agg['review_count'],
+                    ];
+                }
+            } catch (\Throwable) {
+                $ratingsById = [];
+            }
+        }
 
-        $listings = array_map(function (array $row): array {
+        $listings = array_map(function (array $row) use ($ratingsById): array {
             $amenities = $this->decodeAmenities($row['amenities'] ?? null);
 
             $parkingRaw = strtolower(trim((string) ($row['parking'] ?? '')));
@@ -232,6 +321,18 @@ final class ListingsController extends AbstractController
                 [$loc, $prov] = array_map('trim', explode(',', $loc, 2));
             }
 
+            /* ENQUIRY WAITING CARD — id of the viewer's own PENDING
+               application on THIS listing (null = none). The card
+               template turns it into the blurred
+               "Waiting for host to accept" state. */
+            $enquiryBookingId = isset($row['my_enquiry_booking_id']) && $row['my_enquiry_booking_id'] !== null
+                ? (int) $row['my_enquiry_booking_id']
+                : null;
+
+            /* RATING SCALE -- this card's average + count from the grouped
+               query above; 0 / 0 when the listing has no reviews yet (the
+               card renders the empty track + "No reviews yet" text). */
+            $ratingInfo = $ratingsById[(int) $row['id']] ?? ['rating' => 0.0, 'reviews' => 0];
             return [
                 'id'         => (int) $row['id'],
                 'title'      => (string) $row['title'],
@@ -243,8 +344,39 @@ final class ListingsController extends AbstractController
                 'hasParking' => $hasParking,
                 'createdAt'  => \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', (string) $row['created_at'])
                     ?: new \DateTimeImmutable('@0'),
+
+                'enquiryPending'   => $enquiryBookingId !== null,
+                'enquiryBookingId' => $enquiryBookingId,
+
+                /* RATING SCALE -- star-scale data for this card */
+                'rating'     => (float) $ratingInfo['rating'],
+                'reviews'    => (int) $ratingInfo['reviews'],
             ];
         }, $rows);
+
+        /* =====================================================
+           WISHLIST STATE — listing ids this viewer has saved,
+           so the cards' heart buttons render pre-filled.
+           Best effort: no wishlist table yet -> every heart off.
+        ====================================================== */
+        $wishlistIds = [];
+        $session     = $request->getSession();
+        $viewerId    = (int) $session->get('user_id', 0);
+        if (!$session->get('logged_in') || $viewerId <= 0) {
+            $wishlistIds = [];
+        } else {
+            try {
+                $wishlistIds = array_map('intval', array_column(
+                    $this->db->fetchAllAssociative(
+                        'SELECT listing_id FROM wishlist WHERE user_id = :u',
+                        ['u' => $viewerId]
+                    ),
+                    'listing_id'
+                ));
+            } catch (\Throwable) {
+                $wishlistIds = [];
+            }
+        }
 
         $selected = [
             'q'         => $q,
@@ -272,6 +404,7 @@ final class ListingsController extends AbstractController
             'amenity_icons'           => self::AMENITY_ICONS,
             'selected'                => $selected,
             'selected_category_label' => $category !== '' ? self::CATEGORIES[$category] : 'All Categories',
+            'wishlist_ids'            => $wishlistIds,
             'current_page'            => '/listings',
         ]);
     }
@@ -296,6 +429,7 @@ final class ListingsController extends AbstractController
             'alreadylisted'   => $request->query->getBoolean('alreadylisted'),
             'incompletedates' => $request->query->getBoolean('incompletedates'),
             'needverify'      => $request->query->getBoolean('needverify'),
+            'oneactive'       => $request->query->getBoolean('oneactive'),
         ];
 
         /* ---- Listing + host ---- */
@@ -312,6 +446,14 @@ final class ListingsController extends AbstractController
         if ($row === false) {
             return $this->redirectToRoute('app_listings');
         }
+
+        /* ---- VIEWS COUNTER — real view tracking for the host's
+           My Listings card (the legacy page showed no counter;
+           this port adds a listings.views column, self-healed on
+           first run, incremented on every detail-page GET).
+           Best-effort only: any failure is logged and ignored —
+           a view count can never break the page. ---- */
+        $this->countListingView($id);
 
         /* ---- Photos (cover first, then sort_order) ---- */
         $photoRows = $this->db->fetchAllAssociative(
@@ -391,21 +533,21 @@ final class ListingsController extends AbstractController
 
         $isOwnListing = $isLoggedIn && (int) $row['user_id'] === $userId;
 
-        /* ---- Verification nudge (logged-in renters only) ---- */
+        /* ---- Verification gate (logged-in renters only) ---- */
         $viewerIsHost    = $session->get('is_host') === true;
         $showVerifyNudge = false;
 
         if ($isLoggedIn && !$viewerIsHost && !$isOwnListing) {
-            /* Legacy used config/verification_gate.php::is_user_verified().
-               Port: if the users table has an is_verified column use it;
-               otherwise treat everyone as verified (nudge off). */
-            if ($this->hasColumn('users', 'is_verified')) {
-                $isVerified = (bool) $this->db->fetchOne(
-                    "SELECT is_verified FROM users WHERE id = :id",
-                    ['id' => $userId]
-                );
-                $showVerifyNudge = !$isVerified;
-            }
+            /* Verified follows the SAME rule the Profile page badge
+               uses (ProfileController::isUserVerified): at least one
+               'verified' (or legacy 'approved') row in the
+               user_id_documents table. FIX: the old probe read a
+               users.is_verified column that this schema does not
+               even have, so the gate never fired and unverified
+               renters kept the live Send Enquiry button. try/catch:
+               a missing table counts as unverified, exactly like the
+               profile page rendering "Not verified". */
+            $showVerifyNudge = !$this->isUserVerified($userId);
         }
 
         /* ---- My latest application status (not on own listing) ---- */
@@ -420,6 +562,21 @@ final class ListingsController extends AbstractController
                 ['listing_id' => $id, 'user_id' => $userId]
             );
             $myApplicationStatus = $status !== false ? $status : null;
+        }
+
+        /* ---- Wishlist heart state (same as BookingController):
+           has this viewer already saved this listing? try/catch so a
+           missing wishlist table can never break the page. ---- */
+        $wished = false;
+        if ($isLoggedIn && $userId > 0) {
+            try {
+                $wished = (bool) $this->db->fetchOne(
+                    'SELECT COUNT(*) FROM wishlist WHERE user_id = :u AND listing_id = :l',
+                    ['u' => $userId, 'l' => $id]
+                );
+            } catch (\Throwable $e) {
+                $wished = false;
+            }
         }
 
         /* ---- Monthly pricing (server-side display values;
@@ -438,8 +595,6 @@ final class ListingsController extends AbstractController
         }
 
         $listingTotal   = round($basePrice * $durationMonths, 2);
-        $reserveFee     = round($listingTotal * 0.5, 2);
-        $reserveBalance = round($listingTotal - $reserveFee, 2);
         $durationLabel  = $isLongTermSelected
             ? 'Long Term'
             : ($durationMonths === 1 ? '1 Month' : $durationMonths . ' Months');
@@ -500,8 +655,6 @@ final class ListingsController extends AbstractController
                 'price'           => $basePrice,
                 'duration_months' => $durationMonths,
                 'total_rent'      => $listingTotal,
-                'reserve_fee'     => $reserveFee,
-                'reserve_balance' => $reserveBalance,
                 'duration_label'  => $durationLabel,
                 'amenities'       => $this->decodeAmenities($row['amenities'] ?? null),
                 'bedrooms'        => (int) ($row['bedrooms'] ?? 0),
@@ -535,6 +688,7 @@ final class ListingsController extends AbstractController
             'is_bookable'           => $isBookable,
             'is_own_listing'        => $isOwnListing,
             'viewer_is_host'        => $viewerIsHost,
+            'wished'                => $wished,
             'is_long_term_occupied' => $isLongTermOccupied,
             'guests_value'          => $guestsValue,
 
@@ -550,5 +704,54 @@ final class ListingsController extends AbstractController
             'amenity_icons'      => self::AMENITY_ICONS,
             'amenity_options'    => self::AMENITY_OPTIONS,
         ]);
+    }
+
+    /** Legacy is_user_verified(): at least one 'verified' (or
+        legacy 'approved') row in user_id_documents - the same
+        rule ProfileController uses for the Verified badge on the
+        profile page. try/catch: a missing table = unverified. */
+    private function isUserVerified(int $userId): bool
+    {
+        try {
+            return (int) $this->db->fetchOne(
+                "SELECT COUNT(*) FROM user_id_documents
+                  WHERE user_id = :u AND status IN ('verified', 'approved')",
+                ['u' => $userId]
+            ) > 0;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /* =====================================================================
+     *  VIEWS COUNTER — best-effort increment of listings.views on
+     *  every detail-page GET. The column does not exist in the
+     *  legacy dump: self-healed here (same SHOW COLUMNS pattern as
+     *  AuthController / HostListingsController) before the
+     *  UPDATE, so whichever page runs first creates it. A failure
+     *  is logged and skipped — never fatal.
+     * ================================================================= */
+
+    private function countListingView(int $listingId): void
+    {
+        try {
+            $this->ensureListingViewsColumn();
+            $this->db->executeStatement(
+                'UPDATE listings SET views = views + 1 WHERE id = :id',
+                ['id' => $listingId]
+            );
+        } catch (\Throwable $e) {
+            error_log('listing detail: view counter skipped: ' . $e->getMessage());
+        }
+    }
+
+    private function ensureListingViewsColumn(): void
+    {
+        if ($this->db->fetchOne("SHOW COLUMNS FROM listings LIKE 'views'") !== false) {
+            return;
+        }
+        $this->db->executeStatement(
+            'ALTER TABLE listings ADD COLUMN views INT UNSIGNED NOT NULL DEFAULT 0'
+        );
     }
 }

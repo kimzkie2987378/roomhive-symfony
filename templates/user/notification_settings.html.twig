@@ -1,0 +1,466 @@
+{# =========================================================
+   RoomHive — My Account › Notification Settings
+   templates/user/notification_settings.html.twig
+
+   REBUILT 1:1 from the newest legacy user/usernotificationsettings.php
+   (fixed sidebar key · Lucide icons · shared footer · real bell count)
+   on the shared account shell — same recipe as bookings/security:
+
+     - Sidebar: shared partial templates/partials/sidebar.html.twig.
+       Highlight key is 'notifications' — the REAL fixed key from the
+       legacy file ('notifcenter' is the bell page, this is
+       /settings/notifications). The legacy JS fallback script is gone.
+     - Theme: app-wide boot — localStorage roomhive_theme drives
+       html.dark + html[data-theme] (legacy keyed rhTheme /
+       data-theme-preview — same migration as bookings/security).
+       This page has NO theme toggle (by design, like legacy) — the
+       Settings page owns the switch; this page just follows it.
+     - Reveal: the REAL legacy mechanism (.up-reveal waits for
+       .in-view) + the 1.5s failsafe so the page can never render blank.
+     - Lucide: guarded loader (window.__rhNavbarLucide — never
+       double-loads with the navbar's).
+     - Footer: shared partials/footer.html.twig (= user_footer.php).
+     - Dropped: /webprogg/assets/javaScript.js — legacy-only hook,
+       nothing on this page uses it (no other ported page carries it).
+     - Kept 1:1: three preference groups with all six toggles, user
+       email echoed in the Bookings row, no page header (title lives
+       in the card header). Navbar clearance: the shell keeps the
+       legacy 110px while the middle column (card + alerts) gets its
+       own padding-top, so the form card sits well clear of the fixed
+       navbar and the sidebar stays aligned with the other pages.
+     - LAYOUT FIX: the legacy 640px centered card + ~1240px shell are
+       overridden page-locally — the shell stretches to 1560px and the
+       form card fills .up-content, so the page occupies the whole
+       available area.
+
+   One POST form → POST /settings/notifications (six checkboxes;
+   unchecked boxes simply don't post — controller maps presence to 1/0
+   and UPSERTs notification_settings keyed on user_id).
+
+   Data from NotificationSettingsController::index (user, prefs,
+   saved, save_error, notif_count, csrf_notifs).
+========================================================= #}
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Notification Settings — RoomHive</title>
+
+        <script>
+            /* theme boot — before paint (app key: roomhive_theme) */
+            (function () {
+                try {
+                    if (localStorage.getItem("roomhive_theme") === "dark") {
+                        document.documentElement.classList.add("dark");
+                        document.documentElement.setAttribute("data-theme", "dark");
+                    }
+                } catch (e) {}
+            })();
+            document.documentElement.classList.add("js");
+        </script>
+
+        <link rel="stylesheet" href="{{ asset('assets/style.css') }}">
+        <link rel="stylesheet" href="{{ asset('assets/myaccount.css') }}">
+
+        <style>
+            :root {
+                --rh-ink: #1c2a38;
+                --rh-muted: #66788a;
+                --rh-line: #e6ebf1;
+                --rh-card: #ffffff;
+                --rh-accent: #eda423;
+                --rh-radius: 16px;
+            }
+
+            /* navbar clearance — legacy 110px, unchanged */
+            .up-dashboard {
+                margin-top: 110px;
+            }
+
+            /* the MIDDLE COLUMN (form card + alerts) drops lower on its own:
+                                               padding (unlike margin, it can never collapse through the
+                                               shell) adds real headroom below the fixed navbar, while the
+                                               sidebar keeps its normal 110px position — the card can no
+                                               longer touch the header */
+            .up-content {
+                padding-top: 75px;
+            }
+
+            /* =========================================================
+                                               LAYOUT — occupy the available area
+                                               Legacy capped the shell (myaccount.css ~1240px) and centered
+                                               a 640px form card, leaving big empty margins beside it.
+                                               Page-local overrides only: widen the shell and let the card
+                                               fill .up-content. No other account page is affected.
+                                            ========================================================== */
+            .up-dashboard {
+                max-width: 1560px;
+            }
+
+            /* sidebar markup + styles live in templates/partials/sidebar.html.twig */
+
+            /* Lucide icons inside the saved / error alerts */
+            .up-alert svg {
+                width: 16px;
+                height: 16px;
+                flex-shrink: 0;
+                vertical-align: -3px;
+                margin-right: 6px;
+            }
+
+            /* =========================================================
+                                               LUCIDE ICONS (lucide.dev)
+                                               Lucide copies the placeholder's classes onto the
+                                               generated <svg>, so the rule above keeps working.
+                                            ========================================================== */
+            svg.lucide {
+                display: inline-block;
+                vertical-align: -0.18em;
+                flex-shrink: 0;
+            }
+
+            /* Card title icon */
+            .up-card-header h3 {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+            }
+
+            .up-card-header h3 svg {
+                width: 16px;
+                height: 16px;
+                color: #b07708;
+            }
+
+            /* Section headings (Bookings / Messages / Promotions) */
+            .upns-section-title {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+            }
+
+            .upns-section-title svg {
+                width: 15px;
+                height: 15px;
+                color: #b07708;
+            }
+
+            /* Row titles (Email / In-app notifications) */
+            .upns-row-title {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 13.5px;
+                color: var(--up-navy);
+            }
+
+            .upns-row-title svg {
+                width: 14px;
+                height: 14px;
+                color: #b07708;
+            }
+
+            /* Buttons */
+            .up-btn-solid {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+            }
+
+            .up-btn-solid svg {
+                width: 15px;
+                height: 15px;
+            }
+        </style>
+    </head>
+
+    <body>
+
+        {{ include('partials/navbar.html.twig', {
+        is_logged_in: true,
+        is_host: is_host ?? false,
+        nav_avatar: user.avatar_path ?? null,
+        notification_count: notif_count ?? 0,
+        current_page: 'notification-settings'
+    }) }}
+
+        <main class="up-dashboard">
+
+            <!-- ==================================================
+             SIDEBAR — shared partial (templates/partials/sidebar.html.twig)
+             highlight key: 'notifications' (this page — the bell page is
+             'notifcenter') · collapse JS stays on this page
+        =================================================== -->
+            {% include 'partials/sidebar.html.twig' with { active_sidebar: 'notifications' } %}
+
+            <div class="up-content">
+
+                {% if saved %}
+                    <section class="up-alert up-alert-success">
+                        <p><i data-lucide="circle-check"></i>Your notification preferences have been saved.</p>
+                    </section>
+                {% endif %}
+
+                {% if save_error %}
+                    <section class="up-alert up-alert-error">
+                        <p><i data-lucide="circle-alert"></i>{{ save_error }}</p>
+                    </section>
+                {% endif %}
+
+                <form
+                    method="POST"
+                    action="{{ path('app_notification_settings') }}"
+                    class="up-card up-reveal"
+                    style="width:100%;"
+                >
+                    <input type="hidden" name="csrf_token" value="{{ csrf_notifs }}">
+
+                    <!-- Card header carries the page title -->
+                    <div class="up-card-header">
+                        <h3><i data-lucide="bell-ring" aria-hidden="true"></i> Notification Settings</h3>
+                    </div>
+
+                    <!-- =========================
+             BOOKINGS GROUP
+        ========================== -->
+                    <h3 class="upns-section-title" style="margin:0 0 4px; color:var(--up-navy); font-size:15px; font-weight:800;">
+                        <i data-lucide="calendar-check" aria-hidden="true"></i> Bookings
+                    </h3>
+                    <p style="margin:0 0 14px; color:var(--up-text-muted); font-size:12.5px;">
+                        New inquiries, host approvals, and booking updates.
+                    </p>
+
+                    <div class="up-security-row" style="align-items:center; padding:10px 0;">
+                        <div>
+                            <strong class="upns-row-title"><i data-lucide="mail" aria-hidden="true"></i> Email notifications</strong>
+                            <span style="font-size:12px; color:var(--up-text-muted);">Booking updates sent to {{ user.email }}</span>
+                        </div>
+                        <label class="up-switch">
+                            <input type="checkbox" name="email_bookings" {{ prefs.email_bookings ? 'checked' : '' }}>
+                            <span class="up-switch-track"></span>
+                        </label>
+                    </div>
+
+                    <div class="up-security-row" style="align-items:center; padding:10px 0 16px;">
+                        <div>
+                            <strong class="upns-row-title"><i data-lucide="bell" aria-hidden="true"></i> In-app notifications</strong>
+                            <span style="font-size:12px; color:var(--up-text-muted);">Show booking updates on the bell icon</span>
+                        </div>
+                        <label class="up-switch">
+                            <input type="checkbox" name="push_bookings" {{ prefs.push_bookings ? 'checked' : '' }}>
+                            <span class="up-switch-track"></span>
+                        </label>
+                    </div>
+
+                    <div class="form-section-divider" style="height:1px; background:var(--up-border); margin:0 0 20px;"></div>
+
+                    <!-- =========================
+             MESSAGES GROUP
+        ========================== -->
+                    <h3 class="upns-section-title" style="margin:0 0 4px; color:var(--up-navy); font-size:15px; font-weight:800;">
+                        <i data-lucide="message-circle" aria-hidden="true"></i> Messages
+                    </h3>
+                    <p style="margin:0 0 14px; color:var(--up-text-muted); font-size:12.5px;">
+                        New messages from hosts in your inbox.
+                    </p>
+
+                    <div class="up-security-row" style="align-items:center; padding:10px 0;">
+                        <div>
+                            <strong class="upns-row-title"><i data-lucide="mail" aria-hidden="true"></i> Email notifications</strong>
+                            <span style="font-size:12px; color:var(--up-text-muted);">Message alerts sent to your email</span>
+                        </div>
+                        <label class="up-switch">
+                            <input type="checkbox" name="email_messages" {{ prefs.email_messages ? 'checked' : '' }}>
+                            <span class="up-switch-track"></span>
+                        </label>
+                    </div>
+
+                    <div class="up-security-row" style="align-items:center; padding:10px 0 16px;">
+                        <div>
+                            <strong class="upns-row-title"><i data-lucide="bell" aria-hidden="true"></i> In-app notifications</strong>
+                            <span style="font-size:12px; color:var(--up-text-muted);">Show message alerts on the bell icon</span>
+                        </div>
+                        <label class="up-switch">
+                            <input type="checkbox" name="push_messages" {{ prefs.push_messages ? 'checked' : '' }}>
+                            <span class="up-switch-track"></span>
+                        </label>
+                    </div>
+
+                    <div class="form-section-divider" style="height:1px; background:var(--up-border); margin:0 0 20px;"></div>
+
+                    <!-- =========================
+             PROMOTIONS GROUP
+        ========================== -->
+                    <h3 class="upns-section-title" style="margin:0 0 4px; color:var(--up-navy); font-size:15px; font-weight:800;">
+                        <i data-lucide="megaphone" aria-hidden="true"></i> Promotions &amp; News
+                    </h3>
+                    <p style="margin:0 0 14px; color:var(--up-text-muted); font-size:12.5px;">
+                        Hive Club offers, discounts, and RoomHive updates.
+                    </p>
+
+                    <div class="up-security-row" style="align-items:center; padding:10px 0;">
+                        <div>
+                            <strong class="upns-row-title"><i data-lucide="mail" aria-hidden="true"></i> Email notifications</strong>
+                            <span style="font-size:12px; color:var(--up-text-muted);">Offers and news sent to your email</span>
+                        </div>
+                        <label class="up-switch">
+                            <input type="checkbox" name="email_promotions" {{ prefs.email_promotions ? 'checked' : '' }}>
+                            <span class="up-switch-track"></span>
+                        </label>
+                    </div>
+
+                    <div class="up-security-row" style="align-items:center; padding:10px 0 16px;">
+                        <div>
+                            <strong class="upns-row-title"><i data-lucide="bell" aria-hidden="true"></i> In-app notifications</strong>
+                            <span style="font-size:12px; color:var(--up-text-muted);">Show offers and news on the bell icon</span>
+                        </div>
+                        <label class="up-switch">
+                            <input type="checkbox" name="push_promotions" {{ prefs.push_promotions ? 'checked' : '' }}>
+                            <span class="up-switch-track"></span>
+                        </label>
+                    </div>
+
+                    <button
+                        type="submit"
+                        class="up-btn-solid"
+                        style="margin-top:22px; align-self:flex-start;"
+                    >
+                        <i data-lucide="save" aria-hidden="true"></i> SAVE PREFERENCES
+                    </button>
+
+                </form>
+
+            </div>
+        </main>
+
+        {{ include('partials/footer.html.twig') }}
+
+        <!-- Lucide — guarded loader, same key as navbar (never double-runs) -->
+        <script>
+            (function () {
+                "use strict";
+                function renderRhIcons() {
+                    if (window.lucide && typeof window.lucide.createIcons === "function") {
+                        window.lucide.createIcons();
+                    }
+                }
+                if (!window.__rhNavbarLucide) {
+                    window.__rhNavbarLucide = true;
+                    var s = document.createElement("script");
+                    s.src = "https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js";
+                    s.addEventListener("load", renderRhIcons);
+                    document.head.appendChild(s);
+                }
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", renderRhIcons);
+                } else {
+                    renderRhIcons();
+                }
+                window.addEventListener("load", renderRhIcons);
+            })();
+        </script>
+
+        <!-- Sidebar collapse — same behavior + localStorage key as legacy -->
+        <script>
+            (function () {
+                var sidebar = document.getElementById("upSidebar");
+                var toggle = document.getElementById("upSidebarToggle");
+                if (!sidebar || !toggle) {
+                    return;
+                }
+
+                var STORAGE_KEY = "roomhive_sidebar_collapsed";
+                var links = sidebar.querySelectorAll(".up-side-link");
+
+                function updateTitles(collapsed) {
+                    links.forEach(function (link) {
+                        var label = link.querySelector(".up-side-label");
+                        if (collapsed) {
+                            link.setAttribute("title", label ? label.textContent : "");
+                        } else {
+                            link.removeAttribute("title");
+                        }
+                    });
+                }
+
+                function applyState(collapsed) {
+                    sidebar.classList.toggle("collapsed", collapsed);
+                    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                    toggle.setAttribute(
+                        "aria-label",
+                        collapsed ? "Expand sidebar" : "Collapse sidebar",
+                    );
+                    updateTitles(collapsed);
+                }
+
+                var savedCollapsed = false;
+                try {
+                    savedCollapsed = localStorage.getItem(STORAGE_KEY) === "1";
+                } catch (e) {}
+                applyState(savedCollapsed);
+
+                toggle.addEventListener("click", function () {
+                    var nowCollapsed = !sidebar.classList.contains("collapsed");
+                    applyState(nowCollapsed);
+                    try {
+                        localStorage.setItem(STORAGE_KEY, nowCollapsed ? "1" : "0");
+                    } catch (e) {}
+                });
+            })();
+        </script>
+
+        <!-- Reveal — the REAL legacy mechanism: myaccount.css waits for .in-view.
+     Plus a 1.5s failsafe so the page can never render blank. -->
+        <script>
+            (function () {
+                "use strict";
+
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                var revealEls = Array.prototype.slice.call(
+                    document.querySelectorAll(".up-reveal"),
+                );
+
+                function showAll() {
+                    revealEls.forEach(function (el) {
+                        el.classList.add("in-view");
+                    });
+                }
+
+                if (reduced || !("IntersectionObserver" in window)) {
+                    showAll();
+                } else {
+                    var io = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (entry) {
+                                if (!entry.isIntersecting) {
+                                    return;
+                                }
+                                var el = entry.target;
+                                io.unobserve(el);
+                                el.classList.add("in-view");
+                                window.setTimeout(function () {
+                                    el.style.setProperty("--i", "0");
+                                }, 1200);
+                            });
+                        },
+                        {
+                            threshold: 0.12,
+                            rootMargin: "0px 0px -40px 0px",
+                        },
+                    );
+                    revealEls.forEach(function (el) {
+                        io.observe(el);
+                    });
+
+                    /* failsafe — force-reveal anything still hidden after 1.5s */
+                    setTimeout(showAll, 1500);
+                }
+            })();
+        </script>
+
+    </body>
+
+</html>
